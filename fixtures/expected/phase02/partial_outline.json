@@ -1,0 +1,28 @@
+{
+  "committed_titles": [
+    "Overview",
+    "1.1 Scope",
+    "Appendix"
+  ],
+  "node_levels": {
+    "1.1 Scope": 2,
+    "Appendix": 1,
+    "Overview": 1
+  },
+  "node_spans": {
+    "1.1 Scope": [
+      1,
+      1
+    ],
+    "Appendix": [
+      2,
+      2
+    ],
+    "Overview": [
+      0,
+      1
+    ]
+  },
+  "outline_trust_mode": "hybrid",
+  "unassigned_spans": []
+}

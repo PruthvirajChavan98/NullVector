@@ -1,0 +1,34 @@
+{
+  "committed_titles": [
+    "1 Root",
+    "1.1 Child",
+    "1.1.1 Leaf",
+    "2 Next Root"
+  ],
+  "node_levels": {
+    "1 Root": 1,
+    "1.1 Child": 2,
+    "1.1.1 Leaf": 3,
+    "2 Next Root": 1
+  },
+  "node_spans": {
+    "1 Root": [
+      0,
+      2
+    ],
+    "1.1 Child": [
+      1,
+      2
+    ],
+    "1.1.1 Leaf": [
+      2,
+      2
+    ],
+    "2 Next Root": [
+      3,
+      3
+    ]
+  },
+  "outline_trust_mode": "inferred_primary",
+  "unassigned_spans": []
+}

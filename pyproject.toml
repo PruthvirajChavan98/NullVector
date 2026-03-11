@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.27.0,<2.0.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "strataforge"
+version = "0.1.0"
+description = "CPU-first document hierarchy framework for deterministic PDF ingestion."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PyMuPDF==1.27.2",
+  "pypdf==6.8.0",
+  "pydantic>=2.11.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ipykernel>=6.29.0,<7.0.0",
+  "nbclient>=0.10.0,<0.11.0",
+  "nbformat>=5.10.0,<6.0.0",
+  "mypy>=1.16.0,<2.0.0",
+  "pytest>=8.4.0,<9.0.0",
+  "ruff>=0.11.0,<0.12.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "PTH", "RUF", "SIM", "UP", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["strataforge"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+show_error_codes = true
+pretty = true
+packages = ["strataforge"]
+explicit_package_bases = true
+mypy_path = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["fitz", "fitz.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning"]

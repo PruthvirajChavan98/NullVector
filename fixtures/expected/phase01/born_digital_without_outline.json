@@ -1,0 +1,15 @@
+{
+  "page_count": 2,
+  "quality_reports": {
+    "pymupdf": {
+      "entry_count": 0,
+      "score": 0
+    },
+    "pypdf": {
+      "entry_count": 0,
+      "score": 0
+    }
+  },
+  "selected_outline": [],
+  "selected_outline_source": "none"
+}

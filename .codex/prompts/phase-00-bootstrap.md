@@ -43,3 +43,7 @@ Validation required before completion:
 - type-check
 - tests
 
+Status:
+- completed on 2026-03-10
+- bootstrap skeleton, typed contracts, local validation commands, ADR scaffolding, and fixture
+  directories added

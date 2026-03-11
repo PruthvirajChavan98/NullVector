@@ -45,3 +45,7 @@ Return:
 - validation output
 - known edge cases still open
 
+Status:
+- completed on 2026-03-11
+- closeout-hardened on 2026-03-11 with parse-run root indexing, explicit tessdata validation,
+  chunked fingerprinting, and additional parser/OCR regression coverage
