@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import uuid
 from pathlib import Path
 
 import nbformat
@@ -14,6 +15,8 @@ def sanitize_notebook(notebook: nbformat.NotebookNode) -> None:
     """Remove saved execution state so stale outputs cannot leak into reruns."""
 
     for cell in notebook.cells:
+        if not cell.get("id"):
+            cell["id"] = uuid.uuid4().hex[:8]
         if cell.get("cell_type") != "code":
             continue
         cell["execution_count"] = None

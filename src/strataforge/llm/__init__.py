@@ -1,1 +1,77 @@
-"""LLM gateway package placeholder for future phases."""
+"""Phase 03 typed LLM gateway exports."""
+
+from strataforge.llm.errors import (
+    GatewayAuthError,
+    GatewayContextLengthError,
+    GatewayError,
+    GatewayNetworkError,
+    GatewayProviderRefusalError,
+    GatewayRateLimitError,
+    GatewayTimeoutError,
+    GatewayUnknownProviderError,
+    GatewayUnsupportedCapabilityError,
+    GatewayValidationError,
+)
+from strataforge.llm.protocols import RedactionHook, StructuredLLMGateway
+from strataforge.llm.providers import (
+    LiteLLMSDKAdapter,
+    NoopProviderAdapter,
+    NoopScriptedResponse,
+    OpenAIResponsesHTTPAdapter,
+)
+from strataforge.llm.service import GatewayRepairEngine, GatewayService
+from strataforge.llm.types import (
+    GatewayAssuranceMode,
+    GatewayAttempt,
+    GatewayAuditConfig,
+    GatewayAuditRecord,
+    GatewayConfig,
+    GatewayFailure,
+    GatewayFailureCategory,
+    GatewayRequest,
+    GatewayRetryPolicy,
+    GatewaySuccess,
+    GatewayUsage,
+    LiteLLMProviderConfig,
+    LLMMessage,
+    LLMRole,
+    OpenAIProviderConfig,
+    StructuredOutputMode,
+)
+
+__all__ = [
+    "GatewayAssuranceMode",
+    "GatewayAttempt",
+    "GatewayAuditConfig",
+    "GatewayAuditRecord",
+    "GatewayAuthError",
+    "GatewayConfig",
+    "GatewayContextLengthError",
+    "GatewayError",
+    "GatewayFailure",
+    "GatewayFailureCategory",
+    "GatewayNetworkError",
+    "GatewayProviderRefusalError",
+    "GatewayRateLimitError",
+    "GatewayRepairEngine",
+    "GatewayRequest",
+    "GatewayRetryPolicy",
+    "GatewayService",
+    "GatewaySuccess",
+    "GatewayTimeoutError",
+    "GatewayUnknownProviderError",
+    "GatewayUnsupportedCapabilityError",
+    "GatewayUsage",
+    "GatewayValidationError",
+    "LLMMessage",
+    "LLMRole",
+    "LiteLLMProviderConfig",
+    "LiteLLMSDKAdapter",
+    "NoopProviderAdapter",
+    "NoopScriptedResponse",
+    "OpenAIProviderConfig",
+    "OpenAIResponsesHTTPAdapter",
+    "RedactionHook",
+    "StructuredLLMGateway",
+    "StructuredOutputMode",
+]

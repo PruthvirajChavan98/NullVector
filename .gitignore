@@ -11,4 +11,5 @@ htmlcov/
 artifacts/
 fixtures/phase02/inputs/*/tree/
 notebooks/_artifacts/
+notebooks/artifacts/
 notebooks/.ipynb_checkpoints/

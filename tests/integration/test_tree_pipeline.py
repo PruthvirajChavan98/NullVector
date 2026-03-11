@@ -258,7 +258,7 @@ def test_progress_notebook_structure_matches_repo_contract() -> None:
 
     assert cells[0]["cell_type"] == "markdown"
     assert first_source_line(cells[0]).startswith("# StrataForge Progress Notebook")
-    assert "Phase 02" in "".join(cells[0].get("source", []))
+    assert "Phase 03" in "".join(cells[0].get("source", []))
 
     assert cells[1]["cell_type"] == "markdown"
     assert "### Environment" in "".join(cells[1].get("source", []))
@@ -284,3 +284,103 @@ def test_progress_notebook_structure_matches_repo_contract() -> None:
 
     assert cells[-1]["cell_type"] == "markdown"
     assert "### Known Limitations" in "".join(cells[-1].get("source", []))
+
+
+def test_spec_v1_demo_notebook_source_has_no_saved_error_outputs() -> None:
+    notebook = cast(
+        dict[str, Any],
+        json.loads(Path("notebooks/spec_v1_parser_tree_demo.ipynb").read_text(encoding="utf-8")),
+    )
+    code_cells = [cell for cell in notebook["cells"] if cell.get("cell_type") == "code"]
+
+    assert code_cells
+    assert not any(
+        output.get("output_type") == "error"
+        for cell in code_cells
+        for output in cell.get("outputs", [])
+    )
+
+
+def test_spec_v1_demo_notebook_structure_matches_contract() -> None:
+    notebook = cast(
+        dict[str, Any],
+        json.loads(Path("notebooks/spec_v1_parser_tree_demo.ipynb").read_text(encoding="utf-8")),
+    )
+    cells = cast(list[dict[str, Any]], notebook["cells"])
+
+    assert cells[0]["cell_type"] == "markdown"
+    assert first_source_line(cells[0]).startswith(
+        "# StrataForge Real PDF Parser + Tree Demo Notebook"
+    )
+
+    assert cells[1]["cell_type"] == "markdown"
+    assert "### Environment" in "".join(cells[1].get("source", []))
+
+    assert cells[2]["cell_type"] == "code"
+    assert first_source_line(cells[2]) == "# environment setup"
+
+    assert cells[3]["cell_type"] == "code"
+    assert first_source_line(cells[3]) == "# imports"
+
+    assert cells[4]["cell_type"] == "code"
+    assert first_source_line(cells[4]) == "# configuration"
+
+    execution_cells = [
+        cell
+        for cell in cells[5:-1]
+        if cell.get("cell_type") == "code" and first_source_line(cell) == "# execution"
+    ]
+    assert execution_cells
+
+    assert cells[-2]["cell_type"] == "code"
+    assert first_source_line(cells[-2]) == "# inspect results"
+
+    assert cells[-1]["cell_type"] == "markdown"
+    assert "### Known Limitations" in "".join(cells[-1].get("source", []))
+
+
+def test_spec_v1_demo_notebook_executes_when_local_pdf_present(tmp_path: Path) -> None:
+    if not Path("903000608.pdf").exists():
+        pytest.skip("903000608.pdf not present; local real-PDF demo notebook is optional")
+
+    output_path = tmp_path / "spec_v1_parser_tree_demo.executed.ipynb"
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_progress_notebook.py",
+            "--notebook",
+            "notebooks/spec_v1_parser_tree_demo.ipynb",
+            "--output",
+            str(output_path),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+    )
+
+    executed_notebook = cast(dict[str, Any], json.loads(output_path.read_text(encoding="utf-8")))
+    inspect_cell = next(
+        cast(dict[str, Any], cell)
+        for cell in executed_notebook["cells"]
+        if cell.get("cell_type") == "code"
+        and first_source_line(cast(dict[str, Any], cell)) == "# inspect results"
+    )
+    inspect_output = "".join(
+        text
+        for output in inspect_cell.get("outputs", [])
+        if output.get("output_type") == "stream"
+        for text in output.get("text", [])
+    )
+    summary = cast(dict[str, Any], json.loads(inspect_output))
+
+    assert output_path.exists()
+    assert not any(
+        output.get("output_type") == "error"
+        for cell in executed_notebook["cells"]
+        if cell.get("cell_type") == "code"
+        for output in cell.get("outputs", [])
+    )
+    assert summary["pdf"]["path"].endswith("903000608.pdf")
+    assert summary["pdf"]["parse_mode"] in {"reused_local_manifest", "parsed_fresh"}
+    assert summary["parse"]["page_count"] > 0
+    assert summary["tree"]["committed_node_count"] >= 1
+    assert summary["representative_pages"]
