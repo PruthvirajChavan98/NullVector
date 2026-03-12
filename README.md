@@ -62,6 +62,23 @@ The gateway core owns:
 Provider adapters are transport boundaries only. The LiteLLM proxy/server path is out of scope for
 Phase 03.
 
+## Tree Pipeline Major Changes
+
+The tree pipeline now includes the major additive extensions implemented after the original Phase 02
+baseline:
+
+- deterministic-first TOC detection over persisted parse artifacts, with optional typed LLM
+  fallback for ambiguous pages
+- TOC-to-heading reconciliation with bounded page-offset calculation and TOC-derived candidates
+- opt-in grounded LLM verification assistance only when deterministic title matching fails
+- bottom-up node summarization, still off by default unless a gateway is supplied
+- bounded strategy orchestration across outline, TOC-derived, and inferred paths
+- deterministic-first large-leaf decomposition before final summarization, with optional bounded LLM
+  fallback when deterministic subdivision fails
+
+Existing default behavior is preserved when no gateway is provided and no optional summarize path is
+requested.
+
 ## Validation Commands
 
 ```bash

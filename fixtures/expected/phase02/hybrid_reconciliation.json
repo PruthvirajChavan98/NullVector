@@ -1,34 +1,28 @@
 {
   "committed_titles": [
     "1 Overview",
-    "1.1 Scope",
-    "2 Operations",
-    "2.1 Controls"
+    "2 Operations"
   ],
   "node_levels": {
     "1 Overview": 1,
-    "1.1 Scope": 2,
-    "2 Operations": 1,
-    "2.1 Controls": 2
+    "2 Operations": 1
   },
   "node_spans": {
     "1 Overview": [
       0,
       1
     ],
-    "1.1 Scope": [
-      1,
-      1
-    ],
     "2 Operations": [
       2,
-      3
-    ],
-    "2.1 Controls": [
-      3,
-      3
+      2
     ]
   },
-  "outline_trust_mode": "hybrid",
-  "unassigned_spans": []
+  "outline_trust_mode": "outline_primary",
+  "unassigned_spans": [
+    {
+      "reason": "after_last_heading",
+      "start_page": 3,
+      "end_page": 3
+    }
+  ]
 }

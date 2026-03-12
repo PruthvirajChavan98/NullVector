@@ -7,11 +7,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from strataforge.domain.models import (
+    ContentSpan,
     HeadingCandidate,
     HeadingSourceKind,
     HierarchyNode,
     HierarchyOrigin,
     NodeCard,
+    NodeOwnedSpan,
     OutlineQualityReport,
     OutlineSource,
     OutlineTrustMode,
@@ -22,7 +24,7 @@ from strataforge.domain.models import (
     UnassignedPageSpan,
 )
 from strataforge.tree.anchors import node_anchor_to_source_anchor
-from strataforge.tree.headings import numbering_depth
+from strataforge.tree.headings import PageArtifacts, numbering_depth
 
 
 @dataclass(frozen=True)
@@ -85,15 +87,20 @@ def determine_outline_trust_mode(
     outline_reports: Sequence[OutlineQualityReport],
     outline_candidates: Sequence[HeadingCandidate],
     inferred_candidates: Sequence[HeadingCandidate],
+    toc_candidates: Sequence[HeadingCandidate] = (),
     settings: TreeSettings,
 ) -> OutlineTrustMode:
     """Choose outline-primary, hybrid, or inferred-primary deterministically."""
 
     if selected_source == OutlineSource.NONE or not outline_candidates:
+        if toc_candidates:
+            return OutlineTrustMode.TOC_RECONCILED
         return OutlineTrustMode.INFERRED_PRIMARY
 
     selected_report = _selected_outline_report(selected_source, outline_reports)
     if selected_report is None:
+        if toc_candidates:
+            return OutlineTrustMode.TOC_RECONCILED
         return OutlineTrustMode.INFERRED_PRIMARY
 
     if selected_report.entry_count == 0:
@@ -111,6 +118,13 @@ def determine_outline_trust_mode(
         agreement_ratio = matched / len(high_confidence)
     else:
         agreement_ratio = 1.0
+
+    if toc_candidates and (
+        selected_report.invalid_level_count > 0
+        or null_destination_rate > settings.outline_null_destination_rate_threshold
+        or agreement_ratio < settings.outline_high_agreement_threshold
+    ):
+        return OutlineTrustMode.TOC_RECONCILED
 
     if (
         selected_report.invalid_level_count == 0
@@ -148,6 +162,7 @@ def reconcile_heading_candidates(
     outline_candidates: Sequence[HeadingCandidate],
     inferred_candidates: Sequence[HeadingCandidate],
     trust_mode: OutlineTrustMode,
+    toc_candidates: Sequence[HeadingCandidate] = (),
     settings: TreeSettings,
 ) -> tuple[HeadingCandidate, ...]:
     """Select and reconcile the heading sequence used for hierarchy assembly."""
@@ -157,6 +172,14 @@ def reconcile_heading_candidates(
         return _deduplicate_candidates(outline_candidates, settings)
     if trust_mode == OutlineTrustMode.INFERRED_PRIMARY:
         return _deduplicate_candidates(kept_inferred, settings)
+    if trust_mode == OutlineTrustMode.TOC_RECONCILED:
+        merged = list(outline_candidates)
+        merged.extend(toc_candidates)
+        for candidate in kept_inferred:
+            if any(_candidates_match(candidate, existing, settings) for existing in merged):
+                continue
+            merged.append(candidate)
+        return _deduplicate_candidates(merged, settings)
 
     merged = list(outline_candidates)
     for candidate in kept_inferred:
@@ -290,6 +313,17 @@ def build_hierarchy(
             normalized_title=candidate.normalized_title,
             page_span=PageSpan(start_page=candidate.page_index, end_page=candidate.page_index),
             heading_anchor=candidate.anchor,
+            owned_spans=(
+                NodeOwnedSpan(
+                    kind="body",
+                    span=ContentSpan(
+                        start_page=candidate.page_index,
+                        start_offset=candidate.anchor.start_offset,
+                        end_page=candidate.page_index,
+                        end_offset=candidate.anchor.end_offset,
+                    ),
+                ),
+            ),
             source_anchors=(node_anchor_to_source_anchor(candidate.anchor),),
             origin=resolved.origin,
             confidence=max(0.0, min(candidate.score_breakdown.final_score / 100.0, 1.0)),
@@ -397,7 +431,38 @@ def project_node_cards(nodes: Sequence[HierarchyNode]) -> tuple[NodeCard, ...]:
             level=node.level,
             title=node.title,
             page_span=node.page_span,
+            owned_spans=node.owned_spans,
             source_anchors=node.source_anchors,
         )
         for node in nodes
     )
+
+
+def attach_default_owned_spans(
+    nodes: Sequence[HierarchyNode],
+    pages: Sequence[PageArtifacts],
+) -> tuple[HierarchyNode, ...]:
+    """Attach coarse default ownership spans before decomposition refines them."""
+
+    page_lengths = {page.page_index: len(page.text) for page in pages}
+    updated: list[HierarchyNode] = []
+    for node in nodes:
+        end_offset = page_lengths.get(node.page_span.end_page, 0)
+        updated.append(
+            node.model_copy(
+                update={
+                    "owned_spans": (
+                        NodeOwnedSpan(
+                            kind="body",
+                            span=ContentSpan(
+                                start_page=node.heading_anchor.page,
+                                start_offset=node.heading_anchor.start_offset,
+                                end_page=node.page_span.end_page,
+                                end_offset=end_offset,
+                            ),
+                        ),
+                    )
+                }
+            )
+        )
+    return tuple(updated)

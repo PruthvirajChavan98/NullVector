@@ -40,11 +40,17 @@ def build_verification_messages(
             content=(
                 "You are assisting bounded verification. "
                 "Use only the supplied excerpt and span. "
-                "Do not invent provenance, spans, or document structure."
+                "Do not invent provenance, spans, or document structure. "
+                "Return verdict as exactly yes or no."
             ),
         ),
         LLMMessage(
             role=LLMRole.USER,
-            content=f"Return a structured verification assessment for:\n{payload}",
+            content=(
+                f'Does the section titled "{title}" begin on this page? '
+                "Only use the provided text. Do not infer from outside knowledge.\n\n"
+                "Return a structured verification assessment for:\n"
+                f"{payload}"
+            ),
         ),
     )

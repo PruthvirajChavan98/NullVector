@@ -1,0 +1,212 @@
+"""Unit tests for bottom-up node summarization."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from strataforge.domain import (
+    AnchorSource,
+    HierarchyNode,
+    HierarchyOrigin,
+    NodeAnchor,
+    NodeSummaryMethod,
+    PageSourceAnchor,
+    PageSpan,
+)
+from strataforge.llm import (
+    GatewayAssuranceMode,
+    GatewayAuditConfig,
+    GatewayConfig,
+    GatewayService,
+    GatewayUsage,
+    LiteLLMProviderConfig,
+)
+from strataforge.llm.protocols import ProviderAdapter
+from strataforge.llm.types import (
+    ProviderInvocationRequest,
+    ProviderInvocationResult,
+    ProviderInvocationSuccess,
+    StructuredOutputMode,
+)
+from strataforge.tree.headings import PageArtifacts
+from strataforge.tree.summarize import NodeSummarizer
+
+
+class CaptureSummarizationAdapter:
+    """Provider adapter that records prompt payloads and returns scripted summaries."""
+
+    provider_name = "capture"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[str, ...]]] = []
+
+    def invoke(
+        self,
+        request: ProviderInvocationRequest,
+        config: GatewayConfig,
+    ) -> ProviderInvocationResult:
+        del config
+        message_contents = tuple(message.content for message in request.messages)
+        self.calls.append((request.operation_name, message_contents))
+        summary = (
+            "condensed child summary"
+            if request.operation_name == "summarize_leaf_node"
+            else "parent rollup summary"
+        )
+        return ProviderInvocationResult(
+            success=ProviderInvocationSuccess(
+                provider_name=self.provider_name,
+                model_name=request.model_name,
+                assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+                structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+                structured_output_json={"summary": summary, "keywords": ["k1", "k2"]},
+                usage=GatewayUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+                status_code=200,
+            )
+        )
+
+
+def make_gateway(tmp_path: Path, adapter: ProviderAdapter) -> GatewayService:
+    return GatewayService(
+        GatewayConfig(
+            provider=LiteLLMProviderConfig(model="test-model"),
+            audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
+        ),
+        provider_adapter=adapter,
+    )
+
+
+def make_node(
+    *,
+    node_id: str,
+    title: str,
+    page_index: int,
+    start_offset: int = 0,
+    end_offset: int | None = None,
+    parent_id: str | None = None,
+    path: tuple[str, ...] | None = None,
+    level: int = 1,
+    span_end_page: int | None = None,
+) -> HierarchyNode:
+    end = end_offset if end_offset is not None else start_offset + len(title)
+    return HierarchyNode(
+        node_id=node_id,
+        document_id="d" * 64,
+        parent_id=parent_id,
+        path=path or (title,),
+        level=level,
+        title=title,
+        normalized_title=title.casefold(),
+        page_span=PageSpan(start_page=page_index, end_page=span_end_page or page_index),
+        heading_anchor=NodeAnchor(
+            page=page_index,
+            start_offset=start_offset,
+            end_offset=end,
+            anchor_text=title,
+            anchor_source=AnchorSource.TEXT,
+            occurrence_index=0,
+        ),
+        source_anchors=(
+            PageSourceAnchor(
+                page=page_index,
+                start_offset=start_offset,
+                end_offset=end,
+                quote=title,
+            ),
+        ),
+        origin=HierarchyOrigin.INFERRED,
+        confidence=0.8,
+    )
+
+
+def test_leaf_passthrough_avoids_gateway_calls(tmp_path: Path) -> None:
+    adapter = CaptureSummarizationAdapter()
+    summarizer = NodeSummarizer(make_gateway(tmp_path, adapter))
+    node = make_node(node_id="leaf", title="Leaf", page_index=0)
+    pages = (PageArtifacts(page_index=0, text="Leaf\nshort body", rawdict=None),)
+
+    _, node_cards, summaries = summarizer.summarize(nodes=(node,), pages=pages)
+
+    assert adapter.calls == []
+    assert summaries[0].summary_method is NodeSummaryMethod.PASSTHROUGH
+    assert node_cards[0].summary == "Leaf\nshort body"
+
+
+def test_long_leaf_uses_llm_leaf_summarization(tmp_path: Path) -> None:
+    adapter = CaptureSummarizationAdapter()
+    summarizer = NodeSummarizer(make_gateway(tmp_path, adapter))
+    long_text = " ".join(["alpha"] * 180)
+    node = make_node(node_id="leaf", title="Leaf", page_index=0)
+    pages = (PageArtifacts(page_index=0, text=f"Leaf\n{long_text}", rawdict=None),)
+
+    _, node_cards, summaries = summarizer.summarize(nodes=(node,), pages=pages)
+
+    assert [call[0] for call in adapter.calls] == ["summarize_leaf_node"]
+    assert summaries[0].summary_method is NodeSummaryMethod.LLM_LEAF
+    assert node_cards[0].summary == "condensed child summary"
+    assert node_cards[0].keywords == ("k1", "k2")
+
+
+def test_parent_summarization_uses_prefix_text_and_child_summaries(tmp_path: Path) -> None:
+    adapter = CaptureSummarizationAdapter()
+    summarizer = NodeSummarizer(make_gateway(tmp_path, adapter))
+    parent = make_node(
+        node_id="parent",
+        title="Parent",
+        page_index=0,
+        start_offset=0,
+        end_offset=6,
+        path=("Parent",),
+        span_end_page=1,
+    )
+    child = make_node(
+        node_id="child",
+        title="Child",
+        page_index=1,
+        parent_id="parent",
+        path=("Parent", "Child"),
+        level=2,
+    )
+    long_child_text = " ".join(["RAW_CHILD_PHRASE"] * 180)
+    pages = (
+        PageArtifacts(page_index=0, text="Parent prefix only context.", rawdict=None),
+        PageArtifacts(page_index=1, text=f"Child\n{long_child_text}", rawdict=None),
+    )
+
+    _, node_cards, summaries = summarizer.summarize(nodes=(parent, child), pages=pages)
+
+    assert [call[0] for call in adapter.calls] == [
+        "summarize_leaf_node",
+        "summarize_parent_node",
+    ]
+    parent_prompt = adapter.calls[-1][1][-1]
+    assert "condensed child summary" in parent_prompt
+    assert "prefix only context." in parent_prompt
+    assert "RAW_CHILD_PHRASE RAW_CHILD_PHRASE RAW_CHILD_PHRASE" not in parent_prompt
+    assert summaries[0].summary_method is NodeSummaryMethod.LLM_PARENT
+    assert node_cards[0].summary == "parent rollup summary"
+
+
+def test_bottom_up_ordering_is_deterministic(tmp_path: Path) -> None:
+    adapter = CaptureSummarizationAdapter()
+    summarizer = NodeSummarizer(make_gateway(tmp_path, adapter))
+    parent = make_node(node_id="p", title="Parent", page_index=0, span_end_page=1)
+    child = make_node(
+        node_id="c",
+        title="Child",
+        page_index=1,
+        parent_id="p",
+        path=("Parent", "Child"),
+        level=2,
+    )
+    pages = (
+        PageArtifacts(page_index=0, text="Parent prefix", rawdict=None),
+        PageArtifacts(page_index=1, text="Child\n" + " ".join(["beta"] * 180), rawdict=None),
+    )
+
+    summarizer.summarize(nodes=(parent, child), pages=pages)
+
+    assert [call[0] for call in adapter.calls] == [
+        "summarize_leaf_node",
+        "summarize_parent_node",
+    ]

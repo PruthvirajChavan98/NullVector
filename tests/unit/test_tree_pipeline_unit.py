@@ -9,16 +9,27 @@ from strataforge.domain.models import (
     HeadingCandidate,
     HeadingScoreBreakdown,
     HeadingSourceKind,
+    HierarchyNode,
+    HierarchyOrigin,
     NodeAnchor,
     OutlineEntry,
     OutlineQualityReport,
     OutlineSource,
     OutlineTrustMode,
+    PageSourceAnchor,
+    PageSpan,
     RepairDecision,
     RepairKind,
     RepairRequest,
     RepairStatus,
+    TitleMatchTier,
+    TreeNodeVerificationResult,
     TreeSettings,
+    UnassignedPageSpan,
+    VerificationIssue,
+    VerificationReport,
+    VerificationSeverity,
+    VerificationStatus,
 )
 from strataforge.tree.headings import (
     PageArtifacts,
@@ -34,6 +45,7 @@ from strataforge.tree.hierarchy import (
     generate_node_id,
 )
 from strataforge.tree.repair import NoopRepairEngine
+from strataforge.tree.service import _accuracy_score, _unassigned_page_count
 from strataforge.tree.verify import determine_title_match_tier
 
 
@@ -294,3 +306,113 @@ def test_noop_repair_engine_and_repair_status_models() -> None:
     assert decisions[0].status is RepairStatus.NOOP_APPLIED
     assert decisions[0].repair_kind is RepairKind.PARTIAL_TOC_REPAIR
     assert sentinel.status is RepairStatus.NOT_REQUESTED
+
+
+def test_accuracy_score_penalizes_failed_nodes_and_weaker_match_tiers() -> None:
+    verified_nodes = (
+        HierarchyNode(
+            node_id="node-1",
+            document_id="f" * 64,
+            path=("Root",),
+            level=1,
+            title="Root",
+            normalized_title="root",
+            page_span=PageSpan(start_page=0, end_page=0),
+            heading_anchor=make_anchor(0, 0, "Root"),
+            source_anchors=(PageSourceAnchor(page=0, start_offset=0, end_offset=4, quote="Root"),),
+            origin=HierarchyOrigin.OUTLINE,
+            confidence=1.0,
+            verification_match_tier=TitleMatchTier.EXACT_NORMALIZED,
+        ),
+        HierarchyNode(
+            node_id="node-2",
+            document_id="f" * 64,
+            path=("Root", "Child"),
+            level=2,
+            title="Child",
+            normalized_title="child",
+            page_span=PageSpan(start_page=1, end_page=1),
+            heading_anchor=make_anchor(1, 0, "Child"),
+            source_anchors=(PageSourceAnchor(page=1, start_offset=0, end_offset=5, quote="Child"),),
+            origin=HierarchyOrigin.INFERRED,
+            confidence=0.8,
+            verification_match_tier=TitleMatchTier.LLM_VERIFIED,
+        ),
+    )
+    verification_report = VerificationReport(
+        document_id="f" * 64,
+        tree_run_id="tree-run",
+        status=VerificationStatus.FAILED,
+        node_results=(
+            TreeNodeVerificationResult(
+                document_id="f" * 64,
+                tree_run_id="tree-run",
+                subject_id="node-1",
+                status=VerificationStatus.PASSED,
+                covered_page_span=PageSpan(start_page=0, end_page=0),
+            ),
+            TreeNodeVerificationResult(
+                document_id="f" * 64,
+                tree_run_id="tree-run",
+                subject_id="node-2",
+                status=VerificationStatus.PASSED,
+                covered_page_span=PageSpan(start_page=1, end_page=1),
+            ),
+            TreeNodeVerificationResult(
+                document_id="f" * 64,
+                tree_run_id="tree-run",
+                subject_id="node-3",
+                status=VerificationStatus.FAILED,
+                issues=(
+                    VerificationIssue(
+                        code="mismatch",
+                        message="failed verification",
+                        severity=VerificationSeverity.ERROR,
+                        page_span=PageSpan(start_page=2, end_page=2),
+                    ),
+                ),
+                covered_page_span=PageSpan(start_page=2, end_page=2),
+            ),
+            TreeNodeVerificationResult(
+                document_id="f" * 64,
+                tree_run_id="tree-run",
+                subject_id="node-4",
+                status=VerificationStatus.FAILED,
+                issues=(
+                    VerificationIssue(
+                        code="mismatch",
+                        message="failed verification",
+                        severity=VerificationSeverity.ERROR,
+                        page_span=PageSpan(start_page=3, end_page=3),
+                    ),
+                ),
+                covered_page_span=PageSpan(start_page=3, end_page=3),
+            ),
+        ),
+    )
+
+    accuracy = _accuracy_score(
+        verified_nodes=verified_nodes,
+        verification_report=verification_report,
+    )
+
+    assert accuracy == 0.375
+
+
+def test_unassigned_page_count_sums_page_coverage_not_span_count() -> None:
+    count = _unassigned_page_count(
+        (
+            UnassignedPageSpan(
+                document_id="f" * 64,
+                reason="before_first_heading",
+                page_span=PageSpan(start_page=0, end_page=2),
+            ),
+            UnassignedPageSpan(
+                document_id="f" * 64,
+                reason="after_last_heading",
+                page_span=PageSpan(start_page=5, end_page=5),
+            ),
+        )
+    )
+
+    assert count == 4

@@ -18,7 +18,9 @@ class SummarizationPromptResponse(StrataModel):
 def build_summarization_messages(
     *,
     node_title: str,
-    excerpts: tuple[str, ...],
+    excerpts: tuple[str, ...] = (),
+    parent_prefix_text: str | None = None,
+    child_summaries: tuple[tuple[str, str], ...] = (),
 ) -> tuple[LLMMessage, ...]:
     """Build a grounded summarization prompt with bounded evidence only."""
 
@@ -26,6 +28,10 @@ def build_summarization_messages(
         {
             "node_title": node_title,
             "excerpts": list(excerpts),
+            "parent_prefix_text": parent_prefix_text,
+            "child_summaries": [
+                {"title": title, "summary": summary} for title, summary in child_summaries
+            ],
         },
         indent=2,
         sort_keys=True,

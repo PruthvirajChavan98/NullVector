@@ -8,6 +8,9 @@ from pydantic import ValidationError
 from strataforge.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
 from strataforge.domain import (
     AnchorSource,
+    ContentSpan,
+    DecompositionMethod,
+    DecompositionReport,
     HeadingCandidate,
     HeadingScoreBreakdown,
     HeadingSourceKind,
@@ -15,6 +18,7 @@ from strataforge.domain import (
     HierarchyOrigin,
     NodeAnchor,
     NodeCard,
+    NodeOwnedSpan,
     OcrMode,
     PageLedgerRow,
     PageSourceAnchor,
@@ -53,6 +57,16 @@ def make_anchor() -> PageSourceAnchor:
 def test_page_span_rejects_inverted_bounds() -> None:
     with pytest.raises(ValidationError):
         PageSpan(start_page=7, end_page=6)
+
+
+def test_content_span_rejects_same_page_inverted_offsets() -> None:
+    with pytest.raises(ValidationError):
+        ContentSpan(
+            start_page=1,
+            start_offset=12,
+            end_page=1,
+            end_offset=10,
+        )
 
 
 def test_page_ledger_row_requires_consistent_offsets() -> None:
@@ -175,6 +189,17 @@ def test_models_accept_valid_phase01_payloads() -> None:
         level=2,
         title="Section 1",
         page_span=PageSpan(start_page=3, end_page=5),
+        owned_spans=(
+            NodeOwnedSpan(
+                kind="body",
+                span=ContentSpan(
+                    start_page=3,
+                    start_offset=0,
+                    end_page=5,
+                    end_offset=120,
+                ),
+            ),
+        ),
         summary="Section 1 covers deterministic parsing.",
         keywords=("parsing", "deterministic"),
         source_anchors=(anchor,),
@@ -271,6 +296,17 @@ def test_models_accept_valid_phase02_payloads() -> None:
         normalized_title="overview",
         page_span=PageSpan(start_page=1, end_page=1),
         heading_anchor=heading_anchor,
+        owned_spans=(
+            NodeOwnedSpan(
+                kind="body",
+                span=ContentSpan(
+                    start_page=1,
+                    start_offset=0,
+                    end_page=1,
+                    end_offset=8,
+                ),
+            ),
+        ),
         source_anchors=(make_anchor(),),
         origin=HierarchyOrigin.OUTLINE,
         confidence=1.0,
@@ -332,6 +368,10 @@ def test_models_accept_valid_phase02_payloads() -> None:
         status=RepairStatus.NOT_REQUESTED,
         message="no repair work was needed",
     )
+    decomposition_report = DecompositionReport(
+        decomposition_method=DecompositionMethod.NONE,
+        empty_parent_count=0,
+    )
     unassigned_span = UnassignedPageSpan(
         document_id="c" * 64,
         reason="before_first_heading",
@@ -340,6 +380,7 @@ def test_models_accept_valid_phase02_payloads() -> None:
 
     assert heading_candidate.keep is True
     assert hierarchy_node.origin is HierarchyOrigin.OUTLINE
+    assert hierarchy_node.owned_spans[0].span.end_offset == 8
     assert verification_report.status is VerificationStatus.PASSED
     assert tree_request.tree_run_id == "tree-run-001"
     assert tree_index.settings_digest == "f" * 64
@@ -347,4 +388,5 @@ def test_models_accept_valid_phase02_payloads() -> None:
     assert tree_manifest.committed_node_count == 1
     assert tree_manifest.registry_root == "/tmp/_tree_runs"
     assert repair_decision.status is RepairStatus.NOT_REQUESTED
+    assert decomposition_report.empty_parent_count == 0
     assert unassigned_span.page_span.start_page == 0

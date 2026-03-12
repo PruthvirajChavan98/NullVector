@@ -104,6 +104,22 @@ class OutlineTrustMode(StrEnum):
     OUTLINE_PRIMARY = "outline_primary"
     HYBRID = "hybrid"
     INFERRED_PRIMARY = "inferred_primary"
+    TOC_RECONCILED = "toc_reconciled"
+
+
+class TocDetectionMethod(StrEnum):
+    """How TOC pages were classified."""
+
+    DETERMINISTIC = "deterministic"
+    HYBRID = "hybrid"
+    LLM_ONLY = "llm_only"
+
+
+class TocParseMethod(StrEnum):
+    """How TOC text was parsed into structural entries."""
+
+    DETERMINISTIC = "deterministic"
+    LLM_ASSISTED = "llm_assisted"
 
 
 class TitleMatchTier(StrEnum):
@@ -113,6 +129,7 @@ class TitleMatchTier(StrEnum):
     CASEFOLD_PUNCT = "casefold_punct"
     TOKEN_CONTAINMENT = "token_containment"
     EDIT_DISTANCE = "edit_distance"
+    LLM_VERIFIED = "llm_verified"
     NONE = "none"
 
 
@@ -132,6 +149,32 @@ class RepairKind(StrEnum):
     TITLE_NORMALIZATION = "title_normalization"
     ADJACENT_LEVEL_AMBIGUITY = "adjacent_level_ambiguity"
     PARTIAL_TOC_REPAIR = "partial_toc_repair"
+
+
+class NodeSummaryMethod(StrEnum):
+    """How a committed node summary was produced."""
+
+    PASSTHROUGH = "passthrough"
+    LLM_LEAF = "llm_leaf"
+    LLM_PARENT = "llm_parent"
+
+
+class DecompositionMethod(StrEnum):
+    """How large committed leaf nodes were subdivided."""
+
+    DETERMINISTIC = "deterministic"
+    LLM_ASSISTED = "llm_assisted"
+    NONE = "none"
+
+
+class HierarchyStrategy(StrEnum):
+    """Typed orchestration strategies for hierarchy construction."""
+
+    OUTLINE_WITH_TOC_RECONCILIATION = "outline_with_toc_reconciliation"
+    OUTLINE_ONLY = "outline_only"
+    TOC_DERIVED = "toc_derived"
+    INFERRED_WITH_LLM_ASSIST = "inferred_with_llm_assist"
+    INFERRED_DETERMINISTIC = "inferred_deterministic"
 
 
 class ParseJobState(StrataModel):
@@ -209,6 +252,32 @@ class PageSourceAnchor(StrataModel):
             msg = "end_offset must be greater than start_offset"
             raise ValueError(msg)
         return self
+
+
+class ContentSpan(StrataModel):
+    """Offset-aware inclusive/exclusive span within the document."""
+
+    start_page: NonNegativeInt
+    start_offset: NonNegativeInt
+    end_page: NonNegativeInt
+    end_offset: NonNegativeInt
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        if self.end_page < self.start_page:
+            msg = "end_page must be greater than or equal to start_page"
+            raise ValueError(msg)
+        if self.start_page == self.end_page and self.end_offset < self.start_offset:
+            msg = "end_offset must be greater than or equal to start_offset on same-page spans"
+            raise ValueError(msg)
+        return self
+
+
+class NodeOwnedSpan(StrataModel):
+    """Explicit content ownership span for decomposition-aware nodes."""
+
+    span: ContentSpan
+    kind: NonEmptyStr
 
 
 class DocumentFingerprint(StrataModel):
@@ -326,6 +395,11 @@ class TreeSettings(StrataModel):
     maximum_allowed_page_adjacency: PositiveInt = 1
     repeated_header_footer_min_repetitions: PositiveInt = 2
     top_of_page_line_limit: PositiveInt = 3
+    strategy_accuracy_threshold: PositiveFloat = 0.60
+    max_strategy_cascade_depth: PositiveInt = 2
+    max_pages_per_leaf_node: PositiveInt = 10
+    max_tokens_per_leaf_node: PositiveInt = 20000
+    max_decomposition_depth: PositiveInt = 2
 
     @model_validator(mode="after")
     def validate_thresholds(self) -> Self:
@@ -344,6 +418,9 @@ class TreeSettings(StrataModel):
         if self.title_token_containment_threshold > 1:
             msg = "title_token_containment_threshold must be less than or equal to 1"
             raise ValueError(msg)
+        if self.strategy_accuracy_threshold > 1:
+            msg = "strategy_accuracy_threshold must be less than or equal to 1"
+            raise ValueError(msg)
         if self.heading_score_high_confidence_threshold < self.heading_score_keep_threshold:
             msg = (
                 "heading_score_high_confidence_threshold must be greater than or equal to "
@@ -358,7 +435,109 @@ class TreeBuildRequest(StrataModel):
 
     parse_manifest_path: NonEmptyStr
     tree_run_id: NonEmptyStr
+    summarize: bool = False
     settings: TreeSettings = Field(default_factory=TreeSettings)
+
+
+class TocPageScore(StrataModel):
+    """Deterministic and hybrid TOC-likeness signals for a single page."""
+
+    page_index: NonNegativeInt
+    pattern_match_count: NonNegativeInt
+    leader_dot_density: float = 0.0
+    numbering_density: float = 0.0
+    font_uniformity_signal: float = 0.0
+    consecutive_page_bonus: float = 0.0
+    repeated_header_penalty: float = 0.0
+    final_score: float
+    classified_as_toc: bool = False
+    classification_reason: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> Self:
+        bounded_values = {
+            "leader_dot_density": self.leader_dot_density,
+            "numbering_density": self.numbering_density,
+            "font_uniformity_signal": self.font_uniformity_signal,
+            "consecutive_page_bonus": self.consecutive_page_bonus,
+            "repeated_header_penalty": self.repeated_header_penalty,
+            "final_score": self.final_score,
+        }
+        for field_name, value in bounded_values.items():
+            if not 0 <= value <= 1:
+                msg = f"{field_name} must be between 0 and 1"
+                raise ValueError(msg)
+        return self
+
+
+class TocDetectionResponse(StrataModel):
+    """Typed structured response for ambiguous TOC page detection."""
+
+    is_toc: bool
+    confidence: float
+    reasoning: NonEmptyStr
+
+    @model_validator(mode="after")
+    def validate_confidence(self) -> Self:
+        if not 0 <= self.confidence <= 1:
+            msg = "confidence must be between 0 and 1"
+            raise ValueError(msg)
+        return self
+
+
+class TocDetectionResult(StrataModel):
+    """Persistable TOC detection result over the leading parse artifact pages."""
+
+    toc_page_indices: tuple[NonNegativeInt, ...] = ()
+    toc_content: str | None = None
+    detection_method: TocDetectionMethod
+    page_scores: tuple[TocPageScore, ...] = Field(default_factory=tuple)
+    has_page_numbers: bool = False
+
+
+class TocParsedEntry(StrataModel):
+    """Single parsed entry recovered from TOC text."""
+
+    structure: str | None = None
+    title: NonEmptyStr
+    page_number: NonNegativeInt | None = None
+
+
+class TocParseResponse(StrataModel):
+    """Typed structured TOC parsing response from the gateway."""
+
+    entries: tuple[TocParsedEntry, ...]
+
+
+class DecompositionBoundary(StrataModel):
+    """Bounded subsection boundary returned by deterministic or LLM decomposition."""
+
+    title: NonEmptyStr
+    page_index: NonNegativeInt
+    level_hint: PositiveInt | None = None
+
+
+class DecompositionPromptResponse(StrataModel):
+    """Typed structured response for large-node decomposition."""
+
+    entries: tuple[DecompositionBoundary, ...] = Field(default_factory=tuple)
+
+
+class TocReconciliationResult(StrataModel):
+    """Deterministic TOC-to-physical-page reconciliation result."""
+
+    parsed_entries: tuple[TocParsedEntry, ...] = Field(default_factory=tuple)
+    offset: int | None = None
+    offset_confidence: float = 0.0
+    reconciled_candidates: tuple[HeadingCandidate, ...] = Field(default_factory=tuple)
+    parse_method: TocParseMethod
+
+    @model_validator(mode="after")
+    def validate_offset_confidence(self) -> Self:
+        if not 0 <= self.offset_confidence <= 1:
+            msg = "offset_confidence must be between 0 and 1"
+            raise ValueError(msg)
+        return self
 
 
 class TreeRunIndex(StrataModel):
@@ -459,6 +638,7 @@ class HierarchyNode(StrataModel):
     normalized_title: NonEmptyStr
     page_span: PageSpan
     heading_anchor: NodeAnchor
+    owned_spans: tuple[NodeOwnedSpan, ...] = Field(default_factory=tuple)
     source_anchors: tuple[PageSourceAnchor, ...] = Field(default_factory=tuple)
     origin: HierarchyOrigin
     confidence: float = 0.0
@@ -504,6 +684,25 @@ class HierarchyBuildReport(StrataModel):
     unassigned_span_count: NonNegativeInt
     ambiguity_count: NonNegativeInt
     notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+
+
+class StrategyRationale(StrataModel):
+    """Deterministic rationale used for strategy selection."""
+
+    reasons: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    outline_available: bool
+    toc_available: bool
+    gateway_available: bool
+
+
+class StrategyExecutionReport(StrataModel):
+    """Auditable record of attempted and selected hierarchy strategies."""
+
+    attempted_strategies: tuple[HierarchyStrategy, ...]
+    selected_strategy: HierarchyStrategy
+    rationale: StrategyRationale
+    cascade_depth: NonNegativeInt
+    accuracy_at_each_level: tuple[float, ...] = Field(default_factory=tuple)
 
 
 class PageLedgerRow(StrataModel):
@@ -572,8 +771,11 @@ class NodeCard(StrataModel):
     level: PositiveInt
     title: NonEmptyStr
     page_span: PageSpan
+    owned_spans: tuple[NodeOwnedSpan, ...] = Field(default_factory=tuple)
     summary: str | None = None
     keywords: tuple[NonEmptyStr, ...] = ()
+    summary_method: NodeSummaryMethod | None = None
+    summary_token_count: NonNegativeInt | None = None
     source_anchors: tuple[PageSourceAnchor, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
@@ -587,6 +789,26 @@ class NodeCard(StrataModel):
         return self
 
 
+class NodeSummary(StrataModel):
+    """Persistable summary payload for a committed hierarchy node."""
+
+    node_id: NonEmptyStr
+    summary: NonEmptyStr
+    keywords: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    summary_method: NodeSummaryMethod
+    token_count: NonNegativeInt
+
+
+class DecompositionReport(StrataModel):
+    """Persistable audit report for large-node decomposition."""
+
+    decomposed_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    new_child_count: NonNegativeInt = 0
+    empty_parent_count: NonNegativeInt = 0
+    decomposition_method: DecompositionMethod
+    depth: NonNegativeInt = 0
+
+
 class VerificationIssue(StrataModel):
     """Single verification finding."""
 
@@ -594,6 +816,20 @@ class VerificationIssue(StrataModel):
     message: NonEmptyStr
     severity: VerificationSeverity
     page_span: PageSpan | None = None
+
+
+class LLMVerificationAssistRecord(StrataModel):
+    """Persistable grounded-evidence record for verification assists."""
+
+    node_id: NonEmptyStr
+    title: NonEmptyStr
+    page_index: NonNegativeInt
+    llm_verdict: NonEmptyStr
+    llm_rationale: NonEmptyStr
+    supporting_quotes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    grounded_quotes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    ungrounded_quotes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    accepted: bool = False
 
 
 class TreeNodeVerificationResult(StrataModel):
@@ -689,6 +925,12 @@ class TreeBuildManifest(StrataModel):
     unassigned_spans_path: NonEmptyStr
     verification_report_path: NonEmptyStr
     build_report_path: NonEmptyStr
+    toc_detection_path: NonEmptyStr | None = None
+    toc_reconciliation_path: NonEmptyStr | None = None
+    llm_verification_assists_path: NonEmptyStr | None = None
+    node_summaries_path: NonEmptyStr | None = None
+    strategy_execution_report_path: NonEmptyStr | None = None
+    decomposition_report_path: NonEmptyStr | None = None
     committed_node_count: NonNegativeInt
     unassigned_span_count: NonNegativeInt
 

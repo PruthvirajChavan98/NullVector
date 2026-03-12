@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any
+
 from strataforge.domain.models import (
+    ContentSpan,
     HierarchyNode,
+    LLMVerificationAssistRecord,
     PageSpan,
     TitleMatchTier,
     TreeNodeVerificationResult,
@@ -14,8 +20,12 @@ from strataforge.domain.models import (
     VerificationSeverity,
     VerificationStatus,
 )
+from strataforge.llm.prompts import VerificationPromptResponse, build_verification_messages
+from strataforge.llm.protocols import StructuredLLMGateway
+from strataforge.llm.types import GatewayRequest
 from strataforge.tree.headings import (
     PageArtifacts,
+    PageLine,
     casefold_punct_key,
     normalized_title_key,
     split_text_lines_with_offsets,
@@ -23,26 +33,45 @@ from strataforge.tree.headings import (
 )
 
 
-def determine_title_match_tier(
+def _json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump") and callable(value.model_dump):
+        return _json_safe(value.model_dump(mode="json"))
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    return str(value)
+
+
+def _write_json(path: Path, payload: Any) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def _match_tier_from_lines(
     title: str,
-    page: PageArtifacts,
+    lines: list[PageLine],
     settings: TreeSettings,
 ) -> TitleMatchTier:
-    lines = split_text_lines_with_offsets(page.text, page.page_index)
-    candidates = list(lines[: settings.top_of_page_line_limit])
     normalized_title = normalized_title_key(title)
     punct_title = casefold_punct_key(title)
 
-    for line in candidates:
+    for line in lines:
         if line.normalized_text == normalized_title:
             return TitleMatchTier.EXACT_NORMALIZED
-    for line in candidates:
+    for line in lines:
         if line.casefold_punct_text == punct_title:
             return TitleMatchTier.CASEFOLD_PUNCT
 
     title_tokens = set(tokenize_title(title))
     if title_tokens:
-        for line in candidates:
+        for line in lines:
             line_tokens = set(tokenize_title(line.text))
             if not line_tokens:
                 continue
@@ -51,12 +80,121 @@ def determine_title_match_tier(
                 return TitleMatchTier.TOKEN_CONTAINMENT
 
     if len(normalized_title) <= settings.short_title_max_length_for_edit_distance:
-        for line in candidates:
+        for line in lines:
             distance = _levenshtein_distance(normalized_title, line.normalized_text)
             if distance <= settings.short_title_edit_distance_threshold:
                 return TitleMatchTier.EDIT_DISTANCE
 
     return TitleMatchTier.NONE
+
+
+def determine_title_match_tier(
+    title: str,
+    page: PageArtifacts,
+    settings: TreeSettings,
+) -> TitleMatchTier:
+    lines = split_text_lines_with_offsets(page.text, page.page_index)
+    return _match_tier_from_lines(title, list(lines[: settings.top_of_page_line_limit]), settings)
+
+
+def determine_anchor_local_match_tier(
+    title: str,
+    page: PageArtifacts,
+    *,
+    anchor_start_offset: int,
+    settings: TreeSettings,
+) -> TitleMatchTier:
+    """Fallback verification tier around a mid-page heading anchor."""
+
+    lines = split_text_lines_with_offsets(page.text, page.page_index)
+    if not lines:
+        return TitleMatchTier.NONE
+    anchor_index = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.start_offset <= anchor_start_offset < line.end_offset
+        ),
+        len(lines) - 1,
+    )
+    return _match_tier_from_lines(
+        title,
+        list(lines[max(0, anchor_index - 2) : anchor_index + 3]),
+        settings,
+    )
+
+
+def _bounded_page_excerpt(page: PageArtifacts, settings: TreeSettings) -> str:
+    lines = split_text_lines_with_offsets(page.text, page.page_index)
+    excerpt_lines = [line.text for line in lines[: settings.top_of_page_line_limit]]
+    return "\n".join(excerpt_lines) if excerpt_lines else page.text[:400]
+
+
+def _is_positive_verdict(value: str) -> bool:
+    return value.strip().casefold() == "yes"
+
+
+class LLMVerificationAssistant:
+    """Opt-in verification assistant for deterministic title-matching misses."""
+
+    def __init__(
+        self,
+        gateway: StructuredLLMGateway,
+        artifact_root: str | None = None,
+    ) -> None:
+        self._gateway = gateway
+        self._artifact_root = artifact_root
+        self._records: list[LLMVerificationAssistRecord] = []
+        self._artifact_path: str | None = None
+
+    @property
+    def artifact_path(self) -> str | None:
+        return self._artifact_path
+
+    def assist(
+        self,
+        *,
+        node: HierarchyNode,
+        page: PageArtifacts,
+        settings: TreeSettings,
+    ) -> tuple[TitleMatchTier, LLMVerificationAssistRecord]:
+        success = self._gateway.invoke(
+            GatewayRequest[VerificationPromptResponse](
+                operation_name="verify_heading_title",
+                messages=build_verification_messages(
+                    title=node.title,
+                    page_excerpt=_bounded_page_excerpt(page, settings),
+                    expected_span=(node.page_span.start_page, node.page_span.end_page),
+                ),
+                response_model=VerificationPromptResponse,
+            )
+        )
+        response = success.output
+        supporting_quotes = tuple(response.supporting_quotes)
+        grounded_quotes = tuple(quote for quote in supporting_quotes if quote in page.text)
+        ungrounded_quotes = tuple(quote for quote in supporting_quotes if quote not in page.text)
+        accepted = _is_positive_verdict(response.verdict) and bool(grounded_quotes)
+        record = LLMVerificationAssistRecord(
+            node_id=node.node_id,
+            title=node.title,
+            page_index=page.page_index,
+            llm_verdict=response.verdict,
+            llm_rationale=response.rationale,
+            supporting_quotes=supporting_quotes,
+            grounded_quotes=grounded_quotes,
+            ungrounded_quotes=ungrounded_quotes,
+            accepted=accepted,
+        )
+        self._records.append(record)
+        if self._artifact_root is not None:
+            self._artifact_path = _write_json(
+                Path(self._artifact_root) / "verify" / "llm-assists.json",
+                tuple(self._records),
+            )
+        return (
+            TitleMatchTier.LLM_VERIFIED if accepted else TitleMatchTier.NONE,
+            record,
+        )
 
 
 def _levenshtein_distance(left: str, right: str) -> int:
@@ -83,6 +221,62 @@ def _levenshtein_distance(left: str, right: str) -> int:
     return previous[-1]
 
 
+def _child_span_is_valid(node: HierarchyNode, parent: HierarchyNode) -> bool:
+    traditional_nesting = (
+        parent.page_span.start_page
+        <= node.page_span.start_page
+        <= node.page_span.end_page
+        <= parent.page_span.end_page
+    )
+    prefix_truncated_parent = (
+        parent.page_span.start_page <= node.page_span.start_page
+        and parent.page_span.end_page <= node.page_span.start_page
+    )
+    return traditional_nesting or prefix_truncated_parent
+
+
+def _owned_span_is_valid(node: HierarchyNode, parent: HierarchyNode) -> bool:
+    if not node.owned_spans or not parent.owned_spans:
+        return _child_span_is_valid(node, parent)
+
+    parent_spans = tuple(owned_span.span for owned_span in parent.owned_spans)
+    child_spans = tuple(owned_span.span for owned_span in node.owned_spans)
+
+    def _parent_contains_child(parent_span: ContentSpan, child_span: ContentSpan) -> bool:
+        if (
+            child_span.start_page < parent_span.start_page
+            or child_span.end_page > parent_span.end_page
+        ):
+            return False
+        if (
+            child_span.start_page == parent_span.start_page
+            and child_span.start_offset < parent_span.start_offset
+        ):
+            return False
+        return not (
+            child_span.end_page == parent_span.end_page
+            and child_span.end_offset > parent_span.end_offset
+        )
+
+    def _parent_is_prefix_before_child(parent_span: ContentSpan, child_span: ContentSpan) -> bool:
+        return parent_span.end_page < child_span.start_page or (
+            parent_span.end_page == child_span.start_page
+            and parent_span.end_offset <= child_span.start_offset
+        )
+
+    prefix_truncated_parent = all(
+        _parent_is_prefix_before_child(parent_span, child_span)
+        for parent_span in parent_spans
+        for child_span in child_spans
+    )
+    if prefix_truncated_parent:
+        return True
+    return all(
+        any(_parent_contains_child(parent_span, child_span) for parent_span in parent_spans)
+        for child_span in child_spans
+    )
+
+
 def verify_hierarchy(
     *,
     document_id: str,
@@ -92,6 +286,7 @@ def verify_hierarchy(
     pages: tuple[PageArtifacts, ...],
     unassigned_spans: tuple[UnassignedPageSpan, ...],
     settings: TreeSettings,
+    verification_assistant: LLMVerificationAssistant | None = None,
 ) -> tuple[tuple[HierarchyNode, ...], VerificationReport]:
     """Verify title grounding, level/span consistency, and page coverage."""
 
@@ -115,6 +310,19 @@ def verify_hierarchy(
             )
         else:
             match_tier = determine_title_match_tier(node.title, page, settings)
+            if match_tier == TitleMatchTier.NONE and node.heading_anchor.start_offset > 0:
+                match_tier = determine_anchor_local_match_tier(
+                    node.title,
+                    page,
+                    anchor_start_offset=node.heading_anchor.start_offset,
+                    settings=settings,
+                )
+            if match_tier == TitleMatchTier.NONE and verification_assistant is not None:
+                match_tier, _ = verification_assistant.assist(
+                    node=node,
+                    page=page,
+                    settings=settings,
+                )
             if match_tier == TitleMatchTier.NONE:
                 issues.append(
                     VerificationIssue(
@@ -126,16 +334,11 @@ def verify_hierarchy(
                 )
 
         parent = nodes_by_id.get(node.parent_id) if node.parent_id is not None else None
-        if parent is not None and not (
-            parent.page_span.start_page
-            <= node.page_span.start_page
-            <= node.page_span.end_page
-            <= parent.page_span.end_page
-        ):
+        if parent is not None and not _owned_span_is_valid(node, parent):
             issues.append(
                 VerificationIssue(
                     code="child-outside-parent-span",
-                    message="child node span must remain inside its parent span",
+                    message="child node owned span must remain inside its parent owned span",
                     severity=VerificationSeverity.ERROR,
                     page_span=node.page_span,
                 ),
