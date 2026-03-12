@@ -18,6 +18,7 @@ from strataforge.llm.protocols import StructuredLLMGateway
 from strataforge.llm.types import GatewayRequest
 from strataforge.tree.headings import (
     PageArtifacts,
+    _line_lists_for_page,
     extract_rawdict_lines,
     find_repeated_header_footer_lines,
     split_text_lines_with_offsets,
@@ -115,11 +116,12 @@ def numbering_density(page: PageArtifacts) -> float:
 def font_uniformity_signal(page: PageArtifacts) -> float:
     """Return a font-uniformity signal for rawdict-backed TOC-like lines."""
 
-    if page.rawdict is None:
-        return 0.0
-
     text_lines = split_text_lines_with_offsets(page.text, page.page_index)
     rawdict_lines = extract_rawdict_lines(page.rawdict, page.page_index, text_lines)
+    if getattr(page, "canonical_lines", ()):
+        _, rawdict_lines = _line_lists_for_page(page)
+    if not rawdict_lines:
+        return 0.0
     toc_like_lines = {
         line.normalized_text
         for line in rawdict_lines

@@ -15,6 +15,7 @@ from strataforge.llm import (
     GatewayAuditConfig,
     GatewayAuditRecord,
     GatewayConfig,
+    GatewayConfigurationError,
     GatewayFailureCategory,
     GatewayRequest,
     GatewayService,
@@ -245,12 +246,10 @@ def test_litellm_adapter_rejects_provider_native_requests(tmp_path: Path) -> Non
         provider_adapter=LiteLLMSDKAdapter(responses_callable=lambda **_: {}),
     )
 
-    with pytest.raises(GatewayUnsupportedCapabilityError) as exc_info:
+    with pytest.raises(GatewayConfigurationError, match="does not support structured output mode"):
         gateway.invoke(
             make_request(
                 structured_output_mode=StructuredOutputMode.PROVIDER_NATIVE,
                 idempotency_key="litellm-native-unsupported",
             ),
         )
-
-    assert exc_info.value.failure.category is GatewayFailureCategory.UNSUPPORTED_CAPABILITY

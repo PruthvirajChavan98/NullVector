@@ -119,9 +119,7 @@ class GatewayConfig(StrataModel):
     timeout_seconds: PositiveFloat = 30.0
     retry_policy: GatewayRetryPolicy = Field(default_factory=GatewayRetryPolicy)
     audit: GatewayAuditConfig = Field(default_factory=GatewayAuditConfig)
-    structured_output_mode_preference: StructuredOutputMode = (
-        StructuredOutputMode.TRANSPORT_COMPATIBLE
-    )
+    structured_output_mode_preference: StructuredOutputMode | None = None
 
 
 class GatewayRequest(StrataModel, Generic[T]):

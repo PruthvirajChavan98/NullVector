@@ -10,10 +10,13 @@ from typing import Any
 
 from strataforge.domain.models import (
     AnchorSource,
+    CanonicalTextLine,
     HeadingCandidate,
     HeadingScoreBreakdown,
     HeadingSourceKind,
     NodeAnchor,
+    OutlineAnchorRecord,
+    OutlineAnchorStatus,
     OutlineEntry,
     TreeSettings,
 )
@@ -30,6 +33,7 @@ class PageArtifacts:
     text: str
     rawdict: dict[str, Any] | None
     page_label: str | None = None
+    canonical_lines: tuple[CanonicalTextLine, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -83,6 +87,30 @@ def tokenize_title(value: str) -> tuple[str, ...]:
 
     normalized = casefold_punct_key(value)
     return tuple(token for token in normalized.split() if token)
+
+
+def _levenshtein_distance(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+
+    previous = list(range(len(right) + 1))
+    for left_index, left_char in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_char in enumerate(right, start=1):
+            cost = 0 if left_char == right_char else 1
+            current.append(
+                min(
+                    previous[right_index] + 1,
+                    current[right_index - 1] + 1,
+                    previous[right_index - 1] + cost,
+                ),
+            )
+        previous = current
+    return previous[-1]
 
 
 def numbering_depth(value: str) -> int | None:
@@ -240,6 +268,43 @@ def build_node_anchor(line: PageLine) -> NodeAnchor:
 
 
 def _line_lists_for_page(page: PageArtifacts) -> tuple[list[PageLine], list[PageLine]]:
+    if page.canonical_lines:
+        text_lines = [
+            PageLine(
+                page_index=line.page_index,
+                text=line.content,
+                normalized_text=line.normalized_text,
+                casefold_punct_text=line.casefold_punct_text,
+                start_offset=line.start_offset,
+                end_offset=line.end_offset,
+                occurrence_index=line.occurrence_index,
+                anchor_source=AnchorSource.TEXT,
+                top_y=line.top_y,
+                font_size=line.font_size,
+            )
+            for line in sorted(
+                page.canonical_lines,
+                key=lambda item: (item.reading_index, item.occurrence_index, item.line_id),
+            )
+        ]
+        rawdict_lines = [
+            PageLine(
+                page_index=line.page_index,
+                text=line.text,
+                normalized_text=line.normalized_text,
+                casefold_punct_text=line.casefold_punct_text,
+                start_offset=line.start_offset,
+                end_offset=line.end_offset,
+                occurrence_index=line.occurrence_index,
+                anchor_source=AnchorSource.RAWDICT,
+                top_y=line.top_y,
+                font_size=line.font_size,
+            )
+            for line in text_lines
+            if line.font_size is not None or line.top_y is not None
+        ]
+        return text_lines, rawdict_lines
+
     text_lines = split_text_lines_with_offsets(page.text, page.page_index)
     rawdict_lines = extract_rawdict_lines(page.rawdict, page.page_index, text_lines)
     return text_lines, rawdict_lines
@@ -250,11 +315,13 @@ def anchor_title_on_page(
     page: PageArtifacts,
     *,
     occurrence_index: int = 0,
+    settings: TreeSettings | None = None,
 ) -> NodeAnchor | None:
     """Anchor a title to the nth matching page line, preferring rawdict-backed grouping."""
 
     normalized = normalized_title_key(title)
     punct_key = casefold_punct_key(title)
+    title_tokens = set(tokenize_title(title))
     text_lines, rawdict_lines = _line_lists_for_page(page)
 
     for candidate_lines in (rawdict_lines, text_lines):
@@ -264,6 +331,27 @@ def anchor_title_on_page(
         punct = [line for line in candidate_lines if line.casefold_punct_text == punct_key]
         if occurrence_index < len(punct):
             return build_node_anchor(punct[occurrence_index])
+        if settings is None:
+            continue
+        if title_tokens:
+            containment = [
+                line
+                for line in candidate_lines
+                if (line_tokens := set(tokenize_title(line.text)))
+                and len(title_tokens & line_tokens) / len(title_tokens)
+                >= settings.title_token_containment_threshold
+            ]
+            if occurrence_index < len(containment):
+                return build_node_anchor(containment[occurrence_index])
+        if len(normalized) <= settings.short_title_max_length_for_edit_distance:
+            edit_matches = [
+                line
+                for line in candidate_lines
+                if _levenshtein_distance(normalized, line.normalized_text)
+                <= settings.short_title_edit_distance_threshold
+            ]
+            if occurrence_index < len(edit_matches):
+                return build_node_anchor(edit_matches[occurrence_index])
     return None
 
 
@@ -357,6 +445,7 @@ def extract_outline_candidates(
     document_id: str,
     pages: tuple[PageArtifacts, ...],
     outline_entries: tuple[OutlineEntry, ...],
+    settings: TreeSettings | None = None,
 ) -> tuple[HeadingCandidate, ...]:
     """Project selected outline entries into anchored high-confidence heading candidates."""
 
@@ -373,7 +462,12 @@ def extract_outline_candidates(
         occurrence_key = (entry.page_index, normalized_title)
         occurrence_index = occurrence_counts[occurrence_key]
         occurrence_counts[occurrence_key] += 1
-        anchor = anchor_title_on_page(entry.title, page, occurrence_index=occurrence_index)
+        anchor = anchor_title_on_page(
+            entry.title,
+            page,
+            occurrence_index=occurrence_index,
+            settings=settings,
+        )
         if anchor is None:
             continue
         candidates.append(
@@ -395,6 +489,100 @@ def extract_outline_candidates(
             ),
         )
     return tuple(candidates)
+
+
+def extract_outline_candidates_with_records(
+    document_id: str,
+    pages: tuple[PageArtifacts, ...],
+    outline_entries: tuple[OutlineEntry, ...],
+    settings: TreeSettings | None = None,
+) -> tuple[tuple[HeadingCandidate, ...], tuple[OutlineAnchorRecord, ...]]:
+    """Project outline entries into anchored candidates plus explicit anchoring outcomes."""
+
+    pages_by_index = {page.page_index: page for page in pages}
+    candidates: list[HeadingCandidate] = []
+    records: list[OutlineAnchorRecord] = []
+    occurrence_counts: dict[tuple[int, str], int] = defaultdict(int)
+    for entry in outline_entries:
+        normalized_title = normalized_title_key(entry.title)
+        if entry.page_index is None:
+            records.append(
+                OutlineAnchorRecord(
+                    document_id=document_id,
+                    title=normalize_heading_text(entry.title),
+                    normalized_title=normalized_title,
+                    page_index=None,
+                    source=entry.source.value,
+                    status=OutlineAnchorStatus.REJECTED,
+                    reason="outline_entry_has_no_page_index",
+                )
+            )
+            continue
+        page = pages_by_index.get(entry.page_index)
+        if page is None:
+            records.append(
+                OutlineAnchorRecord(
+                    document_id=document_id,
+                    title=normalize_heading_text(entry.title),
+                    normalized_title=normalized_title,
+                    page_index=entry.page_index,
+                    source=entry.source.value,
+                    status=OutlineAnchorStatus.REJECTED,
+                    reason="heading_page_artifact_missing",
+                )
+            )
+            continue
+        occurrence_key = (entry.page_index, normalized_title)
+        occurrence_index = occurrence_counts[occurrence_key]
+        occurrence_counts[occurrence_key] += 1
+        anchor = anchor_title_on_page(
+            entry.title,
+            page,
+            occurrence_index=occurrence_index,
+            settings=settings,
+        )
+        if anchor is None:
+            records.append(
+                OutlineAnchorRecord(
+                    document_id=document_id,
+                    title=normalize_heading_text(entry.title),
+                    normalized_title=normalized_title,
+                    page_index=entry.page_index,
+                    source=entry.source.value,
+                    status=OutlineAnchorStatus.OUTLINE_KNOWN_BUT_UNANCHORED,
+                    reason="page_present_but_title_not_visible",
+                )
+            )
+            continue
+        candidate = HeadingCandidate(
+            document_id=document_id,
+            page_index=entry.page_index,
+            title=normalize_heading_text(entry.title),
+            normalized_title=normalized_title,
+            anchor=anchor,
+            source_kind=HeadingSourceKind.OUTLINE,
+            level_hint=entry.level,
+            outline_level_hint=entry.level,
+            score_breakdown=HeadingScoreBreakdown(
+                toc_overlap_signal=40,
+                final_score=100,
+            ),
+            keep=True,
+            high_confidence=True,
+        )
+        candidates.append(candidate)
+        records.append(
+            OutlineAnchorRecord(
+                document_id=document_id,
+                title=candidate.title,
+                normalized_title=candidate.normalized_title,
+                page_index=entry.page_index,
+                source=entry.source.value,
+                status=OutlineAnchorStatus.ANCHORED_TO_PHYSICAL_TEXT,
+                anchor=anchor,
+            )
+        )
+    return tuple(candidates), tuple(records)
 
 
 def extract_inferred_candidates(
@@ -460,6 +648,6 @@ def extract_heading_candidates(
     """Return both outline-derived and inferred heading candidates."""
 
     return (
-        extract_outline_candidates(document_id, pages, outline_entries),
+        extract_outline_candidates(document_id, pages, outline_entries, settings=settings),
         extract_inferred_candidates(document_id, pages, outline_entries, settings),
     )

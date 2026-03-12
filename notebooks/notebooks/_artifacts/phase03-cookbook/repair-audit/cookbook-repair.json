@@ -1,0 +1,160 @@
+{
+  "assurance_mode": "provider_native_strict",
+  "attempts": [
+    {
+      "assurance_mode": "provider_native_strict",
+      "attempt_number": 1,
+      "completed_at": "2026-03-11T14:04:03.549783Z",
+      "delay_before_attempt_seconds": 0.0,
+      "failure_category": null,
+      "failure_message": null,
+      "model_name": "gpt-4.1-mini",
+      "provider_name": "openai_http",
+      "provider_request_id": "phase03-cookbook-openai-request",
+      "provider_response_id": "phase03-cookbook-openai-response",
+      "retryable": false,
+      "started_at": "2026-03-11T14:04:03.548745Z",
+      "status_code": 200,
+      "structured_output_mode": "provider_native",
+      "usage": {
+        "input_tokens": 6,
+        "output_tokens": 7,
+        "total_tokens": 13
+      }
+    }
+  ],
+  "audit_id": "69cd8135ec804d57a3ae33ac7167e5bc",
+  "captured_at": "2026-03-11T14:04:03.549919Z",
+  "failure": null,
+  "messages": [
+    {
+      "content": "You are assisting bounded hierarchy repair for StrataForge. Only reason about the single repair request provided. Never invent sections, page spans, provenance, or titles not supported by the request. If evidence is insufficient, return requested_but_skipped or proposal_rejected.",
+      "role": "system"
+    },
+    {
+      "content": "Return a structured repair decision for the request below.\nAllowed statuses: requested_but_skipped, proposal_generated, proposal_rejected.\nOnly set proposed_title for title normalization. Only set resolved_level for adjacent level ambiguity or partial TOC repair.\n\nRepair request:\n{\n  \"details\": {\n    \"candidate_title\": \"overview\"\n  },\n  \"rationale\": \"cookbook repair exercise\",\n  \"repair_kind\": \"title_normalization\",\n  \"request_id\": \"cookbook-repair\",\n  \"subject_id\": \"node-123\"\n}",
+      "role": "user"
+    }
+  ],
+  "metadata": {
+    "repair_kind": "title_normalization",
+    "subject_id": "node-123"
+  },
+  "model_name": "gpt-4.1-mini",
+  "operation_name": "repair:title_normalization",
+  "parsed_output": {
+    "message": "normalize title casing",
+    "proposed_title": "Overview",
+    "request_id": "cookbook-repair",
+    "resolved_level": null,
+    "status": "proposal_generated"
+  },
+  "provider_name": "openai_http",
+  "request_id": "cookbook-repair",
+  "request_payload": {
+    "input": [
+      {
+        "content": "You are assisting bounded hierarchy repair for StrataForge. Only reason about the single repair request provided. Never invent sections, page spans, provenance, or titles not supported by the request. If evidence is insufficient, return requested_but_skipped or proposal_rejected.",
+        "role": "system"
+      },
+      {
+        "content": "Return a structured repair decision for the request below.\nAllowed statuses: requested_but_skipped, proposal_generated, proposal_rejected.\nOnly set proposed_title for title normalization. Only set resolved_level for adjacent level ambiguity or partial TOC repair.\n\nRepair request:\n{\n  \"details\": {\n    \"candidate_title\": \"overview\"\n  },\n  \"rationale\": \"cookbook repair exercise\",\n  \"repair_kind\": \"title_normalization\",\n  \"request_id\": \"cookbook-repair\",\n  \"subject_id\": \"node-123\"\n}",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-4.1-mini",
+    "temperature": 0.0,
+    "text": {
+      "format": {
+        "name": "RepairPromptResponse",
+        "schema": {
+          "$defs": {
+            "RepairStatus": {
+              "description": "Auditable state of a bounded repair request/decision.",
+              "enum": [
+                "not_requested",
+                "requested_but_skipped",
+                "noop_applied",
+                "proposal_generated",
+                "proposal_rejected"
+              ],
+              "title": "RepairStatus",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Typed structured response expected from a repair prompt.",
+          "properties": {
+            "message": {
+              "minLength": 1,
+              "title": "Message",
+              "type": "string"
+            },
+            "proposed_title": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Proposed Title"
+            },
+            "request_id": {
+              "minLength": 1,
+              "title": "Request Id",
+              "type": "string"
+            },
+            "resolved_level": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Resolved Level"
+            },
+            "status": {
+              "$ref": "#/$defs/RepairStatus"
+            }
+          },
+          "required": [
+            "request_id",
+            "status",
+            "message"
+          ],
+          "title": "RepairPromptResponse",
+          "type": "object"
+        },
+        "strict": true,
+        "type": "json_schema"
+      }
+    }
+  },
+  "response_payload": {
+    "id": "phase03-cookbook-openai-response",
+    "output": [
+      {
+        "content": [
+          {
+            "text": "{\"request_id\": \"cookbook-repair\", \"status\": \"proposal_generated\", \"message\": \"normalize title casing\", \"proposed_title\": \"Overview\"}",
+            "type": "output_text"
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "input_tokens": 6,
+      "output_tokens": 7,
+      "total_tokens": 13
+    }
+  },
+  "structured_output_mode": "provider_native"
+}

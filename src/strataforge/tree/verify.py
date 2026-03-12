@@ -10,6 +10,8 @@ from strataforge.domain.models import (
     ContentSpan,
     HierarchyNode,
     LLMVerificationAssistRecord,
+    OutlineAnchorRecord,
+    OutlineAnchorStatus,
     PageSpan,
     TitleMatchTier,
     TreeNodeVerificationResult,
@@ -287,6 +289,7 @@ def verify_hierarchy(
     unassigned_spans: tuple[UnassignedPageSpan, ...],
     settings: TreeSettings,
     verification_assistant: LLMVerificationAssistant | None = None,
+    outline_anchor_records: tuple[OutlineAnchorRecord, ...] = (),
 ) -> tuple[tuple[HierarchyNode, ...], VerificationReport]:
     """Verify title grounding, level/span consistency, and page coverage."""
 
@@ -309,6 +312,7 @@ def verify_hierarchy(
                 ),
             )
         else:
+            assist_record: LLMVerificationAssistRecord | None = None
             match_tier = determine_title_match_tier(node.title, page, settings)
             if match_tier == TitleMatchTier.NONE and node.heading_anchor.start_offset > 0:
                 match_tier = determine_anchor_local_match_tier(
@@ -318,16 +322,27 @@ def verify_hierarchy(
                     settings=settings,
                 )
             if match_tier == TitleMatchTier.NONE and verification_assistant is not None:
-                match_tier, _ = verification_assistant.assist(
+                match_tier, assist_record = verification_assistant.assist(
                     node=node,
                     page=page,
                     settings=settings,
                 )
             if match_tier == TitleMatchTier.NONE:
+                issue_code = "page-present-but-title-not-visible"
+                issue_message = "node title is not visible in bounded physical page text"
+                if (
+                    assist_record is not None
+                    and _is_positive_verdict(assist_record.llm_verdict)
+                    and not assist_record.grounded_quotes
+                ):
+                    issue_code = "llm-claimed-but-ungrounded"
+                    issue_message = (
+                        "verification assistant claimed support without grounded source quotes"
+                    )
                 issues.append(
                     VerificationIssue(
-                        code="heading-title-mismatch",
-                        message="node title could not be matched against bounded page-local lines",
+                        code=issue_code,
+                        message=issue_message,
                         severity=VerificationSeverity.ERROR,
                         page_span=node.page_span,
                     ),
@@ -388,6 +403,37 @@ def verify_hierarchy(
             coverage[page_index] = True
 
     document_issues: list[VerificationIssue] = []
+    for record in outline_anchor_records:
+        if record.status is OutlineAnchorStatus.ANCHORED_TO_PHYSICAL_TEXT:
+            continue
+        if record.status is OutlineAnchorStatus.OUTLINE_KNOWN_BUT_UNANCHORED:
+            issue_code = (
+                "page-present-but-title-not-visible"
+                if record.reason == "page_present_but_title_not_visible"
+                else "outline-known-but-unanchored"
+            )
+            issue_message = (
+                "outline entry is known but could not be anchored to physical text"
+                if issue_code == "outline-known-but-unanchored"
+                else "outline entry points to a page where the title is not physically visible"
+            )
+        else:
+            issue_code = "outline-entry-rejected"
+            issue_message = record.reason or "outline entry could not be used for anchoring"
+        page_span = (
+            PageSpan(start_page=record.page_index, end_page=record.page_index)
+            if record.page_index is not None
+            else None
+        )
+        document_issues.append(
+            VerificationIssue(
+                code=issue_code,
+                message=issue_message,
+                severity=VerificationSeverity.WARNING,
+                page_span=page_span,
+            )
+        )
+
     for page_index, is_covered in enumerate(coverage):
         if not is_covered:
             document_issues.append(
@@ -402,9 +448,12 @@ def verify_hierarchy(
             )
 
     has_node_failure = any(result.status != VerificationStatus.PASSED for result in node_results)
+    has_document_error = any(
+        issue.severity == VerificationSeverity.ERROR for issue in document_issues
+    )
     report_status = (
         VerificationStatus.FAILED
-        if has_node_failure or document_issues
+        if has_node_failure or has_document_error
         else VerificationStatus.PASSED
     )
     report = VerificationReport(

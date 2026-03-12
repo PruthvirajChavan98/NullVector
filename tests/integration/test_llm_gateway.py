@@ -34,6 +34,8 @@ from strataforge.llm import (
 from strataforge.tree import build_tree
 from strataforge.tree import service as tree_service_module
 
+from ..support.acquisition_fixtures import convert_legacy_parse_fixture_to_acquisition
+
 FIXTURE_ROOT = Path("fixtures/phase02/inputs")
 
 
@@ -195,7 +197,7 @@ def test_openai_non_retryable_failures_do_not_backoff(
 def copy_fixture(case_name: str, tmp_path: Path) -> Path:
     destination = tmp_path / case_name
     shutil.copytree(FIXTURE_ROOT / case_name, destination)
-    return destination / "manifest.json"
+    return convert_legacy_parse_fixture_to_acquisition(destination)
 
 
 def test_gateway_repair_engine_emits_typed_decisions_without_breaking_tree_verification(
@@ -203,9 +205,11 @@ def test_gateway_repair_engine_emits_typed_decisions_without_breaking_tree_verif
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    parse_manifest_path = copy_fixture("clean_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
     tree_run_id = "gateway-repair-tree"
-    audit_root = parse_manifest_path.parent / "tree" / tree_run_id / "repair" / "gateway-audit"
+    audit_root = (
+        acquisition_manifest_path.parent / "tree" / tree_run_id / "repair" / "gateway-audit"
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content.decode("utf-8"))
@@ -267,7 +271,7 @@ def test_gateway_repair_engine_emits_typed_decisions_without_breaking_tree_verif
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id=tree_run_id,
         ),
         repair_engine=repair_engine,

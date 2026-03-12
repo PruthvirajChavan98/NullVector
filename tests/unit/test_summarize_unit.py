@@ -129,6 +129,8 @@ def test_leaf_passthrough_avoids_gateway_calls(tmp_path: Path) -> None:
 
     assert adapter.calls == []
     assert summaries[0].summary_method is NodeSummaryMethod.PASSTHROUGH
+    assert summaries[0].tokenizer_identity == "heuristic"
+    assert summaries[0].exact_token_count is None
     assert node_cards[0].summary == "Leaf\nshort body"
 
 
@@ -143,6 +145,10 @@ def test_long_leaf_uses_llm_leaf_summarization(tmp_path: Path) -> None:
 
     assert [call[0] for call in adapter.calls] == ["summarize_leaf_node"]
     assert summaries[0].summary_method is NodeSummaryMethod.LLM_LEAF
+    assert summaries[0].gateway_provider_name == "capture"
+    assert summaries[0].gateway_assurance_mode == "transport_compatible"
+    assert summaries[0].gateway_usage is not None
+    assert summaries[0].gateway_usage.total_tokens == 2
     assert node_cards[0].summary == "condensed child summary"
     assert node_cards[0].keywords == ("k1", "k2")
 
@@ -184,6 +190,7 @@ def test_parent_summarization_uses_prefix_text_and_child_summaries(tmp_path: Pat
     assert "prefix only context." in parent_prompt
     assert "RAW_CHILD_PHRASE RAW_CHILD_PHRASE RAW_CHILD_PHRASE" not in parent_prompt
     assert summaries[0].summary_method is NodeSummaryMethod.LLM_PARENT
+    assert summaries[0].tokenizer_identity == "heuristic"
     assert node_cards[0].summary == "parent rollup summary"
 
 

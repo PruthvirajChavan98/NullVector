@@ -162,12 +162,12 @@ class OpenAIResponsesHTTPAdapter:
     provider_name = "openai_http"
 
     def __init__(self, *, client: httpx.Client | None = None) -> None:
-        self._client = client
+        self._client = client or httpx.Client()
+        self._owns_client = client is None
 
-    def _get_client(self, timeout_seconds: float) -> httpx.Client:
-        if self._client is not None:
-            return self._client
-        return httpx.Client(timeout=timeout_seconds)
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
 
     def invoke(
         self,
@@ -257,12 +257,12 @@ class OpenAIResponsesHTTPAdapter:
         if request.idempotency_key is not None:
             headers["Idempotency-Key"] = request.idempotency_key
 
-        client = self._get_client(config.timeout_seconds)
         try:
-            response = client.post(
+            response = self._client.post(
                 f"{provider.base_url.rstrip('/')}/responses",
                 json=raw_request_payload,
                 headers=headers,
+                timeout=config.timeout_seconds,
             )
         except httpx.TimeoutException as exc:
             return ProviderInvocationResult(

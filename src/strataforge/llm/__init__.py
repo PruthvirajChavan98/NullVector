@@ -2,6 +2,7 @@
 
 from strataforge.llm.errors import (
     GatewayAuthError,
+    GatewayConfigurationError,
     GatewayContextLengthError,
     GatewayError,
     GatewayNetworkError,
@@ -11,6 +12,18 @@ from strataforge.llm.errors import (
     GatewayUnknownProviderError,
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
+)
+from strataforge.llm.multimodal_gateway import (
+    MultimodalFailureCategory,
+    MultimodalGatewayConfig,
+    MultimodalGatewayError,
+    MultimodalGatewayRequest,
+    MultimodalGatewayService,
+    NoopMultimodalProviderAdapter,
+    NoopMultimodalResponse,
+    RegionImageInput,
+    VisualEnrichmentService,
+    VisualInsightResponse,
 )
 from strataforge.llm.protocols import RedactionHook, StructuredLLMGateway
 from strataforge.llm.providers import (
@@ -46,6 +59,7 @@ __all__ = [
     "GatewayAuditRecord",
     "GatewayAuthError",
     "GatewayConfig",
+    "GatewayConfigurationError",
     "GatewayContextLengthError",
     "GatewayError",
     "GatewayFailure",
@@ -67,11 +81,21 @@ __all__ = [
     "LLMRole",
     "LiteLLMProviderConfig",
     "LiteLLMSDKAdapter",
+    "MultimodalFailureCategory",
+    "MultimodalGatewayConfig",
+    "MultimodalGatewayError",
+    "MultimodalGatewayRequest",
+    "MultimodalGatewayService",
+    "NoopMultimodalProviderAdapter",
+    "NoopMultimodalResponse",
     "NoopProviderAdapter",
     "NoopScriptedResponse",
     "OpenAIProviderConfig",
     "OpenAIResponsesHTTPAdapter",
     "RedactionHook",
+    "RegionImageInput",
     "StructuredLLMGateway",
     "StructuredOutputMode",
+    "VisualEnrichmentService",
+    "VisualInsightResponse",
 ]

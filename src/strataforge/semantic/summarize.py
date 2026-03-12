@@ -1,0 +1,322 @@
+"""Bottom-up summarization over committed hierarchy nodes."""
+
+from __future__ import annotations
+
+import json
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
+
+from strataforge.domain.models import (
+    HierarchyNode,
+    NodeCard,
+    NodeSummary,
+    NodeSummaryMethod,
+    SemanticUsage,
+)
+from strataforge.llm.prompts import SummarizationPromptResponse, build_summarization_messages
+from strataforge.llm.protocols import StructuredLLMGateway
+from strataforge.llm.types import GatewayRequest, GatewayUsage
+from strataforge.observability import EventBus, NodeSummarized
+from strataforge.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
+from strataforge.tree.headings import PageArtifacts
+
+LEAF_PASSTHROUGH_TOKEN_THRESHOLD = 200
+
+
+def _json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump") and callable(value.model_dump):
+        return _json_safe(value.model_dump(mode="json"))
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    return str(value)
+
+
+def _write_json(path: Path, payload: Any) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def estimate_token_count(text: str) -> int:
+    """Compatibility token estimator used by older callers and tests."""
+
+    return HeuristicTokenizer().estimate_tokens(text)
+
+
+def _usage_snapshot(usage: GatewayUsage | None) -> SemanticUsage | None:
+    if usage is None:
+        return None
+    return SemanticUsage(
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+    )
+
+
+def _stable_node_order(node: HierarchyNode) -> tuple[int, int, int, str]:
+    return (
+        node.page_span.start_page,
+        node.heading_anchor.start_offset,
+        node.level,
+        node.node_id,
+    )
+
+
+def _pages_for_node(
+    node: HierarchyNode,
+    pages_by_index: dict[int, PageArtifacts],
+) -> tuple[PageArtifacts, ...]:
+    return tuple(
+        pages_by_index[page_index]
+        for page_index in range(node.page_span.start_page, node.page_span.end_page + 1)
+        if page_index in pages_by_index
+    )
+
+
+def _node_raw_text(node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]) -> str:
+    return "\n".join(page.text for page in _pages_for_node(node, pages_by_index)).strip()
+
+
+def _bounded_leaf_excerpts(
+    node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]
+) -> tuple[str, ...]:
+    excerpts: list[str] = []
+    remaining_chars = 1600
+    for page in _pages_for_node(node, pages_by_index):
+        if remaining_chars <= 0:
+            break
+        excerpt = page.text[:remaining_chars].strip()
+        if excerpt:
+            excerpts.append(excerpt)
+            remaining_chars -= len(excerpt)
+    return tuple(excerpts)
+
+
+def _parent_prefix_text(
+    node: HierarchyNode,
+    children: tuple[HierarchyNode, ...],
+    pages_by_index: dict[int, PageArtifacts],
+) -> str:
+    if not children:
+        return _node_raw_text(node, pages_by_index)
+
+    first_child = sorted(children, key=_stable_node_order)[0]
+    parts: list[str] = []
+    for page in _pages_for_node(node, pages_by_index):
+        if page.page_index < node.heading_anchor.page:
+            continue
+        if page.page_index > first_child.heading_anchor.page:
+            break
+
+        start_offset = (
+            node.heading_anchor.end_offset if page.page_index == node.heading_anchor.page else 0
+        )
+        end_offset = len(page.text)
+        if page.page_index == first_child.heading_anchor.page:
+            end_offset = min(end_offset, first_child.heading_anchor.start_offset)
+        if start_offset < end_offset:
+            parts.append(page.text[start_offset:end_offset].strip())
+    return "\n".join(part for part in parts if part).strip()
+
+
+class NodeSummarizer:
+    """Bottom-up committed-node summarizer over normalized synthesis text."""
+
+    def __init__(
+        self,
+        gateway: StructuredLLMGateway,
+        max_workers: int = 4,
+        tokenizer: Tokenizer | None = None,
+        event_bus: EventBus | None = None,
+    ) -> None:
+        self._gateway = gateway
+        self._max_workers = max_workers
+        self._tokenizer = resolve_tokenizer(tokenizer)
+        self._event_bus = event_bus
+        self._artifact_path: str | None = None
+
+    @property
+    def artifact_path(self) -> str | None:
+        return self._artifact_path
+
+    def summarize(
+        self,
+        *,
+        nodes: tuple[HierarchyNode, ...],
+        pages: tuple[PageArtifacts, ...],
+        artifact_root: str | None = None,
+    ) -> tuple[tuple[HierarchyNode, ...], tuple[NodeCard, ...], tuple[NodeSummary, ...]]:
+        pages_by_index = {page.page_index: page for page in pages}
+        children_by_parent: dict[str, tuple[HierarchyNode, ...]] = {}
+        for node in nodes:
+            if node.parent_id is None:
+                continue
+            siblings = list(children_by_parent.get(node.parent_id, ()))
+            siblings.append(node)
+            children_by_parent[node.parent_id] = tuple(sorted(siblings, key=_stable_node_order))
+
+        summaries_by_id: dict[str, NodeSummary] = {}
+        ordered_nodes = sorted(nodes, key=_stable_node_order)
+        levels = sorted({node.level for node in ordered_nodes}, reverse=True)
+
+        for level in levels:
+            level_nodes = [node for node in ordered_nodes if node.level == level]
+            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+                level_summaries = list(
+                    executor.map(
+                        lambda node: self._summarize_node(
+                            node=node,
+                            pages_by_index=pages_by_index,
+                            children=children_by_parent.get(node.node_id, ()),
+                            summaries_by_id=summaries_by_id,
+                        ),
+                        level_nodes,
+                    )
+                )
+            for summary in level_summaries:
+                summaries_by_id[summary.node_id] = summary
+
+        ordered_summaries = tuple(summaries_by_id[node.node_id] for node in ordered_nodes)
+        node_cards = tuple(
+            NodeCard(
+                node_id=node.node_id,
+                document_id=node.document_id,
+                path=node.path,
+                level=node.level,
+                title=node.title,
+                page_span=node.page_span,
+                owned_spans=node.owned_spans,
+                summary=summaries_by_id[node.node_id].summary,
+                keywords=summaries_by_id[node.node_id].keywords,
+                summary_method=summaries_by_id[node.node_id].summary_method,
+                summary_token_count=summaries_by_id[node.node_id].token_count,
+                source_anchors=node.source_anchors,
+            )
+            for node in ordered_nodes
+        )
+        if artifact_root is not None:
+            self._artifact_path = _write_json(
+                Path(artifact_root) / "summaries" / "node-summaries.json",
+                ordered_summaries,
+            )
+        return tuple(ordered_nodes), node_cards, ordered_summaries
+
+    def _summarize_node(
+        self,
+        *,
+        node: HierarchyNode,
+        pages_by_index: dict[int, PageArtifacts],
+        children: tuple[HierarchyNode, ...],
+        summaries_by_id: dict[str, NodeSummary],
+    ) -> NodeSummary:
+        if not children:
+            raw_text = _node_raw_text(node, pages_by_index)
+            token_count, estimated_token_count, exact_token_count = self._token_counts(raw_text)
+            if token_count < LEAF_PASSTHROUGH_TOKEN_THRESHOLD:
+                summary = NodeSummary(
+                    node_id=node.node_id,
+                    summary=raw_text or node.title,
+                    summary_method=NodeSummaryMethod.PASSTHROUGH,
+                    token_count=token_count,
+                    estimated_token_count=estimated_token_count,
+                    exact_token_count=exact_token_count,
+                    tokenizer_identity=self._tokenizer.identity,
+                )
+                self._publish_summary_event(node, summary)
+                return summary
+            response = self._gateway.invoke(
+                GatewayRequest[SummarizationPromptResponse](
+                    operation_name="summarize_leaf_node",
+                    messages=build_summarization_messages(
+                        node_title=node.title,
+                        excerpts=_bounded_leaf_excerpts(node, pages_by_index),
+                    ),
+                    response_model=SummarizationPromptResponse,
+                )
+            )
+            summary = NodeSummary(
+                node_id=node.node_id,
+                summary=response.output.summary,
+                keywords=response.output.keywords,
+                summary_method=NodeSummaryMethod.LLM_LEAF,
+                token_count=token_count,
+                estimated_token_count=estimated_token_count,
+                exact_token_count=exact_token_count,
+                tokenizer_identity=self._tokenizer.identity,
+                gateway_provider_name=response.provider_name,
+                gateway_assurance_mode=response.assurance_mode.value,
+                gateway_audit_path=response.audit_path,
+                gateway_usage=_usage_snapshot(response.usage),
+            )
+            self._publish_summary_event(node, summary)
+            return summary
+
+        child_pairs = tuple(
+            (child.title, summaries_by_id[child.node_id].summary)
+            for child in sorted(children, key=_stable_node_order)
+        )
+        prefix_text = _parent_prefix_text(node, children, pages_by_index)
+        semantic_text = (
+            prefix_text + "\n" + "\n".join(f"{title}: {summary}" for title, summary in child_pairs)
+        )
+        token_count, estimated_token_count, exact_token_count = self._token_counts(semantic_text)
+        response = self._gateway.invoke(
+            GatewayRequest[SummarizationPromptResponse](
+                operation_name="summarize_parent_node",
+                messages=build_summarization_messages(
+                    node_title=node.title,
+                    parent_prefix_text=prefix_text,
+                    child_summaries=child_pairs,
+                ),
+                response_model=SummarizationPromptResponse,
+            )
+        )
+        summary = NodeSummary(
+            node_id=node.node_id,
+            summary=response.output.summary,
+            keywords=response.output.keywords,
+            summary_method=NodeSummaryMethod.LLM_PARENT,
+            token_count=token_count,
+            estimated_token_count=estimated_token_count,
+            exact_token_count=exact_token_count,
+            tokenizer_identity=self._tokenizer.identity,
+            gateway_provider_name=response.provider_name,
+            gateway_assurance_mode=response.assurance_mode.value,
+            gateway_audit_path=response.audit_path,
+            gateway_usage=_usage_snapshot(response.usage),
+        )
+        self._publish_summary_event(node, summary)
+        return summary
+
+    def _token_counts(self, text: str) -> tuple[int, int, int | None]:
+        estimated = self._tokenizer.estimate_tokens(text)
+        exact = self._tokenizer.count_tokens(text)
+        return exact, estimated, exact if self._tokenizer.supports_exact_counts else None
+
+    def _publish_summary_event(self, node: HierarchyNode, summary: NodeSummary) -> None:
+        if self._event_bus is None:
+            return
+        self._event_bus.publish(
+            NodeSummarized(
+                event_id=f"{node.node_id}-summary",
+                event_name="NodeSummarized",
+                document_id=node.document_id,
+                node_id=node.node_id,
+                summary_method=summary.summary_method.value,
+            )
+        )
+
+
+__all__ = [
+    "LEAF_PASSTHROUGH_TOKEN_THRESHOLD",
+    "NodeSummarizer",
+    "estimate_token_count",
+]

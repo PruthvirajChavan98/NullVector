@@ -10,6 +10,7 @@ import fitz
 from pypdf import PdfReader
 from pypdf import __version__ as pypdf_version
 
+from strataforge.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
 from strataforge.domain.models import (
     DocumentFingerprint,
     OcrMode,
@@ -300,6 +301,30 @@ class ParserSubstrateService:
         )
 
     def _validate_parser_versions(self, settings: ParserSettings) -> None:
+        if settings.pymupdf_version not in CERTIFIED_PYMUPDF_VERSIONS:
+            msg = (
+                f"configured PyMuPDF version {settings.pymupdf_version} is not in the certified "
+                f"set {CERTIFIED_PYMUPDF_VERSIONS}"
+            )
+            raise ExtractionFailureError(msg, document_id="unknown")
+        if settings.pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
+            msg = (
+                f"configured pypdf version {settings.pypdf_version} is not in the certified set "
+                f"{CERTIFIED_PYPDF_VERSIONS}"
+            )
+            raise ExtractionFailureError(msg, document_id="unknown")
+        if fitz.VersionBind not in CERTIFIED_PYMUPDF_VERSIONS:
+            msg = (
+                f"installed PyMuPDF version {fitz.VersionBind} is outside the certified set "
+                f"{CERTIFIED_PYMUPDF_VERSIONS}"
+            )
+            raise ExtractionFailureError(msg, document_id="unknown")
+        if pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
+            msg = (
+                f"installed pypdf version {pypdf_version} is outside the certified set "
+                f"{CERTIFIED_PYPDF_VERSIONS}"
+            )
+            raise ExtractionFailureError(msg, document_id="unknown")
         if fitz.VersionBind != settings.pymupdf_version:
             msg = (
                 f"configured PyMuPDF version {settings.pymupdf_version} "

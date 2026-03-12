@@ -57,6 +57,10 @@ class GatewayUnknownProviderError(GatewayError):
     """Unknown or unclassified provider failure."""
 
 
+class GatewayConfigurationError(Exception):
+    """Raised when provider capabilities and configured modes are inconsistent."""
+
+
 def error_from_failure(
     failure: GatewayFailure,
     *,

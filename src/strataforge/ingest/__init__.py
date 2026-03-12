@@ -1,5 +1,6 @@
-"""Deterministic parser substrate entrypoints."""
+"""Primary v2 acquisition runtime entrypoints."""
 
+from strataforge.ingest.acquisition_service import AcquisitionService, acquire_document
 from strataforge.ingest.errors import (
     ExtractionFailureError,
     InvalidSourceError,
@@ -7,14 +8,15 @@ from strataforge.ingest.errors import (
     ParseConflictError,
     ParseSubstrateError,
 )
-from strataforge.ingest.service import ParserSubstrateService, parse_document
+from strataforge.ingest.providers import NativePyMuPDFAcquisitionProvider
 
 __all__ = [
+    "AcquisitionService",
     "ExtractionFailureError",
     "InvalidSourceError",
     "MissingOcrRuntimeError",
+    "NativePyMuPDFAcquisitionProvider",
     "ParseConflictError",
     "ParseSubstrateError",
-    "ParserSubstrateService",
-    "parse_document",
+    "acquire_document",
 ]

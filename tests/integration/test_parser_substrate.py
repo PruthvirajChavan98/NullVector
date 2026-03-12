@@ -8,9 +8,10 @@ from typing import Any, cast
 
 import pytest
 
+from strataforge.compat.legacy_parse import parse_document
 from strataforge.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
 from strataforge.domain.models import ParseRequest, ParserSettings
-from strataforge.ingest import MissingOcrRuntimeError, ParseConflictError, parse_document
+from strataforge.ingest import MissingOcrRuntimeError, ParseConflictError
 
 FIXTURE_DIR = Path("fixtures/pdfs/phase01")
 EXPECTED_DIR = Path("fixtures/expected/phase01")

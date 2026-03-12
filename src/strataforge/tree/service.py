@@ -5,22 +5,25 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel
 
 from strataforge.domain.models import (
+    AcquisitionRunManifest,
+    CanonicalTextSubstrate,
     DecompositionMethod,
     HeadingCandidate,
     HierarchyBuildReport,
     HierarchyNode,
     HierarchyStrategy,
+    OutlineAnchorRecord,
     OutlineEntry,
+    OutlineQualityReport,
     OutlineSource,
     OutlineTrustMode,
-    PageLedgerRow,
-    ParseRunManifest,
     RepairDecision,
     RepairStatus,
     TitleMatchTier,
@@ -31,12 +34,19 @@ from strataforge.domain.models import (
 )
 from strataforge.ingest.artifacts import canonical_json_bytes
 from strataforge.llm.protocols import StructuredLLMGateway
+from strataforge.observability import (
+    EventBus,
+    HierarchyStrategySelected,
+    NodeCommitted,
+    NodeVerificationFailed,
+)
+from strataforge.runtime_validation import validate_canonical_text_substrate_contract
 from strataforge.tree.anchors import attach_content_anchors
 from strataforge.tree.decompose import NodeDecomposer
 from strataforge.tree.headings import (
     PageArtifacts,
     extract_inferred_candidates,
-    extract_outline_candidates,
+    extract_outline_candidates_with_records,
 )
 from strataforge.tree.hierarchy import (
     attach_default_owned_spans,
@@ -63,6 +73,24 @@ class TreePipelineError(Exception):
 
 class TreeConflictError(TreePipelineError):
     """Raised when a tree run id is reused with different effective inputs."""
+
+
+@dataclass(frozen=True)
+class TreeInputBundle:
+    """Normalized tree input boundary over acquisition manifests."""
+
+    manifest_path: Path
+    artifact_root: Path
+    registry_root: Path
+    document_id: str
+    page_count: int
+    input_identity: str
+    fingerprint_sha256: str
+    selected_source: OutlineSource
+    outline_entries: tuple[OutlineEntry, ...]
+    outline_anchor_records: tuple[OutlineAnchorRecord, ...]
+    outline_quality_reports: tuple[OutlineQualityReport, ...]
+    pages: tuple[PageArtifacts, ...]
 
 
 def _json_safe(value: Any) -> Any:
@@ -92,7 +120,11 @@ def _settings_digest(request: TreeBuildRequest) -> str:
 
 def _resolve_artifact_path(parse_root: Path, stored_path: str) -> Path:
     path = Path(stored_path)
-    return path if path.is_absolute() else parse_root / path
+    if path.is_absolute():
+        return path
+    if path.exists():
+        return path.resolve()
+    return parse_root / path
 
 
 def _read_json(path: Path) -> Any:
@@ -102,30 +134,33 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_parse_manifest(parse_manifest_path: Path) -> ParseRunManifest:
-    return ParseRunManifest.model_validate_json(parse_manifest_path.read_text(encoding="utf-8"))
+def _load_acquisition_manifest(acquisition_manifest_path: Path) -> AcquisitionRunManifest:
+    return AcquisitionRunManifest.model_validate_json(
+        acquisition_manifest_path.read_text(encoding="utf-8")
+    )
 
 
 def _resolve_tree_registry_root(
-    parse_manifest_path: Path,
-    parse_manifest: ParseRunManifest,
+    input_root: Path,
+    *,
+    input_run_id: str,
+    document_id: str,
 ) -> Path:
-    parse_root = parse_manifest_path.parent
-    if (
-        parse_root.name == parse_manifest.document_id
-        and parse_root.parent.name == parse_manifest.parse_run_id
-    ):
-        return parse_root.parent.parent / "_tree_runs"
-    return parse_root.parent / "_tree_runs"
+    if input_root.name == document_id and input_root.parent.name == input_run_id:
+        return input_root.parent.parent / "_tree_runs"
+    return input_root.parent / "_tree_runs"
 
 
-def _load_outline_entries(
-    parse_root: Path, parse_manifest: ParseRunManifest
+def _load_acquisition_outline_entries(
+    acquisition_root: Path,
+    acquisition_manifest: AcquisitionRunManifest,
 ) -> tuple[OutlineSource, tuple[OutlineEntry, ...]]:
-    selected_outline_path = _resolve_artifact_path(parse_root, parse_manifest.selected_outline_path)
+    selected_outline_path = _resolve_artifact_path(
+        acquisition_root, acquisition_manifest.selected_outline_path
+    )
     payload = cast(dict[str, Any], _read_json(selected_outline_path))
     selected_source = OutlineSource(
-        payload.get("selected_source", parse_manifest.selected_outline_source)
+        payload.get("selected_source", acquisition_manifest.selected_outline_source)
     )
     entries = tuple(
         OutlineEntry.model_validate({**entry, "source": OutlineSource(entry["source"])})
@@ -134,39 +169,70 @@ def _load_outline_entries(
     return selected_source, entries
 
 
-def _load_ledger_rows(
-    parse_root: Path, parse_manifest: ParseRunManifest
-) -> tuple[PageLedgerRow, ...]:
-    ledger_path = _resolve_artifact_path(parse_root, parse_manifest.ledger_path)
-    rows: list[PageLedgerRow] = []
-    for line in ledger_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        rows.append(PageLedgerRow.model_validate_json(line))
-    return tuple(rows)
+def _load_canonical_text_substrate(
+    acquisition_root: Path,
+    acquisition_manifest: AcquisitionRunManifest,
+) -> CanonicalTextSubstrate:
+    try:
+        substrate_path = validate_canonical_text_substrate_contract(
+            acquisition_root=acquisition_root,
+            manifest=acquisition_manifest,
+        )
+    except ValueError as exc:
+        raise TreePipelineError(str(exc)) from exc
+    return CanonicalTextSubstrate.model_validate_json(substrate_path.read_text(encoding="utf-8"))
 
 
-def _load_page_artifacts(
-    parse_root: Path, ledger_rows: tuple[PageLedgerRow, ...]
+def _load_projection_page_artifacts(
+    text_substrate: CanonicalTextSubstrate,
 ) -> tuple[PageArtifacts, ...]:
     pages: list[PageArtifacts] = []
-    for row in sorted(ledger_rows, key=lambda item: item.page_index):
-        text_path = _resolve_artifact_path(parse_root, row.text_artifact_path)
-        rawdict_path_value = row.ocr_rawdict_artifact_path or row.native_rawdict_artifact_path
-        rawdict = None
-        if rawdict_path_value is not None:
-            rawdict = cast(
-                dict[str, Any], _read_json(_resolve_artifact_path(parse_root, rawdict_path_value))
-            )
+    for page in sorted(text_substrate.pages, key=lambda item: item.page_index):
         pages.append(
             PageArtifacts(
-                page_index=row.page_index,
-                text=text_path.read_text(encoding="utf-8"),
-                rawdict=rawdict,
-                page_label=row.page_label,
-            ),
+                page_index=page.page_index,
+                text=page.text,
+                rawdict=None,
+                page_label=page.page_label,
+                canonical_lines=page.lines,
+            )
         )
     return tuple(pages)
+
+
+def _load_tree_input_bundle(request: TreeBuildRequest) -> TreeInputBundle:
+    acquisition_manifest_path = Path(request.acquisition_manifest_path).resolve()
+    acquisition_manifest = _load_acquisition_manifest(acquisition_manifest_path)
+    acquisition_root = acquisition_manifest_path.parent
+    selected_source, outline_entries = _load_acquisition_outline_entries(
+        acquisition_root, acquisition_manifest
+    )
+    text_substrate = _load_canonical_text_substrate(acquisition_root, acquisition_manifest)
+    pages = _load_projection_page_artifacts(text_substrate)
+    _, outline_anchor_records = extract_outline_candidates_with_records(
+        acquisition_manifest.document_id,
+        pages,
+        outline_entries,
+        settings=request.settings,
+    )
+    return TreeInputBundle(
+        manifest_path=acquisition_manifest_path,
+        artifact_root=acquisition_root,
+        registry_root=_resolve_tree_registry_root(
+            acquisition_root,
+            input_run_id=acquisition_manifest.acquisition_run_id,
+            document_id=acquisition_manifest.document_id,
+        ),
+        document_id=acquisition_manifest.document_id,
+        page_count=acquisition_manifest.page_count,
+        input_identity=str(acquisition_manifest_path),
+        fingerprint_sha256=acquisition_manifest.source_fingerprint.sha256,
+        selected_source=selected_source,
+        outline_entries=outline_entries,
+        outline_anchor_records=outline_anchor_records,
+        outline_quality_reports=tuple(acquisition_manifest.outline_quality_reports),
+        pages=pages,
+    )
 
 
 def _load_hierarchy_nodes(path: str) -> tuple[HierarchyNode, ...]:
@@ -259,6 +325,7 @@ def _build_strategy_attempt(
     outline_reports: tuple[Any, ...],
     pages: tuple[PageArtifacts, ...],
     outline_candidates: tuple[HeadingCandidate, ...],
+    outline_anchor_records: tuple[OutlineAnchorRecord, ...],
     inferred_candidates: tuple[HeadingCandidate, ...],
     toc_result: Any | None,
     toc_reconciliation: Any | None,
@@ -339,6 +406,7 @@ def _build_strategy_attempt(
         unassigned_spans=unassigned_spans,
         settings=request.settings,
         verification_assistant=verification_assistant,
+        outline_anchor_records=outline_anchor_records,
     )
     passed_ids = {
         result.subject_id
@@ -365,6 +433,7 @@ def _build_strategy_attempt(
             "strategy": strategy,
             "effective_trust_mode": trust_mode,
             "outline": outline_candidates,
+            "outline_anchor_records": outline_anchor_records,
             "inferred": inferred_candidates,
             "toc": toc_candidates,
             "selected": final_candidates,
@@ -456,6 +525,9 @@ def _build_strategy_attempt(
 class TreePipelineService:
     """Deterministic Phase 02 hierarchy builder over persisted Phase 01 artifacts."""
 
+    def __init__(self, *, event_bus: EventBus | None = None) -> None:
+        self._event_bus = event_bus
+
     def build(
         self,
         request: TreeBuildRequest,
@@ -466,22 +538,19 @@ class TreePipelineService:
         if request.summarize and gateway is None:
             raise TreePipelineError("summarize=True requires a configured gateway")
 
-        parse_manifest_path = Path(request.parse_manifest_path).resolve()
-        parse_manifest = _load_parse_manifest(parse_manifest_path)
-        parse_root = parse_manifest_path.parent
-        tree_root = parse_root / "tree" / request.tree_run_id
-        registry_root = _resolve_tree_registry_root(parse_manifest_path, parse_manifest)
+        input_bundle = _load_tree_input_bundle(request)
+        tree_root = input_bundle.artifact_root / "tree" / request.tree_run_id
+        registry_root = input_bundle.registry_root
         run_index_path = registry_root / request.tree_run_id / "run-index.json"
         manifest_path = tree_root / "manifest.json"
         digest = _settings_digest(request)
-        parse_artifact_identity = str(parse_manifest_path)
         run_index = TreeRunIndex(
             tree_run_id=request.tree_run_id,
-            document_id=parse_manifest.document_id,
+            document_id=input_bundle.document_id,
             registry_root=str(registry_root),
-            parse_manifest_path=str(parse_manifest_path),
-            parse_artifact_identity=parse_artifact_identity,
-            parse_fingerprint_sha256=parse_manifest.fingerprint.sha256,
+            acquisition_manifest_path=str(input_bundle.manifest_path),
+            acquisition_artifact_identity=input_bundle.input_identity,
+            acquisition_fingerprint_sha256=input_bundle.fingerprint_sha256,
             settings_digest=digest,
             manifest_path=str(manifest_path),
         )
@@ -492,9 +561,11 @@ class TreePipelineService:
             )
             if (
                 existing_index.registry_root == run_index.registry_root
-                and existing_index.parse_artifact_identity == run_index.parse_artifact_identity
-                and existing_index.parse_manifest_path == run_index.parse_manifest_path
-                and existing_index.parse_fingerprint_sha256 == run_index.parse_fingerprint_sha256
+                and existing_index.acquisition_artifact_identity
+                == run_index.acquisition_artifact_identity
+                and existing_index.acquisition_manifest_path == run_index.acquisition_manifest_path
+                and existing_index.acquisition_fingerprint_sha256
+                == run_index.acquisition_fingerprint_sha256
                 and existing_index.settings_digest == run_index.settings_digest
                 and Path(existing_index.manifest_path).exists()
             ):
@@ -502,27 +573,27 @@ class TreePipelineService:
                     Path(existing_index.manifest_path).read_text(encoding="utf-8"),
                 )
             raise TreeConflictError(
-                "tree_run_id already exists with a different parse manifest or settings",
+                "tree_run_id already exists with a different source manifest or settings",
             )
+        pages = input_bundle.pages
 
-        selected_source, outline_entries = _load_outline_entries(parse_root, parse_manifest)
-        ledger_rows = _load_ledger_rows(parse_root, parse_manifest)
-        pages = _load_page_artifacts(parse_root, ledger_rows)
-
-        outline_candidates = extract_outline_candidates(
-            parse_manifest.document_id,
+        outline_candidates, outline_anchor_records = extract_outline_candidates_with_records(
+            input_bundle.document_id,
             pages,
-            outline_entries,
+            input_bundle.outline_entries,
+            settings=request.settings,
         )
+        if input_bundle.outline_anchor_records:
+            outline_anchor_records = input_bundle.outline_anchor_records
         inferred_candidates = extract_inferred_candidates(
-            parse_manifest.document_id,
+            input_bundle.document_id,
             pages,
-            outline_entries,
+            input_bundle.outline_entries,
             request.settings,
         )
         base_trust_mode = determine_outline_trust_mode(
-            selected_source=selected_source,
-            outline_reports=parse_manifest.outline_quality_reports,
+            selected_source=input_bundle.selected_source,
+            outline_reports=input_bundle.outline_quality_reports,
             outline_candidates=outline_candidates,
             inferred_candidates=inferred_candidates,
             settings=request.settings,
@@ -531,13 +602,13 @@ class TreePipelineService:
         toc_detector = TocDetector(request.settings, gateway=gateway)
         toc_result = toc_detector.detect(pages=pages)
         toc_reconciliation = TocReconciler(request.settings, gateway=gateway).reconcile(
-            document_id=parse_manifest.document_id,
+            document_id=input_bundle.document_id,
             pages=pages,
             toc_result=toc_result,
         )
         selected_attempt, strategy_report = execute_hierarchy_strategy(
             current_trust_mode=base_trust_mode,
-            selected_outline_source=selected_source,
+            selected_outline_source=input_bundle.selected_source,
             toc_candidates=toc_reconciliation.reconciled_candidates,
             gateway_available=gateway is not None,
             settings=request.settings,
@@ -546,12 +617,13 @@ class TreePipelineService:
                 tree_root=tree_root,
                 attempt_index=attempt_index,
                 strategy=strategy,
-                document_id=parse_manifest.document_id,
-                page_count=parse_manifest.page_count,
-                selected_source=selected_source,
-                outline_reports=tuple(parse_manifest.outline_quality_reports),
+                document_id=input_bundle.document_id,
+                page_count=input_bundle.page_count,
+                selected_source=input_bundle.selected_source,
+                outline_reports=input_bundle.outline_quality_reports,
                 pages=pages,
                 outline_candidates=outline_candidates,
+                outline_anchor_records=outline_anchor_records,
                 inferred_candidates=inferred_candidates,
                 toc_result=toc_result,
                 toc_reconciliation=toc_reconciliation,
@@ -563,6 +635,16 @@ class TreePipelineService:
             tree_root / "strategy" / "execution-report.json",
             strategy_report,
         )
+        if self._event_bus is not None:
+            self._event_bus.publish(
+                HierarchyStrategySelected(
+                    event_id=f"{request.tree_run_id}-strategy",
+                    event_name="HierarchyStrategySelected",
+                    document_id=input_bundle.document_id,
+                    tree_run_id=request.tree_run_id,
+                    strategy=strategy_report.selected_strategy.value,
+                )
+            )
 
         committed_nodes = _load_hierarchy_nodes(selected_attempt.committed_hierarchy_path)
         decomposer = NodeDecomposer(request.settings, gateway=gateway)
@@ -593,19 +675,20 @@ class TreePipelineService:
             )
             final_enriched_nodes = attach_content_anchors(decomposed_nodes, pages)
             final_unassigned_spans = compute_unassigned_spans(
-                document_id=parse_manifest.document_id,
-                page_count=parse_manifest.page_count,
+                document_id=input_bundle.document_id,
+                page_count=input_bundle.page_count,
                 nodes=final_enriched_nodes,
             )
             final_verified_nodes, final_verification_report = verify_hierarchy(
-                document_id=parse_manifest.document_id,
+                document_id=input_bundle.document_id,
                 tree_run_id=request.tree_run_id,
-                page_count=parse_manifest.page_count,
+                page_count=input_bundle.page_count,
                 nodes=final_enriched_nodes,
                 pages=pages,
                 unassigned_spans=final_unassigned_spans,
                 settings=request.settings,
                 verification_assistant=final_verification_assistant,
+                outline_anchor_records=outline_anchor_records,
             )
             passed_ids = {
                 result.subject_id
@@ -660,7 +743,7 @@ class TreePipelineService:
         node_summaries_path = selected_attempt.node_summaries_path
         if request.summarize:
             assert gateway is not None
-            summarizer = NodeSummarizer(gateway)
+            summarizer = NodeSummarizer(gateway, event_bus=self._event_bus)
             _, node_cards, _ = summarizer.summarize(
                 nodes=committed_nodes,
                 pages=pages,
@@ -672,13 +755,21 @@ class TreePipelineService:
             )
             node_summaries_path = summarizer.artifact_path
 
+        if self._event_bus is not None:
+            self._emit_verification_events(
+                document_id=input_bundle.document_id,
+                tree_run_id=request.tree_run_id,
+                verification_report_path=verification_report_path,
+                committed_nodes=committed_nodes,
+            )
+
         manifest = TreeBuildManifest(
             tree_run_id=request.tree_run_id,
-            document_id=parse_manifest.document_id,
+            document_id=input_bundle.document_id,
             registry_root=str(registry_root),
-            parse_manifest_path=str(parse_manifest_path),
-            parse_artifact_identity=parse_artifact_identity,
-            parse_fingerprint_sha256=parse_manifest.fingerprint.sha256,
+            acquisition_manifest_path=str(input_bundle.manifest_path),
+            acquisition_artifact_identity=input_bundle.input_identity,
+            acquisition_fingerprint_sha256=input_bundle.fingerprint_sha256,
             artifact_root=str(tree_root),
             settings=request.settings,
             settings_digest=digest,
@@ -706,13 +797,54 @@ class TreePipelineService:
         _write_json(manifest_path, manifest)
         return manifest
 
+    def _emit_verification_events(
+        self,
+        *,
+        document_id: str,
+        tree_run_id: str,
+        verification_report_path: str,
+        committed_nodes: tuple[HierarchyNode, ...],
+    ) -> None:
+        if self._event_bus is None:
+            return
+        verification_payload = cast(dict[str, Any], _read_json(Path(verification_report_path)))
+        for node in committed_nodes:
+            self._event_bus.publish(
+                NodeCommitted(
+                    event_id=f"{tree_run_id}-{node.node_id}-committed",
+                    event_name="NodeCommitted",
+                    document_id=document_id,
+                    tree_run_id=tree_run_id,
+                    node_id=node.node_id,
+                    title=node.title,
+                )
+            )
+        for result in cast(list[dict[str, Any]], verification_payload.get("node_results", [])):
+            if result.get("status") == VerificationStatus.PASSED.value:
+                continue
+            self._event_bus.publish(
+                NodeVerificationFailed(
+                    event_id=f"{tree_run_id}-{result['subject_id']}-verification-failed",
+                    event_name="NodeVerificationFailed",
+                    document_id=document_id,
+                    tree_run_id=tree_run_id,
+                    subject_id=str(result["subject_id"]),
+                    issue_count=len(cast(list[dict[str, Any]], result.get("issues", []))),
+                )
+            )
+
 
 def build_tree(
     request: TreeBuildRequest,
     *,
     repair_engine: RepairEngine | None = None,
     gateway: StructuredLLMGateway | None = None,
+    event_bus: EventBus | None = None,
 ) -> TreeBuildManifest:
-    """Build a deterministic tree from persisted Phase 01 artifacts."""
+    """Build a deterministic tree from persisted acquisition artifacts."""
 
-    return TreePipelineService().build(request, repair_engine=repair_engine, gateway=gateway)
+    return TreePipelineService(event_bus=event_bus).build(
+        request,
+        repair_engine=repair_engine,
+        gateway=gateway,
+    )

@@ -16,6 +16,9 @@ This repository currently establishes:
 - Phase 03 typed LLM gateway with StrataForge-owned retries, audit capture, transport-compatible
   LiteLLM support, a provider-native strict OpenAI Responses adapter, and bounded repair
   integration
+- a parallel v2 acquisition runtime that produces `CanonicalDocumentLedger`, persists a
+  `TreeSynthesisView`, and lets the tree pipeline run from either legacy parse manifests or new
+  acquisition manifests
 - test fixtures, golden expectations, and ADR scaffolding for later phases
 
 ## Local Development
@@ -79,6 +82,27 @@ baseline:
 Existing default behavior is preserved when no gateway is provided and no optional summarize path is
 requested.
 
+## V2 Acquisition Migration
+
+The `major-changes-v2` migration now runs acquisition/projection as the primary path:
+
+- `src/strataforge/ingest/acquisition_service.py` orchestrates deterministic acquisition runs under
+  `artifacts/acquisition_runs/`
+- `src/strataforge/ingest/providers/native_pymupdf.py` is the framework-owned native-first
+  provider
+- `src/strataforge/ingest/projection.py` projects `CanonicalDocumentLedger` into
+  `TreeSynthesisView`
+- `TreeBuildRequest` now builds from `acquisition_manifest_path`
+- `src/strataforge/semantic/` provides the tokenizer boundary plus semantic summarization and
+  decomposition services
+- `src/strataforge/observability/` provides the in-process event bus and subscribers
+- `src/strataforge/export/` provides optional edge exporters for LangChain and LlamaIndex
+- `src/strataforge/llm/multimodal_gateway/` provides attachment-only multimodal enrichment
+
+The legacy parse substrate is no longer part of the main ingest/tree runtime surface. It remains
+available only through `strataforge.compat.legacy_parse` for compatibility fixtures and migration
+tests.
+
 ## Validation Commands
 
 ```bash
@@ -95,6 +119,9 @@ The canonical runnable notebook is:
 - `notebooks/progress.ipynb`
 - `notebooks/phase03_llm_gateway_cookbook.ipynb`
 - `notebooks/spec_v1_parser_tree_demo.ipynb` for local real-document parser/tree inspection
+
+`notebooks/progress.ipynb` now exercises the acquisition-only tree build, semantic summary
+artifacts, and observability event capture against a born-digital Phase 01 fixture.
 
 The Phase 03 cookbook includes deterministic mocked sections plus an optional Moonshot LiteLLM
 transport probe. That Moonshot probe is skipped by default, is not Phase 03 acceptance evidence,
@@ -124,7 +151,7 @@ uv run python scripts/run_progress_notebook.py \
 ```
 
 This local operator demo depends on `903000608.pdf` being present at the repository root and may
-reuse or create notebook-local artifacts under `notebooks/artifacts/parse_runs/`. It is not a
+reuse or create notebook-local artifacts under `notebooks/artifacts/acquisition_runs/`. It is not a
 committed fixture or CI acceptance path.
 
 ## Progress Notebook

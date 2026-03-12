@@ -142,6 +142,7 @@ def test_deterministic_large_node_decomposition_creates_children(tmp_path: Path)
     assert report.new_child_count == 3
     assert report.empty_parent_count == 0
     assert report.depth == 1
+    assert report.tokenizer_identity == "heuristic"
     assert decomposer.artifact_path is not None
     assert Path(decomposer.artifact_path).exists()
     assert [child.title for child in children] == [
@@ -192,6 +193,10 @@ def test_llm_fallback_decomposition_is_bounded_and_auditable(tmp_path: Path) -> 
     assert adapter.calls == ["decompose_large_node"]
     assert report.decomposition_method.value == "llm_assisted"
     assert report.new_child_count == 2
+    assert report.gateway_provider_name == "capture"
+    assert report.gateway_assurance_mode == "transport_compatible"
+    assert report.gateway_usage is not None
+    assert report.gateway_usage.total_tokens == 2
     assert [child.title for child in children] == ["subsection a.", "subsection b."]
 
 

@@ -13,7 +13,11 @@ from pydantic import BaseModel, ValidationError
 
 from strataforge.domain.models import RepairDecision, RepairRequest
 from strataforge.llm.audit import apply_redaction_hooks, json_safe, persist_audit_record
-from strataforge.llm.errors import error_from_failure
+from strataforge.llm.config_validation import (
+    provider_supported_modes,
+    validate_gateway_mode_configuration,
+)
+from strataforge.llm.errors import GatewayConfigurationError, error_from_failure
 from strataforge.llm.prompts.repair import RepairPromptResponse, build_repair_messages
 from strataforge.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
 from strataforge.llm.providers.litellm_sdk import LiteLLMSDKAdapter
@@ -36,6 +40,7 @@ from strataforge.llm.types import (
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
+from strataforge.runtime_validation import validate_writable_root
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -58,11 +63,28 @@ def _model_name(config: GatewayConfig, request: GatewayRequest[T]) -> str:
     return request.model_name or config.provider.model
 
 
-def _structured_output_mode(
+def _provider_default_mode(config: GatewayConfig) -> StructuredOutputMode:
+    if isinstance(config.provider, OpenAIProviderConfig):
+        return StructuredOutputMode.PROVIDER_NATIVE
+    return StructuredOutputMode.TRANSPORT_COMPATIBLE
+
+
+def _effective_structured_output_mode(
     config: GatewayConfig,
     request: GatewayRequest[T],
 ) -> StructuredOutputMode:
-    return request.structured_output_mode or config.structured_output_mode_preference
+    requested_mode = (
+        request.structured_output_mode
+        or config.structured_output_mode_preference
+        or _provider_default_mode(config)
+    )
+    if requested_mode not in provider_supported_modes(config):
+        msg = (
+            f"provider {config.provider.provider} does not support structured output mode "
+            f"{requested_mode.value}"
+        )
+        raise GatewayConfigurationError(msg)
+    return requested_mode
 
 
 def _provider_request(
@@ -78,7 +100,7 @@ def _provider_request(
         operation_name=request.operation_name,
         messages=request.messages,
         model_name=_model_name(config, request),
-        structured_output_mode=_structured_output_mode(config, request),
+        structured_output_mode=_effective_structured_output_mode(config, request),
         response_model_name=model.__name__,
         response_schema_name=model.__name__,
         response_schema=response_schema,
@@ -222,10 +244,17 @@ class GatewayService(StructuredLLMGateway):
         redaction_hooks: tuple[RedactionHook, ...] = (),
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
+        validate_gateway_mode_configuration(config)
+        validate_writable_root(config.audit.persist_root, label="gateway audit root")
         self._config = config
         self._provider_adapter = provider_adapter or _default_provider_adapter(config)
         self._redaction_hooks = redaction_hooks
         self._sleep_fn = sleep_fn
+
+    def close(self) -> None:
+        close_method = getattr(self._provider_adapter, "close", None)
+        if callable(close_method):
+            close_method()
 
     def execute(self, request: GatewayRequest[T]) -> GatewayOutcome[T]:
         request_id = _request_id(request)
@@ -457,7 +486,6 @@ class GatewayRepairEngine:
                             "repair_kind": request.repair_kind.value,
                             "subject_id": request.subject_id,
                         },
-                        structured_output_mode=StructuredOutputMode.PROVIDER_NATIVE,
                     ),
                 ),
             )

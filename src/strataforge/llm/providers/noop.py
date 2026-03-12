@@ -63,9 +63,7 @@ class NoopProviderAdapter:
                     provider_name=self.provider_name,
                     model_name=request.model_name,
                     assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
-                    structured_output_mode=(
-                        request.structured_output_mode or config.structured_output_mode_preference
-                    ),
+                    structured_output_mode=request.structured_output_mode,
                     category=GatewayFailureCategory.UNSUPPORTED_CAPABILITY,
                     message="noop adapter has no scripted response for the requested operation",
                     retryable=False,

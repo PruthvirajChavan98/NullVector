@@ -35,6 +35,8 @@ from strataforge.llm import (
 )
 from strataforge.tree import TreeConflictError, TreePipelineError, build_tree
 
+from ..support.acquisition_fixtures import convert_legacy_parse_fixture_to_acquisition
+
 FIXTURE_ROOT = Path("fixtures/phase02/inputs")
 EXPECTED_ROOT = Path("fixtures/expected/phase02")
 
@@ -43,7 +45,7 @@ def copy_fixture(case_name: str, tmp_path: Path) -> Path:
     fixture_root = FIXTURE_ROOT / case_name
     destination = tmp_path / case_name
     shutil.copytree(fixture_root, destination)
-    return destination / "manifest.json"
+    return convert_legacy_parse_fixture_to_acquisition(destination)
 
 
 def load_expected(case_name: str) -> dict[str, Any]:
@@ -61,7 +63,7 @@ def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def write_decomposition_parse_fixture(tmp_path: Path) -> Path:
+def write_decomposition_acquisition_fixture(tmp_path: Path) -> Path:
     document_id = "9" * 64
     parse_run_id = "large-leaf-decomposition"
     root = tmp_path / "large_leaf_decomposition"
@@ -181,9 +183,8 @@ def write_decomposition_parse_fixture(tmp_path: Path) -> Path:
         json.dumps(fingerprint.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    manifest_path = root / "manifest.json"
-    manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
-    return manifest_path
+    (root / "manifest.json").write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+    return convert_legacy_parse_fixture_to_acquisition(root)
 
 
 def make_summary_gateway(tmp_path: Path) -> GatewayService:
@@ -226,12 +227,12 @@ def first_source_line(cell: dict[str, Any]) -> str:
     ],
 )
 def test_tree_build_matches_expected_fixture_outputs(case_name: str, tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture(case_name, tmp_path)
+    acquisition_manifest_path = copy_fixture(case_name, tmp_path)
     expected = load_expected(case_name)
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id=f"{case_name}-tree",
         ),
     )
@@ -261,11 +262,11 @@ def test_tree_build_matches_expected_fixture_outputs(case_name: str, tmp_path: P
 
 
 def test_tree_run_index_is_written_and_points_to_manifest(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("clean_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id="run-index-check",
         ),
     )
@@ -274,17 +275,17 @@ def test_tree_run_index_is_written_and_points_to_manifest(tmp_path: Path) -> Non
     assert Path(manifest.run_index_path).exists()
     assert run_index["registry_root"] == manifest.registry_root
     assert run_index["manifest_path"] == str(Path(manifest.artifact_root) / "manifest.json")
-    assert run_index["parse_manifest_path"] == str(parse_manifest_path.resolve())
-    assert run_index["parse_artifact_identity"] == str(parse_manifest_path.resolve())
+    assert run_index["acquisition_manifest_path"] == str(acquisition_manifest_path.resolve())
+    assert run_index["acquisition_artifact_identity"] == str(acquisition_manifest_path.resolve())
     assert run_index["document_id"] == manifest.document_id
 
 
 def test_strategy_report_is_persisted_for_default_builds(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("clean_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id="strategy-default-check",
         ),
     )
@@ -301,11 +302,11 @@ def test_strategy_report_is_persisted_for_default_builds(tmp_path: Path) -> None
 
 
 def test_strategy_attempt_artifacts_are_written(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("no_outline_inferred", tmp_path)
+    acquisition_manifest_path = copy_fixture("no_outline_inferred", tmp_path)
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id="strategy-attempt-artifacts",
         ),
     )
@@ -320,9 +321,9 @@ def test_strategy_attempt_artifacts_are_written(tmp_path: Path) -> None:
 
 
 def test_tree_rerun_is_idempotent_and_conflicts_on_changed_input(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("clean_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
     request = TreeBuildRequest(
-        parse_manifest_path=str(parse_manifest_path),
+        acquisition_manifest_path=str(acquisition_manifest_path),
         tree_run_id="stable-tree-run",
     )
 
@@ -337,31 +338,33 @@ def test_tree_rerun_is_idempotent_and_conflicts_on_changed_input(tmp_path: Path)
     with pytest.raises(TreeConflictError):
         build_tree(changed_settings_request)
 
-    other_manifest_path = parse_manifest_path.with_name("manifest.alt.json")
+    other_manifest_path = acquisition_manifest_path.with_name("manifest.alt.json")
     other_manifest_path.write_text(
-        parse_manifest_path.read_text(encoding="utf-8"), encoding="utf-8"
+        acquisition_manifest_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
     with pytest.raises(TreeConflictError):
         build_tree(
             TreeBuildRequest(
-                parse_manifest_path=str(other_manifest_path),
+                acquisition_manifest_path=str(other_manifest_path),
                 tree_run_id="stable-tree-run",
             ),
         )
 
 
-def test_tree_run_id_conflicts_across_parse_roots_with_identical_contents(tmp_path: Path) -> None:
+def test_tree_run_id_conflicts_across_acquisition_roots_with_identical_contents(
+    tmp_path: Path,
+) -> None:
     first_root = tmp_path / "first-copy"
     second_root = tmp_path / "second-copy"
     shutil.copytree(FIXTURE_ROOT / "clean_outline", first_root)
     shutil.copytree(FIXTURE_ROOT / "clean_outline", second_root)
 
-    first_manifest_path = first_root / "manifest.json"
-    second_manifest_path = second_root / "manifest.json"
+    first_manifest_path = convert_legacy_parse_fixture_to_acquisition(first_root)
+    second_manifest_path = convert_legacy_parse_fixture_to_acquisition(second_root)
 
     build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(first_manifest_path),
+            acquisition_manifest_path=str(first_manifest_path),
             tree_run_id="shared-tree-run",
         ),
     )
@@ -369,18 +372,18 @@ def test_tree_run_id_conflicts_across_parse_roots_with_identical_contents(tmp_pa
     with pytest.raises(TreeConflictError):
         build_tree(
             TreeBuildRequest(
-                parse_manifest_path=str(second_manifest_path),
+                acquisition_manifest_path=str(second_manifest_path),
                 tree_run_id="shared-tree-run",
             ),
         )
 
 
 def test_build_report_counts_follow_reconciled_candidate_sequence(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("partial_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("partial_outline", tmp_path)
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id="build-report-check",
         ),
     )
@@ -402,11 +405,11 @@ def test_build_report_counts_follow_reconciled_candidate_sequence(tmp_path: Path
 
 
 def test_tree_build_summarization_is_opt_in(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("clean_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
     manifest_without_summaries = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id=f"summary-disabled-{tmp_path.name}",
             summarize=False,
         ),
@@ -420,7 +423,7 @@ def test_tree_build_summarization_is_opt_in(tmp_path: Path) -> None:
 
     manifest_with_summaries = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id=f"summary-enabled-{tmp_path.name}",
             summarize=True,
         ),
@@ -437,12 +440,12 @@ def test_tree_build_summarization_is_opt_in(tmp_path: Path) -> None:
 
 
 def test_tree_build_raises_when_summarize_enabled_without_gateway(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("clean_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
     with pytest.raises(TreePipelineError, match="summarize=True requires a configured gateway"):
         build_tree(
             TreeBuildRequest(
-                parse_manifest_path=str(parse_manifest_path),
+                acquisition_manifest_path=str(acquisition_manifest_path),
                 tree_run_id="summary-missing-gateway",
                 summarize=True,
             ),
@@ -450,11 +453,11 @@ def test_tree_build_raises_when_summarize_enabled_without_gateway(tmp_path: Path
 
 
 def test_build_path_applies_large_leaf_decomposition(tmp_path: Path) -> None:
-    parse_manifest_path = write_decomposition_parse_fixture(tmp_path)
+    acquisition_manifest_path = write_decomposition_acquisition_fixture(tmp_path)
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id="decomposition-build",
             settings=TreeSettings(max_pages_per_leaf_node=2),
         ),
@@ -475,11 +478,11 @@ def test_build_path_applies_large_leaf_decomposition(tmp_path: Path) -> None:
 
 
 def test_verification_report_uses_tree_specific_node_results(tmp_path: Path) -> None:
-    parse_manifest_path = copy_fixture("clean_outline", tmp_path)
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
     manifest = build_tree(
         TreeBuildRequest(
-            parse_manifest_path=str(parse_manifest_path),
+            acquisition_manifest_path=str(acquisition_manifest_path),
             tree_run_id="verification-shape-check",
         ),
     )
@@ -540,7 +543,9 @@ def test_progress_notebook_structure_matches_repo_contract() -> None:
 
     assert cells[0]["cell_type"] == "markdown"
     assert first_source_line(cells[0]).startswith("# StrataForge Progress Notebook")
-    assert "Phase 03" in "".join(cells[0].get("source", []))
+    title_cell = "".join(cells[0].get("source", []))
+    assert "major-changes-v2" in title_cell
+    assert "Phase F-J" in title_cell
 
     assert cells[1]["cell_type"] == "markdown"
     assert "### Environment" in "".join(cells[1].get("source", []))
@@ -662,7 +667,10 @@ def test_spec_v1_demo_notebook_executes_when_local_pdf_present(tmp_path: Path) -
         for output in cell.get("outputs", [])
     )
     assert summary["pdf"]["path"].endswith("903000608.pdf")
-    assert summary["pdf"]["parse_mode"] in {"reused_local_manifest", "parsed_fresh"}
-    assert summary["parse"]["page_count"] > 0
+    assert summary["pdf"]["acquisition_mode"] in {
+        "reused_local_manifest",
+        "acquired_fresh",
+    }
+    assert summary["acquisition"]["page_count"] > 0
     assert summary["tree"]["committed_node_count"] >= 1
     assert summary["representative_pages"]
