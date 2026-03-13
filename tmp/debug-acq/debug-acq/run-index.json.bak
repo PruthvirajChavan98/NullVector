@@ -1,7 +1,0 @@
-{
-  "acquisition_run_id": "debug-acq",
-  "document_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
-  "manifest_path": "tmp/debug-acq/debug-acq/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/manifest.json",
-  "settings_digest": "832fa660188e8d4472d642df1fecef7c0721a0b57c461b0912dbd7aa5ced78a8",
-  "source_fingerprint_sha256": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52"
-}
