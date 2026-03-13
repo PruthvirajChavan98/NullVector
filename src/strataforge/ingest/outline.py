@@ -7,7 +7,7 @@ from typing import Any
 
 from pypdf import PdfReader
 
-from strataforge.domain.models import OutlineEntry, OutlineQualityReport, OutlineSource
+from nullvector.domain.models import OutlineEntry, OutlineQualityReport, OutlineSource
 
 
 def _normalize_title(title: str | None) -> str:

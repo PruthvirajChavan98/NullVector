@@ -8,8 +8,8 @@ import fitz
 from pypdf import PdfReader
 from pypdf import __version__ as pypdf_version
 
-from strataforge.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
-from strataforge.domain.models import (
+from nullvector.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
+from nullvector.domain.models import (
     AcquisitionRequest,
     AcquisitionRunIndex,
     AcquisitionRunManifest,
@@ -19,29 +19,29 @@ from strataforge.domain.models import (
     OutlineSource,
     UnresolvedRegion,
 )
-from strataforge.ingest.acquisition_artifacts import (
+from nullvector.ingest.acquisition_artifacts import (
     AcquisitionArtifactStore,
     settings_digest,
 )
-from strataforge.ingest.errors import (
+from nullvector.ingest.errors import (
     ExtractionFailureError,
     ParseConflictError,
     ParseSubstrateError,
 )
-from strataforge.ingest.fingerprint import fingerprint_document
-from strataforge.ingest.outline import (
+from nullvector.ingest.fingerprint import fingerprint_document
+from nullvector.ingest.outline import (
     extract_pymupdf_outlines,
     extract_pypdf_outlines,
     select_outline,
 )
-from strataforge.ingest.projection import (
+from nullvector.ingest.projection import (
     build_canonical_text_substrate,
     project_ledger_to_tree_synthesis_view,
 )
-from strataforge.ingest.protocols import AcquisitionProvider
-from strataforge.ingest.providers.native_pymupdf import NativePyMuPDFAcquisitionProvider
-from strataforge.ingest.visual_assets import materialize_visual_assets
-from strataforge.observability import (
+from nullvector.ingest.protocols import AcquisitionProvider
+from nullvector.ingest.providers.native_pymupdf import NativePyMuPDFAcquisitionProvider
+from nullvector.ingest.visual_assets import materialize_visual_assets
+from nullvector.observability import (
     AcquisitionStarted,
     EventBus,
     PageNativeParsed,

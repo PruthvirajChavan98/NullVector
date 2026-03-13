@@ -7,7 +7,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     HeadingCandidate,
     HeadingScoreBreakdown,
     HeadingSourceKind,
@@ -18,10 +18,10 @@ from strataforge.domain.models import (
     TocReconciliationResult,
     TreeSettings,
 )
-from strataforge.llm.prompts import build_toc_parse_messages
-from strataforge.llm.protocols import StructuredLLMGateway
-from strataforge.llm.types import GatewayRequest
-from strataforge.tree.headings import (
+from nullvector.llm.prompts import build_toc_parse_messages
+from nullvector.llm.protocols import StructuredLLMGateway
+from nullvector.llm.types import GatewayRequest
+from nullvector.tree.headings import (
     PageArtifacts,
     anchor_title_on_page,
     normalized_title_key,

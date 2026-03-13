@@ -1,0 +1,50 @@
+{
+  "detection_method": "deterministic",
+  "has_page_numbers": false,
+  "page_scores": [
+    {
+      "classification_reason": [
+        "deterministic_low_threshold"
+      ],
+      "classified_as_toc": false,
+      "consecutive_page_bonus": 0.0,
+      "final_score": 0.0,
+      "font_uniformity_signal": 0.0,
+      "leader_dot_density": 0.0,
+      "numbering_density": 0.0,
+      "page_index": 0,
+      "pattern_match_count": 0,
+      "repeated_header_penalty": 0.0
+    },
+    {
+      "classification_reason": [
+        "deterministic_low_threshold"
+      ],
+      "classified_as_toc": false,
+      "consecutive_page_bonus": 0.0,
+      "final_score": 0.0,
+      "font_uniformity_signal": 0.0,
+      "leader_dot_density": 0.0,
+      "numbering_density": 0.0,
+      "page_index": 1,
+      "pattern_match_count": 0,
+      "repeated_header_penalty": 0.0
+    },
+    {
+      "classification_reason": [
+        "deterministic_low_threshold"
+      ],
+      "classified_as_toc": false,
+      "consecutive_page_bonus": 0.0,
+      "final_score": 0.0,
+      "font_uniformity_signal": 0.0,
+      "leader_dot_density": 0.0,
+      "numbering_density": 0.0,
+      "page_index": 2,
+      "pattern_match_count": 0,
+      "repeated_header_penalty": 0.0
+    }
+  ],
+  "toc_content": null,
+  "toc_page_indices": []
+}

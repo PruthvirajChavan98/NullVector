@@ -11,12 +11,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     AcquisitionRunIndex,
     AcquisitionRunManifest,
     AcquisitionSettings,
 )
-from strataforge.ingest.artifacts import canonical_json_bytes
+from nullvector.ingest.artifacts import canonical_json_bytes
 
 
 def _json_safe(value: Any) -> Any:

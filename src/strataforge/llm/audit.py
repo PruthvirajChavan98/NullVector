@@ -8,8 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from strataforge.llm.protocols import RedactionHook
-from strataforge.llm.types import GatewayAuditRecord, JSONValue
+from nullvector.llm.protocols import RedactionHook
+from nullvector.llm.types import GatewayAuditRecord, JSONValue
 
 
 def json_safe(value: Any) -> JSONValue:

@@ -6,8 +6,8 @@ import os
 from collections.abc import Callable
 from typing import Any, cast
 
-from strataforge.llm.audit import json_safe
-from strataforge.llm.types import (
+from nullvector.llm.audit import json_safe
+from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayConfig,
     GatewayFailureCategory,
@@ -192,18 +192,23 @@ class LiteLLMSDKAdapter:
         if request.max_output_tokens is not None:
             raw_request_payload["max_output_tokens"] = request.max_output_tokens
         call_kwargs = dict(raw_request_payload)
-        if provider.api_key_env_var is not None:
+        api_key = provider.api_key
+        if api_key is None and provider.api_key_env_var is not None:
             api_key = os.getenv(provider.api_key_env_var)
-            if api_key is not None:
-                call_kwargs["api_key"] = api_key
-        if provider.api_base_env_var is not None:
-            base_url = os.getenv(provider.api_base_env_var)
-            if base_url is not None:
-                call_kwargs["base_url"] = base_url
-        if provider.api_version_env_var is not None:
+        if api_key is not None:
+            call_kwargs["api_key"] = api_key
+
+        api_base = provider.api_base
+        if api_base is None and provider.api_base_env_var is not None:
+            api_base = os.getenv(provider.api_base_env_var)
+        if api_base is not None:
+            call_kwargs["base_url"] = api_base
+
+        api_version = provider.api_version
+        if api_version is None and provider.api_version_env_var is not None:
             api_version = os.getenv(provider.api_version_env_var)
-            if api_version is not None:
-                call_kwargs["api_version"] = api_version
+        if api_version is not None:
+            call_kwargs["api_version"] = api_version
         raw_request_payload.update(provider.extra_body)
         call_kwargs.update(provider.extra_body)
 

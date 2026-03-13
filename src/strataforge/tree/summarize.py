@@ -1,6 +1,6 @@
 """Compatibility facade for semantic summarization."""
 
-from strataforge.semantic.summarize import (
+from nullvector.semantic.summarize import (
     LEAF_PASSTHROUGH_TOKEN_THRESHOLD,
     NodeSummarizer,
     estimate_token_count,

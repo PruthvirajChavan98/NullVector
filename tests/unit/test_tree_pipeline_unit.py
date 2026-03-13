@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     AnchorSource,
     HeadingCandidate,
     HeadingScoreBreakdown,
@@ -31,7 +31,7 @@ from strataforge.domain.models import (
     VerificationSeverity,
     VerificationStatus,
 )
-from strataforge.tree.headings import (
+from nullvector.tree.headings import (
     PageArtifacts,
     extract_inferred_candidates,
     extract_outline_candidates,
@@ -39,14 +39,14 @@ from strataforge.tree.headings import (
     normalized_title_key,
     split_text_lines_with_offsets,
 )
-from strataforge.tree.hierarchy import (
+from nullvector.tree.hierarchy import (
     build_hierarchy,
     determine_outline_trust_mode,
     generate_node_id,
 )
-from strataforge.tree.repair import NoopRepairEngine
-from strataforge.tree.service import _accuracy_score, _unassigned_page_count
-from strataforge.tree.verify import determine_title_match_tier
+from nullvector.tree.repair import NoopRepairEngine
+from nullvector.tree.service import _accuracy_score, _unassigned_page_count
+from nullvector.tree.verify import determine_title_match_tier
 
 
 def make_settings() -> TreeSettings:

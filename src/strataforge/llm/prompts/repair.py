@@ -6,9 +6,9 @@ import json
 
 from pydantic import PositiveInt, model_validator
 
-from strataforge.domain.models import NonEmptyStr, RepairRequest, RepairStatus, StrataModel
-from strataforge.llm.audit import json_safe
-from strataforge.llm.types import LLMMessage, LLMRole
+from nullvector.domain.models import NonEmptyStr, RepairRequest, RepairStatus, StrataModel
+from nullvector.llm.audit import json_safe
+from nullvector.llm.types import LLMMessage, LLMRole
 
 ALLOWED_REPAIR_STATUSES = {
     RepairStatus.REQUESTED_BUT_SKIPPED,
@@ -46,7 +46,7 @@ def build_repair_messages(request: RepairRequest) -> tuple[LLMMessage, ...]:
     system = LLMMessage(
         role=LLMRole.SYSTEM,
         content=(
-            "You are assisting bounded hierarchy repair for StrataForge. "
+            "You are assisting bounded hierarchy repair for NullVector. "
             "Only reason about the single repair request provided. "
             "Never invent sections, page spans, provenance, or titles not "
             "supported by the request. "

@@ -1,7 +1,7 @@
 """Phase 02 deterministic tree pipeline."""
 
-from strataforge.tree.repair import NoopRepairEngine, RepairEngine
-from strataforge.tree.service import (
+from nullvector.tree.repair import NoopRepairEngine, RepairEngine
+from nullvector.tree.service import (
     TreeConflictError,
     TreePipelineError,
     TreePipelineService,

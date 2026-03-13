@@ -1,6 +1,6 @@
-"""Compatibility shim for the split StrataForge domain contracts."""
+"""Compatibility shim for the split NullVector domain contracts."""
 
-from strataforge.domain.common import (
+from nullvector.domain.common import (
     BoundingBox,
     ContentSpan,
     GeometryCoordinateSpace,
@@ -12,7 +12,7 @@ from strataforge.domain.common import (
     Sha256Hex,
     StrataModel,
 )
-from strataforge.domain.events import (
+from nullvector.domain.events import (
     ContentAuthoritativeness,
     DocumentEvent,
     EventSeverity,
@@ -22,12 +22,12 @@ from strataforge.domain.events import (
     SourceTrack,
     TrustTier,
 )
-from strataforge.domain.gateway import (
+from nullvector.domain.gateway import (
     DecompositionPromptResponse,
     TocDetectionResponse,
     TocParseResponse,
 )
-from strataforge.domain.ledger import (
+from nullvector.domain.ledger import (
     AcquisitionManifest,
     AcquisitionRequest,
     AcquisitionRunIndex,
@@ -61,7 +61,7 @@ from strataforge.domain.ledger import (
     UnresolvedRegion,
     VisualArtifact,
 )
-from strataforge.domain.tree import (
+from nullvector.domain.tree import (
     AnchorSource,
     DecompositionBoundary,
     DecompositionMethod,

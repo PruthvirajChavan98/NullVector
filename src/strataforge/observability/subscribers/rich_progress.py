@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from typing import TextIO
 
-from strataforge.observability.events import FrameworkEvent
+from nullvector.observability.events import FrameworkEvent
 
 
 class RichProgressSubscriber:

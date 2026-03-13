@@ -1,6 +1,6 @@
 """Phase 03 typed LLM gateway exports."""
 
-from strataforge.llm.errors import (
+from nullvector.llm.errors import (
     GatewayAuthError,
     GatewayConfigurationError,
     GatewayContextLengthError,
@@ -13,27 +13,28 @@ from strataforge.llm.errors import (
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
 )
-from strataforge.llm.multimodal_gateway import (
+from nullvector.llm.multimodal_gateway import (
     MultimodalFailureCategory,
     MultimodalGatewayConfig,
     MultimodalGatewayError,
     MultimodalGatewayRequest,
     MultimodalGatewayService,
+    MultimodalProviderConfig,
     NoopMultimodalProviderAdapter,
     NoopMultimodalResponse,
     RegionImageInput,
     VisualEnrichmentService,
     VisualInsightResponse,
 )
-from strataforge.llm.protocols import RedactionHook, StructuredLLMGateway
-from strataforge.llm.providers import (
+from nullvector.llm.protocols import RedactionHook, StructuredLLMGateway
+from nullvector.llm.providers import (
     LiteLLMSDKAdapter,
     NoopProviderAdapter,
     NoopScriptedResponse,
     OpenAIResponsesHTTPAdapter,
 )
-from strataforge.llm.service import GatewayRepairEngine, GatewayService
-from strataforge.llm.types import (
+from nullvector.llm.service import GatewayRepairEngine, GatewayService
+from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayAttempt,
     GatewayAuditConfig,
@@ -86,6 +87,7 @@ __all__ = [
     "MultimodalGatewayError",
     "MultimodalGatewayRequest",
     "MultimodalGatewayService",
+    "MultimodalProviderConfig",
     "NoopMultimodalProviderAdapter",
     "NoopMultimodalResponse",
     "NoopProviderAdapter",

@@ -1,0 +1,101 @@
+{
+  "entries": [
+    {
+      "level": 1,
+      "page_index": 0,
+      "source": "pymupdf",
+      "title": "COVER ENGLISH 9"
+    },
+    {
+      "level": 2,
+      "page_index": 0,
+      "source": "pymupdf",
+      "title": "Page 1"
+    },
+    {
+      "level": 1,
+      "page_index": 1,
+      "source": "pymupdf",
+      "title": "COVER NO. 2"
+    },
+    {
+      "level": 1,
+      "page_index": 2,
+      "source": "pymupdf",
+      "title": "PRILIM"
+    },
+    {
+      "level": 2,
+      "page_index": 2,
+      "source": "pymupdf",
+      "title": "Page 1"
+    },
+    {
+      "level": 2,
+      "page_index": 3,
+      "source": "pymupdf",
+      "title": "Page 2"
+    },
+    {
+      "level": 2,
+      "page_index": 4,
+      "source": "pymupdf",
+      "title": "Page 3"
+    },
+    {
+      "level": 2,
+      "page_index": 5,
+      "source": "pymupdf",
+      "title": "Page 4"
+    },
+    {
+      "level": 2,
+      "page_index": 6,
+      "source": "pymupdf",
+      "title": "Page 5"
+    },
+    {
+      "level": 2,
+      "page_index": 7,
+      "source": "pymupdf",
+      "title": "Page 6"
+    },
+    {
+      "level": 2,
+      "page_index": 8,
+      "source": "pymupdf",
+      "title": "Page 7"
+    },
+    {
+      "level": 2,
+      "page_index": 9,
+      "source": "pymupdf",
+      "title": "Page 8"
+    },
+    {
+      "level": 1,
+      "page_index": 10,
+      "source": "pymupdf",
+      "title": "TEXT"
+    },
+    {
+      "level": 1,
+      "page_index": 146,
+      "source": "pymupdf",
+      "title": "COVER NO. 3"
+    },
+    {
+      "level": 1,
+      "page_index": 147,
+      "source": "pymupdf",
+      "title": "COVER ENGLISH 9"
+    },
+    {
+      "level": 2,
+      "page_index": 147,
+      "source": "pymupdf",
+      "title": "Page 1"
+    }
+  ],
+  "selected_source": "pymupdf"
+}

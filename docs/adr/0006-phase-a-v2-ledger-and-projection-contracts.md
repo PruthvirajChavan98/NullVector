@@ -5,7 +5,7 @@
 
 ## Context
 
-`major-changes-v2.md` changes the architectural direction of StrataForge in two important ways
+`major-changes-v2.md` changes the architectural direction of NullVector in two important ways
 before any acquisition or tree logic is rewritten:
 
 - acquisition should converge on a canonical document ledger instead of treating
@@ -64,7 +64,7 @@ The additive v2 contracts introduced in this phase are:
   immediate cutover.
 - The repo now has a typed place to land the future native-first acquisition and projection work
   from `major-changes-v2.md`.
-- Existing imports from `strataforge.domain.models` remain valid, which keeps the migration
+- Existing imports from `nullvector.domain.models` remain valid, which keeps the migration
   additive.
 - `PageLedgerRow` remains in the codebase for compatibility, but it is no longer the only
   long-term contract surface available for future phases.

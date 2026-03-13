@@ -1,0 +1,12 @@
+[
+  {
+    "details": {},
+    "message": "no bounded repair requests were emitted by deterministic Phase 02 logic",
+    "proposed_title": null,
+    "repair_kind": null,
+    "request_id": null,
+    "resolved_level": null,
+    "status": "not_requested",
+    "subject_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52"
+  }
+]

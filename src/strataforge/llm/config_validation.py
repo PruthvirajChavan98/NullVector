@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from strataforge.llm.errors import GatewayConfigurationError
-from strataforge.llm.types import GatewayConfig, OpenAIProviderConfig, StructuredOutputMode
+from nullvector.llm.errors import GatewayConfigurationError
+from nullvector.llm.types import GatewayConfig, OpenAIProviderConfig, StructuredOutputMode
 
 
 def provider_supported_modes(config: GatewayConfig) -> tuple[StructuredOutputMode, ...]:

@@ -9,17 +9,17 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     VisualEnrichmentAttachment,
     VisualEnrichmentRequest,
 )
-from strataforge.llm.multimodal_gateway.errors import MultimodalGatewayError
-from strataforge.llm.multimodal_gateway.protocols import (
+from nullvector.llm.multimodal_gateway.errors import MultimodalGatewayError
+from nullvector.llm.multimodal_gateway.protocols import (
     MultimodalProviderAdapter,
     StructuredMultimodalGateway,
 )
-from strataforge.llm.multimodal_gateway.providers.noop import NoopMultimodalProviderAdapter
-from strataforge.llm.multimodal_gateway.types import (
+from nullvector.llm.multimodal_gateway.providers.noop import NoopMultimodalProviderAdapter
+from nullvector.llm.multimodal_gateway.types import (
     JSONValue,
     MultimodalAssuranceMode,
     MultimodalFailureCategory,
@@ -33,13 +33,13 @@ from strataforge.llm.multimodal_gateway.types import (
     RegionImageInput,
     VisualInsightResponse,
 )
-from strataforge.observability import (
+from nullvector.observability import (
     EventBus,
     ExternalEnrichmentMerged,
     ExternalEnrichmentRequested,
     VisualEnrichmentAttached,
 )
-from strataforge.runtime_validation import validate_attachment_path, validate_writable_root
+from nullvector.runtime_validation import validate_attachment_path, validate_writable_root
 
 T = TypeVar("T", bound=BaseModel)
 

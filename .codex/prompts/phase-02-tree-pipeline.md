@@ -1,6 +1,6 @@
 # Codex Prompt — Phase 02 Tree Pipeline
 
-You are working on StrataForge.
+You are working on NullVector.
 
 Mission:
 Implement deterministic hierarchy synthesis, grounding, and verification on top of Phase 01 parser artifacts.

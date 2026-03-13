@@ -8,7 +8,7 @@ from typing import Any
 import fitz
 from pypdf import PdfReader
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     AcquisitionManifest,
     AcquisitionRequest,
     CanonicalDocumentLedger,
@@ -16,14 +16,14 @@ from strataforge.domain.models import (
     EventSeverity,
     SourceMetadata,
 )
-from strataforge.ingest.acquisition_artifacts import settings_digest
-from strataforge.ingest.fingerprint import fingerprint_document
-from strataforge.ingest.outline import (
+from nullvector.ingest.acquisition_artifacts import settings_digest
+from nullvector.ingest.fingerprint import fingerprint_document
+from nullvector.ingest.outline import (
     extract_pymupdf_outlines,
     extract_pypdf_outlines,
     select_outline,
 )
-from strataforge.ingest.profiling import profile_page
+from nullvector.ingest.profiling import profile_page
 
 fitz_module: Any = fitz
 

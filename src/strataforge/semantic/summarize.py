@@ -7,19 +7,19 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     HierarchyNode,
     NodeCard,
     NodeSummary,
     NodeSummaryMethod,
     SemanticUsage,
 )
-from strataforge.llm.prompts import SummarizationPromptResponse, build_summarization_messages
-from strataforge.llm.protocols import StructuredLLMGateway
-from strataforge.llm.types import GatewayRequest, GatewayUsage
-from strataforge.observability import EventBus, NodeSummarized
-from strataforge.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
-from strataforge.tree.headings import PageArtifacts
+from nullvector.llm.prompts import SummarizationPromptResponse, build_summarization_messages
+from nullvector.llm.protocols import StructuredLLMGateway
+from nullvector.llm.types import GatewayRequest, GatewayUsage
+from nullvector.observability import EventBus, NodeSummarized
+from nullvector.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
+from nullvector.tree.headings import PageArtifacts
 
 LEAF_PASSTHROUGH_TOKEN_THRESHOLD = 200
 

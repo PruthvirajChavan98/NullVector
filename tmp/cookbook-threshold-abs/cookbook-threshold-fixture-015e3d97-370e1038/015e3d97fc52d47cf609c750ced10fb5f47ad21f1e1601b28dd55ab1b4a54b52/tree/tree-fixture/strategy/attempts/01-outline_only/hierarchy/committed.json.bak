@@ -1,0 +1,104 @@
+[
+  {
+    "confidence": 1.0,
+    "document_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+    "heading_anchor": {
+      "anchor_source": "rawdict",
+      "anchor_text": "Overview section for deterministic parser substrate.",
+      "end_offset": 52,
+      "occurrence_index": 0,
+      "page": 0,
+      "start_offset": 0
+    },
+    "level": 1,
+    "node_id": "20b912e91b26b030e990db21ab91e02669544b4a2851208b13b4b7abb9aa8e47",
+    "normalized_title": "overview",
+    "origin": "outline",
+    "owned_spans": [
+      {
+        "kind": "body",
+        "span": {
+          "end_offset": 49,
+          "end_page": 1,
+          "start_offset": 0,
+          "start_page": 0
+        }
+      }
+    ],
+    "page_span": {
+      "end_page": 1,
+      "start_page": 0
+    },
+    "parent_id": null,
+    "path": [
+      "Overview"
+    ],
+    "source_anchors": [
+      {
+        "end_offset": 52,
+        "page": 0,
+        "quote": "Overview section for deterministic parser substrate.",
+        "start_offset": 0
+      },
+      {
+        "end_offset": 52,
+        "page": 0,
+        "quote": "Overview section for deterministic parser substrate.",
+        "start_offset": 0
+      }
+    ],
+    "title": "Overview",
+    "verification_match_tier": "token_containment"
+  },
+  {
+    "confidence": 1.0,
+    "document_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+    "heading_anchor": {
+      "anchor_source": "rawdict",
+      "anchor_text": "Appendix material for fixture verification.",
+      "end_offset": 43,
+      "occurrence_index": 0,
+      "page": 2,
+      "start_offset": 0
+    },
+    "level": 1,
+    "node_id": "c26b909876af1a23d7907bc2585952ca5c931496820e9ae0ab51d19765bd896a",
+    "normalized_title": "appendix",
+    "origin": "outline",
+    "owned_spans": [
+      {
+        "kind": "body",
+        "span": {
+          "end_offset": 43,
+          "end_page": 2,
+          "start_offset": 0,
+          "start_page": 2
+        }
+      }
+    ],
+    "page_span": {
+      "end_page": 2,
+      "start_page": 2
+    },
+    "parent_id": null,
+    "path": [
+      "Appendix"
+    ],
+    "source_anchors": [
+      {
+        "end_offset": 43,
+        "page": 2,
+        "quote": "Appendix material for fixture verification.",
+        "start_offset": 0
+      },
+      {
+        "end_offset": 43,
+        "page": 2,
+        "quote": "Appendix material for fixture verification.",
+        "start_offset": 0
+      }
+    ],
+    "title": "Appendix",
+    "verification_match_tier": "token_containment"
+  }
+]

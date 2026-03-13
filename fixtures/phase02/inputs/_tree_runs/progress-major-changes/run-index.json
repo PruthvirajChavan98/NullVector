@@ -1,10 +1,10 @@
 {
   "document_id": "1111111111111111111111111111111111111111111111111111111111111111",
-  "manifest_path": "/home/pruthvi/projects/StrataForge/fixtures/phase02/inputs/clean_outline/tree/progress-major-changes/manifest.json",
-  "parse_artifact_identity": "/home/pruthvi/projects/StrataForge/fixtures/phase02/inputs/clean_outline/manifest.json",
+  "manifest_path": "/home/pruthvi/projects/NullVector/fixtures/phase02/inputs/clean_outline/tree/progress-major-changes/manifest.json",
+  "parse_artifact_identity": "/home/pruthvi/projects/NullVector/fixtures/phase02/inputs/clean_outline/manifest.json",
   "parse_fingerprint_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
-  "parse_manifest_path": "/home/pruthvi/projects/StrataForge/fixtures/phase02/inputs/clean_outline/manifest.json",
-  "registry_root": "/home/pruthvi/projects/StrataForge/fixtures/phase02/inputs/_tree_runs",
+  "parse_manifest_path": "/home/pruthvi/projects/NullVector/fixtures/phase02/inputs/clean_outline/manifest.json",
+  "registry_root": "/home/pruthvi/projects/NullVector/fixtures/phase02/inputs/_tree_runs",
   "settings_digest": "c005680375289bc814a096bb6e84d6efb29f40ccdbf50d43a2e5e44db4ee0c65",
   "tree_run_id": "progress-major-changes"
 }

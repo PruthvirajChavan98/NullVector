@@ -1,6 +1,6 @@
 # .codex
 
-This folder is the StrataForge project-local Codex control plane.
+This folder is the NullVector project-local Codex control plane.
 
 Contents:
 - rules/      => stable engineering rules Codex must follow

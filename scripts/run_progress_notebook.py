@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the canonical StrataForge progress notebook deterministically."""
+"""Execute the canonical NullVector progress notebook deterministically."""
 
 from __future__ import annotations
 

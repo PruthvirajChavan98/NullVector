@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import string
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     CanonicalDocumentLedger,
     CanonicalTextLine,
     CanonicalTextPage,

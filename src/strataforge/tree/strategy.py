@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     HeadingCandidate,
     HierarchyStrategy,
     OutlineSource,

@@ -8,8 +8,8 @@ from typing import Any
 
 import fitz
 
-from strataforge.domain.models import DocumentFingerprint
-from strataforge.ingest.errors import InvalidSourceError
+from nullvector.domain.models import DocumentFingerprint
+from nullvector.ingest.errors import InvalidSourceError
 
 fitz_module: Any = fitz
 

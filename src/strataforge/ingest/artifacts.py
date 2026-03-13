@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from strataforge.domain.models import ParserSettings, ParseRunIndex, ParseRunManifest
+from nullvector.domain.models import ParserSettings, ParseRunIndex, ParseRunManifest
 
 
 def _json_safe(value: Any) -> Any:

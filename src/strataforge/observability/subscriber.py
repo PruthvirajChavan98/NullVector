@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from strataforge.observability.events import FrameworkEvent
+from nullvector.observability.events import FrameworkEvent
 
 
 class EventSubscriber(Protocol):

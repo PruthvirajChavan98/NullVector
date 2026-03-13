@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     ContentSpan,
     HierarchyNode,
     LLMVerificationAssistRecord,
@@ -22,10 +22,10 @@ from strataforge.domain.models import (
     VerificationSeverity,
     VerificationStatus,
 )
-from strataforge.llm.prompts import VerificationPromptResponse, build_verification_messages
-from strataforge.llm.protocols import StructuredLLMGateway
-from strataforge.llm.types import GatewayRequest
-from strataforge.tree.headings import (
+from nullvector.llm.prompts import VerificationPromptResponse, build_verification_messages
+from nullvector.llm.protocols import StructuredLLMGateway
+from nullvector.llm.types import GatewayRequest
+from nullvector.tree.headings import (
     PageArtifacts,
     PageLine,
     casefold_punct_key,

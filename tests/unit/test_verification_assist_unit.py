@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from strataforge.domain import (
+from nullvector.domain import (
     AnchorSource,
     HierarchyNode,
     HierarchyOrigin,
@@ -16,8 +16,8 @@ from strataforge.domain import (
     TitleMatchTier,
     TreeSettings,
 )
-from strataforge.domain.models import VerificationStatus
-from strataforge.llm import (
+from nullvector.domain.models import VerificationStatus
+from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
     GatewayService,
@@ -25,10 +25,10 @@ from strataforge.llm import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
-from strataforge.llm.protocols import ProviderAdapter
-from strataforge.llm.types import ProviderInvocationRequest, ProviderInvocationResult
-from strataforge.tree.headings import PageArtifacts
-from strataforge.tree.verify import LLMVerificationAssistant, verify_hierarchy
+from nullvector.llm.protocols import ProviderAdapter
+from nullvector.llm.types import ProviderInvocationRequest, ProviderInvocationResult
+from nullvector.tree.headings import PageArtifacts
+from nullvector.tree.verify import LLMVerificationAssistant, verify_hierarchy
 
 
 class CountingProviderAdapter:

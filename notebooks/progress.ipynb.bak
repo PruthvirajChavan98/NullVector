@@ -1,0 +1,173 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "7a0988bc",
+   "metadata": {},
+   "source": [
+    "# StrataForge Progress Notebook\n",
+    "## major-changes-v2 Phase F-J Cookbook Verification\n",
+    "Purpose: verify that the in-place LangGraph cookbook replacement is source-clean, framework-backed, and executable with deprecation warnings treated as errors.\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "8ee8408e",
+   "metadata": {},
+   "source": [
+    "### Environment\n",
+    "\n",
+    "- This notebook validates the tracked `cookbook/langgraph_rag_cookbook.ipynb`.\n",
+    "- Execution runs the cookbook through `scripts/run_progress_notebook.py` with `PYTHONWARNINGS=error::DeprecationWarning`.\n",
+    "- The cookbook itself is fixture-first by default, so this progress notebook does not require a local real PDF or a live OpenRouter key.\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "abd19533",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# environment setup\n",
+    "from pathlib import Path\n",
+    "import json\n",
+    "import os\n",
+    "import subprocess\n",
+    "import sys\n",
+    "import warnings\n",
+    "\n",
+    "warnings.filterwarnings(\"error\", category=DeprecationWarning)\n",
+    "\n",
+    "REPO_ROOT = Path.cwd()\n",
+    "ARTIFACT_ROOT = REPO_ROOT / \"notebooks\" / \"_artifacts\" / \"cookbook-rag-remediation\"\n",
+    "ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)\n",
+    "\n",
+    "print({\n",
+    "    \"repo_root\": str(REPO_ROOT),\n",
+    "    \"artifact_root\": str(ARTIFACT_ROOT),\n",
+    "})\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "56cd09a7",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# imports\n",
+    "import json\n",
+    "from pathlib import Path\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "58546dee",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# configuration\n",
+    "COOKBOOK_NOTEBOOK = REPO_ROOT / \"cookbook\" / \"langgraph_rag_cookbook.ipynb\"\n",
+    "EXECUTED_NOTEBOOK = ARTIFACT_ROOT / \"langgraph_rag_cookbook.executed.ipynb\"\n",
+    "RUN_ENV = dict(os.environ)\n",
+    "RUN_ENV[\"PYTHONWARNINGS\"] = \"error::DeprecationWarning\"\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "794011bc",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# execution\n",
+    "source_notebook = json.loads(COOKBOOK_NOTEBOOK.read_text(encoding=\"utf-8\"))\n",
+    "code_cells = [cell for cell in source_notebook[\"cells\"] if cell.get(\"cell_type\") == \"code\"]\n",
+    "source_blob = \"\\n\".join(\"\".join(cell.get(\"source\", [])) for cell in code_cells)\n",
+    "\n",
+    "source_checks = {\n",
+    "    \"has_saved_outputs\": any(cell.get(\"outputs\") for cell in code_cells),\n",
+    "    \"has_saved_error_outputs\": any(\n",
+    "        output.get(\"output_type\") == \"error\"\n",
+    "        for cell in code_cells\n",
+    "        for output in cell.get(\"outputs\", [])\n",
+    "    ),\n",
+    "    \"uses_missing_helper_module\": \"strataforge.cookbook_support\" in source_blob,\n",
+    "    \"uses_gateway_service\": \"GatewayService\" in source_blob,\n",
+    "    \"uses_direct_litellm_completion\": \"litellm.completion\" in source_blob,\n",
+    "}\n",
+    "\n",
+    "subprocess.run(\n",
+    "    [\n",
+    "        sys.executable,\n",
+    "        \"scripts/run_progress_notebook.py\",\n",
+    "        \"--notebook\",\n",
+    "        str(COOKBOOK_NOTEBOOK),\n",
+    "        \"--output\",\n",
+    "        str(EXECUTED_NOTEBOOK),\n",
+    "    ],\n",
+    "    cwd=REPO_ROOT,\n",
+    "    env=RUN_ENV,\n",
+    "    check=True,\n",
+    ")\n",
+    "\n",
+    "executed_notebook = json.loads(EXECUTED_NOTEBOOK.read_text(encoding=\"utf-8\"))\n",
+    "inspect_cell = next(\n",
+    "    cell\n",
+    "    for cell in executed_notebook[\"cells\"]\n",
+    "    if cell.get(\"cell_type\") == \"code\"\n",
+    "    and \"\".join(cell.get(\"source\", [])).startswith(\"# inspect results\")\n",
+    ")\n",
+    "inspect_output = \"\".join(\n",
+    "    text\n",
+    "    for output in inspect_cell.get(\"outputs\", [])\n",
+    "    if output.get(\"output_type\") == \"stream\"\n",
+    "    for text in output.get(\"text\", [])\n",
+    ")\n",
+    "cookbook_summary = json.loads(inspect_output)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "9435edd8",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# inspect results\n",
+    "summary = {\n",
+    "    \"source_checks\": source_checks,\n",
+    "    \"cookbook_summary\": cookbook_summary,\n",
+    "}\n",
+    "print(json.dumps(summary, indent=2, ensure_ascii=True))\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "70b4b8c5",
+   "metadata": {},
+   "source": [
+    "### Known Limitations\n",
+    "\n",
+    "- This progress notebook validates the fixture-first cookbook path, not a local real-PDF run.\n",
+    "- Live text remains optional and will skip honestly when `OPENROUTER_API_KEY` is not configured.\n",
+    "- Visual enrichment in the cookbook stays attachment-only and noop-backed by design.\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "name": "python",
+   "version": "3.11"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

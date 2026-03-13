@@ -13,8 +13,8 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from strataforge.domain import RepairKind, RepairRequest, TreeBuildRequest
-from strataforge.llm import (
+from nullvector.domain import RepairKind, RepairRequest, TreeBuildRequest
+from nullvector.llm import (
     GatewayAssuranceMode,
     GatewayAuditConfig,
     GatewayAuthError,
@@ -31,8 +31,8 @@ from strataforge.llm import (
     OpenAIResponsesHTTPAdapter,
     StructuredOutputMode,
 )
-from strataforge.tree import build_tree
-from strataforge.tree import service as tree_service_module
+from nullvector.tree import build_tree
+from nullvector.tree import service as tree_service_module
 
 from ..support.acquisition_fixtures import convert_legacy_parse_fixture_to_acquisition
 

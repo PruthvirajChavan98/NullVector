@@ -1,6 +1,6 @@
 # Codex Prompt — Phase 04 Workflows and Observability
 
-You are working on StrataForge.
+You are working on NullVector.
 
 Mission:
 Implement durable workflow orchestration and production observability for large document ingestion.

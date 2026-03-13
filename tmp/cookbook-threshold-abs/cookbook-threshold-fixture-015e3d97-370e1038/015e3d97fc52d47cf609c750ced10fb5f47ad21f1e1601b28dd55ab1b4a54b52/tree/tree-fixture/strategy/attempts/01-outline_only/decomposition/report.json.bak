@@ -1,0 +1,12 @@
+{
+  "decomposed_node_ids": [],
+  "decomposition_method": "none",
+  "depth": 0,
+  "empty_parent_count": 0,
+  "gateway_assurance_mode": null,
+  "gateway_audit_paths": [],
+  "gateway_provider_name": null,
+  "gateway_usage": null,
+  "new_child_count": 0,
+  "tokenizer_identity": "heuristic"
+}

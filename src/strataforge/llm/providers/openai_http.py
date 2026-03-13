@@ -7,8 +7,8 @@ from typing import Any, cast
 
 import httpx
 
-from strataforge.llm.audit import json_safe
-from strataforge.llm.types import (
+from nullvector.llm.audit import json_safe
+from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayConfig,
     GatewayFailureCategory,

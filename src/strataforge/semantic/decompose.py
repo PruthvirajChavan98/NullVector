@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     ContentSpan,
     DecompositionBoundary,
     DecompositionMethod,
@@ -22,18 +22,18 @@ from strataforge.domain.models import (
     SemanticUsage,
     TreeSettings,
 )
-from strataforge.llm.prompts import build_decomposition_messages
-from strataforge.llm.protocols import StructuredLLMGateway
-from strataforge.llm.types import GatewayRequest, GatewayUsage
-from strataforge.semantic.tokens import Tokenizer, resolve_tokenizer
-from strataforge.tree.anchors import node_anchor_to_source_anchor
-from strataforge.tree.headings import (
+from nullvector.llm.prompts import build_decomposition_messages
+from nullvector.llm.protocols import StructuredLLMGateway
+from nullvector.llm.types import GatewayRequest, GatewayUsage
+from nullvector.semantic.tokens import Tokenizer, resolve_tokenizer
+from nullvector.tree.anchors import node_anchor_to_source_anchor
+from nullvector.tree.headings import (
     PageArtifacts,
     anchor_title_on_page,
     extract_inferred_candidates,
     normalized_title_key,
 )
-from strataforge.tree.hierarchy import generate_node_id
+from nullvector.tree.hierarchy import generate_node_id
 
 _DECOMPOSITION_KEEP_THRESHOLD = 20
 _DECOMPOSITION_HIGH_CONFIDENCE_THRESHOLD = 40

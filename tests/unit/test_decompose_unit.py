@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from strataforge.domain import (
+from nullvector.domain import (
     AnchorSource,
     ContentSpan,
     HierarchyNode,
@@ -15,8 +15,8 @@ from strataforge.domain import (
     PageSpan,
     TreeSettings,
 )
-from strataforge.domain.models import VerificationStatus
-from strataforge.llm import (
+from nullvector.domain.models import VerificationStatus
+from nullvector.llm import (
     GatewayAssuranceMode,
     GatewayAuditConfig,
     GatewayConfig,
@@ -24,17 +24,17 @@ from strataforge.llm import (
     GatewayUsage,
     LiteLLMProviderConfig,
 )
-from strataforge.llm.protocols import ProviderAdapter
-from strataforge.llm.types import (
+from nullvector.llm.protocols import ProviderAdapter
+from nullvector.llm.types import (
     JSONValue,
     ProviderInvocationRequest,
     ProviderInvocationResult,
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
-from strataforge.tree.decompose import NodeDecomposer
-from strataforge.tree.headings import PageArtifacts, split_text_lines_with_offsets
-from strataforge.tree.verify import determine_title_match_tier, verify_hierarchy
+from nullvector.tree.decompose import NodeDecomposer
+from nullvector.tree.headings import PageArtifacts, split_text_lines_with_offsets
+from nullvector.tree.verify import determine_title_match_tier, verify_hierarchy
 
 
 class CaptureDecompositionAdapter:

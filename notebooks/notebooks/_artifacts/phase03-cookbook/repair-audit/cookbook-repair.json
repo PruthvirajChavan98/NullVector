@@ -28,7 +28,7 @@
   "failure": null,
   "messages": [
     {
-      "content": "You are assisting bounded hierarchy repair for StrataForge. Only reason about the single repair request provided. Never invent sections, page spans, provenance, or titles not supported by the request. If evidence is insufficient, return requested_but_skipped or proposal_rejected.",
+      "content": "You are assisting bounded hierarchy repair for NullVector. Only reason about the single repair request provided. Never invent sections, page spans, provenance, or titles not supported by the request. If evidence is insufficient, return requested_but_skipped or proposal_rejected.",
       "role": "system"
     },
     {
@@ -54,7 +54,7 @@
   "request_payload": {
     "input": [
       {
-        "content": "You are assisting bounded hierarchy repair for StrataForge. Only reason about the single repair request provided. Never invent sections, page spans, provenance, or titles not supported by the request. If evidence is insufficient, return requested_but_skipped or proposal_rejected.",
+        "content": "You are assisting bounded hierarchy repair for NullVector. Only reason about the single repair request provided. Never invent sections, page spans, provenance, or titles not supported by the request. If evidence is insufficient, return requested_but_skipped or proposal_rejected.",
         "role": "system"
       },
       {

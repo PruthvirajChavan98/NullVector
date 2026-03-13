@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from strataforge.llm.types import GatewayAuditRecord, GatewayFailure, GatewayFailureCategory
+from nullvector.llm.types import GatewayAuditRecord, GatewayFailure, GatewayFailureCategory
 
 
 class GatewayError(Exception):

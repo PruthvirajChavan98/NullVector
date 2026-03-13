@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import fitz
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     AcquisitionSettings,
     CanonicalDocumentLedger,
     CanonicalPage,
@@ -14,7 +14,7 @@ from strataforge.domain.models import (
     UnresolvedRegion,
     VisualArtifact,
 )
-from strataforge.ingest.acquisition_artifacts import AcquisitionArtifactStore
+from nullvector.ingest.acquisition_artifacts import AcquisitionArtifactStore
 
 fitz_module: Any = fitz
 

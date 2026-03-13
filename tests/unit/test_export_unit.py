@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import pytest
 
-from strataforge.domain import (
+from nullvector.domain import (
     ContentSpan,
     NodeCard,
     NodeOwnedSpan,
@@ -19,7 +19,7 @@ from strataforge.domain import (
     StructuredRegionInsight,
     VisualEnrichmentAttachment,
 )
-from strataforge.export import (
+from nullvector.export import (
     ExporterDependencyError,
     to_langchain_document,
     to_llamaindex_node,

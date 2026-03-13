@@ -1,6 +1,6 @@
-# StrataForge Antigravity Root Context
+# NullVector Antigravity Root Context
 
-Welcome to StrataForge. This is a CPU-first document hierarchy framework for deterministic ingestion of large technical PDFs.
+Welcome to NullVector. This is a CPU-first document hierarchy framework for deterministic ingestion of large technical PDFs.
 
 CRITICAL INSTRUCTIONS:
 1. You MUST read and adhere to `AGENTS.md` before making substantive changes.

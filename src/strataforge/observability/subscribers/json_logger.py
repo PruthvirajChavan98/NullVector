@@ -8,8 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from strataforge.observability.events import FrameworkEvent
-from strataforge.runtime_validation import validate_writable_root
+from nullvector.observability.events import FrameworkEvent
+from nullvector.runtime_validation import validate_writable_root
 
 
 def _json_safe(value: Any) -> Any:

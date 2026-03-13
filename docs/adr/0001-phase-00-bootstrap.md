@@ -5,13 +5,13 @@
 
 ## Context
 
-StrataForge starts from an almost empty repository but must establish strict typed contracts,
+NullVector starts from an almost empty repository but must establish strict typed contracts,
 reproducible local development, CI-ready validation commands, and scaffolding for future parser,
 workflow, storage, and observability phases.
 
 ## Decision
 
-Bootstrap the repository as a Python package under `src/strataforge` with:
+Bootstrap the repository as a Python package under `src/nullvector` with:
 
 - Pydantic v2 as the authoritative runtime contract layer
 - `ruff`, `mypy`, and `pytest` as the baseline validation stack

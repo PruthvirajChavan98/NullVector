@@ -1,4 +1,4 @@
-# StrataForge — Repository Operating Contract
+# NullVector — Repository Operating Contract
 
 ## Mandatory repo context
 
@@ -13,7 +13,7 @@ Do not recursively read all files under `.codex/` unless a task explicitly requi
 
 ## Mandatory notebook progress artifact
 
-StrataForge maintains one canonical runnable notebook for human verification:
+NullVector maintains one canonical runnable notebook for human verification:
 
 - `notebooks/progress.ipynb`
 

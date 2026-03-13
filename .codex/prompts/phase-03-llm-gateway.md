@@ -1,12 +1,12 @@
 # Codex Prompt — Phase 03 LLM Gateway (Start Here)
 
-You are working on StrataForge.
+You are working on NullVector.
 
 Mission:
 Implement Phase 03 as a production-grade, framework-agnostic LLM gateway that enforces strict typed boundaries, structured outputs, auditable retries, and deterministic failure handling.
 
 Primary architectural rule:
-The StrataForge core must own:
+The NullVector core must own:
 - request/response contracts
 - schema validation
 - typed error normalization
@@ -29,7 +29,7 @@ What to implement
 
 ## 1. New package structure
 
-Create a new LLM gateway package under `src/strataforge/llm/` with this shape:
+Create a new LLM gateway package under `src/nullvector/llm/` with this shape:
 
 - `__init__.py`
 - `types.py`
@@ -104,7 +104,7 @@ No best-effort coercion after schema failure.
 
 ## 4. Retry policy
 
-Implement retry behavior in StrataForge, not in third-party frameworks.
+Implement retry behavior in NullVector, not in third-party frameworks.
 
 Requirements:
 - bounded exponential backoff
@@ -148,7 +148,7 @@ Choose one of these:
 - LiteLLM as a transport/router adapter
 
 Decision rule:
-Prefer the smallest adapter surface that still lets StrataForge own retries, typed error normalization, validation, and auditing.
+Prefer the smallest adapter surface that still lets NullVector own retries, typed error normalization, validation, and auditing.
 
 Do NOT make Instructor or Pydantic AI the first canonical adapter.
 They may be added later as integrations, not as the core runtime foundation.
@@ -256,7 +256,7 @@ Phase 03 is only complete if all of the following are true:
 - no-network tests can run through the noop adapter
 - all outputs crossing the boundary are validated Pydantic models
 - all failures are typed and observable
-- retries are owned by StrataForge
+- retries are owned by NullVector
 - raw-response audit capture exists with redaction hooks
 - bounded repair prompting is implemented through the new gateway path
 - existing Phase 02 behavior remains stable when the noop/default path is used
@@ -281,7 +281,7 @@ Status:
 - completed on 2026-03-11
 - Phase 03 was delivered as a split implementation:
   - `03A`: typed gateway core, deterministic noop adapter, LiteLLM SDK adapter with
-    `transport_compatible` assurance only, StrataForge-owned retries, typed failures, and redacted
+    `transport_compatible` assurance only, NullVector-owned retries, typed failures, and redacted
     audit persistence
   - `03B`: direct OpenAI Responses adapter with `provider_native_strict` assurance and bounded
     `GatewayRepairEngine` integration through the existing repair seam

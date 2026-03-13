@@ -1,0 +1,92 @@
+{
+  "assurance_mode": "provider_native_strict",
+  "attempts": [
+    {
+      "assurance_mode": "provider_native_strict",
+      "attempt_number": 1,
+      "completed_at": "2026-03-11T14:04:01.318609Z",
+      "delay_before_attempt_seconds": 0.0,
+      "failure_category": null,
+      "failure_message": null,
+      "model_name": "gpt-4.1-mini",
+      "provider_name": "openai_http",
+      "provider_request_id": "phase03-cookbook-openai-request",
+      "provider_response_id": "phase03-cookbook-openai-response",
+      "retryable": false,
+      "started_at": "2026-03-11T14:04:01.317794Z",
+      "status_code": 200,
+      "structured_output_mode": "provider_native",
+      "usage": {
+        "input_tokens": 6,
+        "output_tokens": 7,
+        "total_tokens": 13
+      }
+    }
+  ],
+  "audit_id": "68d29c93cbfc4d12b12bb6cdad3101c1",
+  "captured_at": "2026-03-11T14:04:01.318749Z",
+  "failure": null,
+  "messages": [
+    {
+      "content": "return a strict greeting",
+      "role": "user"
+    }
+  ],
+  "metadata": {},
+  "model_name": "gpt-4.1-mini",
+  "operation_name": "cookbook-openai",
+  "parsed_output": {
+    "message": "hello from openai cookbook"
+  },
+  "provider_name": "openai_http",
+  "request_id": "cookbook-openai",
+  "request_payload": {
+    "input": [
+      {
+        "content": "return a strict greeting",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-4.1-mini",
+    "temperature": 0.0,
+    "text": {
+      "format": {
+        "name": "EchoResponse",
+        "schema": {
+          "properties": {
+            "message": {
+              "title": "Message",
+              "type": "string"
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "title": "EchoResponse",
+          "type": "object"
+        },
+        "strict": true,
+        "type": "json_schema"
+      }
+    }
+  },
+  "response_payload": {
+    "id": "phase03-cookbook-openai-response",
+    "output": [
+      {
+        "content": [
+          {
+            "text": "{\"message\":\"hello from openai cookbook\"}",
+            "type": "output_text"
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "input_tokens": 6,
+      "output_tokens": 7,
+      "total_tokens": 13
+    }
+  },
+  "structured_output_mode": "provider_native"
+}

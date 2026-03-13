@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     AnchorSource,
     CanonicalTextLine,
     HeadingCandidate,

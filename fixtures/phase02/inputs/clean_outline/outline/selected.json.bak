@@ -1,0 +1,23 @@
+{
+  "entries": [
+    {
+      "level": 1,
+      "page_index": 0,
+      "source": "pymupdf",
+      "title": "Overview"
+    },
+    {
+      "level": 2,
+      "page_index": 1,
+      "source": "pymupdf",
+      "title": "Details"
+    },
+    {
+      "level": 1,
+      "page_index": 2,
+      "source": "pymupdf",
+      "title": "Appendix"
+    }
+  ],
+  "selected_source": "pymupdf"
+}

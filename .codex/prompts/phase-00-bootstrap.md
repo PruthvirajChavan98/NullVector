@@ -1,6 +1,6 @@
 # Codex Prompt — Phase 00 Bootstrap
 
-You are working on StrataForge.
+You are working on NullVector.
 
 Mission:
 Create the production bootstrap for a CPU-only hierarchical PDF ingestion system.

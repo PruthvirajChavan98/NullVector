@@ -1,0 +1,60 @@
+{
+  "acquisition_run_id": "cookbook-threshold-fixture-015e3d97-370e1038",
+  "artifact_root": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+  "canonical_text_substrate_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/projection/canonical-text-substrate.json",
+  "document_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+  "event_stream_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/events/document-events.jsonl",
+  "ledger_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/ledger/canonical-document-ledger.json",
+  "outline_quality_reports": [
+    {
+      "empty_title_count": 0,
+      "entry_count": 3,
+      "invalid_level_count": 0,
+      "max_depth": 2,
+      "non_monotonic_count": 0,
+      "null_destination_count": 0,
+      "score": 300,
+      "source": "pymupdf"
+    },
+    {
+      "empty_title_count": 0,
+      "entry_count": 3,
+      "invalid_level_count": 0,
+      "max_depth": 2,
+      "non_monotonic_count": 0,
+      "null_destination_count": 0,
+      "score": 300,
+      "source": "pypdf"
+    }
+  ],
+  "page_count": 3,
+  "projection_view_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/projection/tree-synthesis-view.json",
+  "provider_identity": "native_pymupdf",
+  "pymupdf_outline_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/outline/pymupdf.normalized.json",
+  "pymupdf_rich_outline_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/outline/pymupdf.rich.json",
+  "pypdf_outline_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/outline/pypdf.normalized.json",
+  "selected_outline_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/outline/selected.json",
+  "selected_outline_source": "pymupdf",
+  "settings": {
+    "dense_vector_threshold": 2000,
+    "detect_tables": true,
+    "emit_line_blocks": true,
+    "image_region_warning_threshold": 0.65,
+    "pymupdf_version": "1.27.2",
+    "pypdf_version": "6.8.0",
+    "render_dpi": 144,
+    "small_vector_max_area_ratio": 0.0005,
+    "table_min_columns": 2,
+    "table_min_rows": 2,
+    "vector_scan_limit": 5000
+  },
+  "settings_digest": "370e10389b0da549c0f2c8f0d4f29985f3d78d9b7226f472b939890af30942f3",
+  "source_copy_path": "/home/pruthvi/projects/StrataForge/tmp/cookbook-threshold-abs/cookbook-threshold-fixture-015e3d97-370e1038/015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52/source/original.pdf",
+  "source_fingerprint": {
+    "document_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+    "file_size_bytes": 2163,
+    "page_count": 3,
+    "sha256": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+    "source_path": "/home/pruthvi/projects/StrataForge/fixtures/pdfs/phase01/born_digital_with_outline.pdf"
+  }
+}

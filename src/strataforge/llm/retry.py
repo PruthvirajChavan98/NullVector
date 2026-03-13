@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from strataforge.llm.types import GatewayFailureCategory, GatewayRetryPolicy
+from nullvector.llm.types import GatewayFailureCategory, GatewayRetryPolicy
 
 RETRYABLE_FAILURE_CATEGORIES = {
     GatewayFailureCategory.TIMEOUT,

@@ -9,7 +9,7 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel, Field, NonNegativeInt, PositiveFloat, model_validator
 from pydantic import JsonValue as PydanticJsonValue
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     NonEmptyStr,
     StrataModel,
     StructuredRegionInsight,

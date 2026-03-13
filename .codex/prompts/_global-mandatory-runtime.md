@@ -1,6 +1,6 @@
 # Global Codex Prompt — Mandatory Runtime Behavior
 
-You are operating inside the StrataForge repository.
+You are operating inside the NullVector repository.
 
 Repository policy is strict.
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from strataforge.llm.types import LLMMessage, LLMRole
+from nullvector.llm.types import LLMMessage, LLMRole
 
 
 def build_toc_detection_messages(*, page_text: str) -> tuple[LLMMessage, ...]:

@@ -1,0 +1,151 @@
+{
+  "document_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+  "outline_entries": [
+    {
+      "level": 1,
+      "page_index": 0,
+      "source": "pymupdf",
+      "title": "Overview"
+    },
+    {
+      "level": 2,
+      "page_index": 1,
+      "source": "pymupdf",
+      "title": "Details"
+    },
+    {
+      "level": 1,
+      "page_index": 2,
+      "source": "pymupdf",
+      "title": "Appendix"
+    }
+  ],
+  "pages": [
+    {
+      "height": 842.0,
+      "lines": [
+        {
+          "bbox": {
+            "x0": 72.0,
+            "x1": 481.12188720703125,
+            "y0": 76.6500015258789,
+            "y1": 101.38200378417969
+          },
+          "casefold_punct_text": "overview section for deterministic parser substrate",
+          "content": "Overview section for deterministic parser substrate.",
+          "end_offset": 52,
+          "font_size": 18.0,
+          "layout_cues_available": true,
+          "line_id": "page-0-line-0000",
+          "normalized_text": "overview section for deterministic parser substrate.",
+          "occurrence_index": 0,
+          "page_index": 0,
+          "reading_index": 1,
+          "start_offset": 0,
+          "top_y": 76.6500015258789,
+          "trust_tier": "native_exact"
+        }
+      ],
+      "page_index": 0,
+      "page_label": "",
+      "table_text_projections": [],
+      "trust_summary": {
+        "dominant_trust_tier": "native_exact",
+        "interpretive_content_present": false,
+        "line_count_by_trust_tier": {
+          "native_exact": 1
+        }
+      },
+      "unresolved_regions": [],
+      "width": 595.0
+    },
+    {
+      "height": 842.0,
+      "lines": [
+        {
+          "bbox": {
+            "x0": 72.0,
+            "x1": 466.181884765625,
+            "y0": 76.6500015258789,
+            "y1": 101.38200378417969
+          },
+          "casefold_punct_text": "detailed section describing page ledger behavior",
+          "content": "Detailed section describing page ledger behavior.",
+          "end_offset": 49,
+          "font_size": 18.0,
+          "layout_cues_available": true,
+          "line_id": "page-1-line-0000",
+          "normalized_text": "detailed section describing page ledger behavior.",
+          "occurrence_index": 0,
+          "page_index": 1,
+          "reading_index": 1,
+          "start_offset": 0,
+          "top_y": 76.6500015258789,
+          "trust_tier": "native_exact"
+        }
+      ],
+      "page_index": 1,
+      "page_label": "",
+      "table_text_projections": [],
+      "trust_summary": {
+        "dominant_trust_tier": "native_exact",
+        "interpretive_content_present": false,
+        "line_count_by_trust_tier": {
+          "native_exact": 1
+        }
+      },
+      "unresolved_regions": [],
+      "width": 595.0
+    },
+    {
+      "height": 842.0,
+      "lines": [
+        {
+          "bbox": {
+            "x0": 72.0,
+            "x1": 392.1119384765625,
+            "y0": 76.6500015258789,
+            "y1": 101.38200378417969
+          },
+          "casefold_punct_text": "appendix material for fixture verification",
+          "content": "Appendix material for fixture verification.",
+          "end_offset": 43,
+          "font_size": 18.0,
+          "layout_cues_available": true,
+          "line_id": "page-2-line-0000",
+          "normalized_text": "appendix material for fixture verification.",
+          "occurrence_index": 0,
+          "page_index": 2,
+          "reading_index": 1,
+          "start_offset": 0,
+          "top_y": 76.6500015258789,
+          "trust_tier": "native_exact"
+        }
+      ],
+      "page_index": 2,
+      "page_label": "",
+      "table_text_projections": [],
+      "trust_summary": {
+        "dominant_trust_tier": "native_exact",
+        "interpretive_content_present": false,
+        "line_count_by_trust_tier": {
+          "native_exact": 1
+        }
+      },
+      "unresolved_regions": [],
+      "width": 595.0
+    }
+  ],
+  "projection_events": [
+    {
+      "details": {
+        "page_count": 3,
+        "provider_identity": "native_pymupdf"
+      },
+      "event_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52-acquisition-native",
+      "event_name": "native_acquisition_completed",
+      "message": "native PyMuPDF acquisition completed",
+      "severity": "info"
+    }
+  ]
+}

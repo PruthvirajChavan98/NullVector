@@ -6,7 +6,7 @@ from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from strataforge.llm.multimodal_gateway.types import (
+from nullvector.llm.multimodal_gateway.types import (
     MultimodalGatewayConfig,
     MultimodalGatewayRequest,
     MultimodalGatewaySuccess,

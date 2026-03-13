@@ -1,7 +1,7 @@
 """Typed observability bus and built-in subscribers."""
 
-from strataforge.observability.bus import EventBus
-from strataforge.observability.events import (
+from nullvector.observability.bus import EventBus
+from nullvector.observability.events import (
     AcquisitionStarted,
     ExportCompleted,
     ExternalEnrichmentMerged,
@@ -18,8 +18,8 @@ from strataforge.observability.events import (
     UnresolvedRegionEmitted,
     VisualEnrichmentAttached,
 )
-from strataforge.observability.subscriber import EventSubscriber
-from strataforge.observability.subscribers import (
+from nullvector.observability.subscriber import EventSubscriber
+from nullvector.observability.subscribers import (
     JsonLoggerSubscriber,
     RichProgressSubscriber,
 )

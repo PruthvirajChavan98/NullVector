@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-StrataForge already had a parallel v2 acquisition and projection runtime, but the remaining
+NullVector already had a parallel v2 acquisition and projection runtime, but the remaining
 migration work still left four architectural gaps:
 
 - semantic services still lived under `tree/` and had no tokenizer boundary
@@ -17,17 +17,17 @@ The main runtime also still exposed the legacy parse substrate from the primary 
 ## Decision
 Adopt the following final migration structure:
 
-- semantic summarization and decomposition move into `strataforge.semantic`
+- semantic summarization and decomposition move into `nullvector.semantic`
 - token accounting is mediated by a tokenizer protocol with a heuristic default and an optional
   exact tokenizer
-- multimodal/VLM enrichment lives under `strataforge.llm.multimodal_gateway` and is strictly
+- multimodal/VLM enrichment lives under `nullvector.llm.multimodal_gateway` and is strictly
   attachment-only
 - typed workflow events are emitted through an in-process deterministic event bus under
-  `strataforge.observability`
-- LangChain and LlamaIndex exporters live under `strataforge.export` and remain optional,
+  `nullvector.observability`
+- LangChain and LlamaIndex exporters live under `nullvector.export` and remain optional,
   edge-only helpers
 - the primary runtime is acquisition/projection-only; the legacy parse substrate is retained only
-  under `strataforge.compat.legacy_parse`
+  under `nullvector.compat.legacy_parse`
 
 ## Consequences
 

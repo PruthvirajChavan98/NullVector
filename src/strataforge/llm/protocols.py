@@ -6,7 +6,7 @@ from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from strataforge.llm.types import (
+from nullvector.llm.types import (
     GatewayAuditRecord,
     GatewayConfig,
     GatewayRequest,
@@ -26,7 +26,7 @@ class RedactionHook(Protocol):
 
 
 class ProviderAdapter(Protocol):
-    """Internal provider boundary owned by StrataForge."""
+    """Internal provider boundary owned by NullVector."""
 
     provider_name: str
 

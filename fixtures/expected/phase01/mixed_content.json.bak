@@ -1,0 +1,17 @@
+{
+  "ocr_modes": {
+    "0": "partial",
+    "1": "none"
+  },
+  "ocr_pages": [
+    0
+  ],
+  "ocr_reason_codes": {
+    "0": [
+      "low_text_density",
+      "high_image_coverage"
+    ]
+  },
+  "page_count": 2,
+  "selected_outline_source": "none"
+}

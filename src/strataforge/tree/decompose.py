@@ -1,5 +1,5 @@
 """Compatibility facade for semantic decomposition."""
 
-from strataforge.semantic.decompose import NodeDecomposer
+from nullvector.semantic.decompose import NodeDecomposer
 
 __all__ = ["NodeDecomposer"]

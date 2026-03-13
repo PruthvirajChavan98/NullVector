@@ -1,12 +1,12 @@
 # Codex Prompt — Phase 04 Multimodal Parser Substrate (VLM-First, Tesseract-Deemphasized)
 
-You are working on StrataForge.
+You are working on NullVector.
 
 Mission:
 Implement Phase 04 as a production-grade multimodal parser substrate that replaces Tesseract as the default recovery path and upgrades the tree pipeline to consume visually grounded document structure.
 
 Primary objective:
-Turn StrataForge from a parser substrate with OCR fallback into a typed, auditable, VLM-first document-understanding framework.
+Turn NullVector from a parser substrate with OCR fallback into a typed, auditable, VLM-first document-understanding framework.
 
 Non-goals for this phase:
 - do not build retrieval, serving APIs, or workflow orchestration
@@ -40,22 +40,22 @@ This means:
 Add new typed multimodal contracts and artifact persistence without yet requiring end-to-end tree integration.
 
 Create:
-- `src/strataforge/vlm/__init__.py`
-- `src/strataforge/vlm/types.py`
-- `src/strataforge/vlm/errors.py`
-- `src/strataforge/vlm/protocols.py`
-- `src/strataforge/vlm/audit.py`
-- `src/strataforge/vlm/service.py`
-- `src/strataforge/vlm/providers/__init__.py`
-- `src/strataforge/vlm/providers/noop.py`
-- `src/strataforge/vlm/providers/openai_responses.py`
-- `src/strataforge/vlm/providers/gemini_docs.py`
-- `src/strataforge/vlm/prompts/__init__.py`
-- `src/strataforge/vlm/prompts/transcription.py`
-- `src/strataforge/vlm/prompts/layout.py`
-- `src/strataforge/vlm/prompts/headings.py`
+- `src/nullvector/vlm/__init__.py`
+- `src/nullvector/vlm/types.py`
+- `src/nullvector/vlm/errors.py`
+- `src/nullvector/vlm/protocols.py`
+- `src/nullvector/vlm/audit.py`
+- `src/nullvector/vlm/service.py`
+- `src/nullvector/vlm/providers/__init__.py`
+- `src/nullvector/vlm/providers/noop.py`
+- `src/nullvector/vlm/providers/openai_responses.py`
+- `src/nullvector/vlm/providers/gemini_docs.py`
+- `src/nullvector/vlm/prompts/__init__.py`
+- `src/nullvector/vlm/prompts/transcription.py`
+- `src/nullvector/vlm/prompts/layout.py`
+- `src/nullvector/vlm/prompts/headings.py`
 
-Extend `src/strataforge/domain/models.py` with new strict models:
+Extend `src/nullvector/domain/models.py` with new strict models:
 - `PageRenderArtifact`
 - `VisualBoundingBox`
 - `VisualSpan`
@@ -111,7 +111,7 @@ Provider capability modes:
 Requirements:
 - OpenAI adapter must support page-image multimodal extraction with strict structured outputs
 - Gemini adapter must support native PDF or equivalent document-mode extraction when available, plus structured outputs
-- both adapters must normalize outputs into the same typed StrataForge contracts
+- both adapters must normalize outputs into the same typed NullVector contracts
 - unsupported provider capability paths must fail typed, not silently downgrade
 - all failures must be typed and auditable:
   - validation failure
@@ -132,10 +132,10 @@ Do not silently fall back from provider-native strict extraction to loose prompt
 Refactor the ingest layer so Tesseract is no longer the default fallback.
 
 Changes:
-- add `src/strataforge/ingest/visual.py`
-- either remove or deprecate `src/strataforge/ingest/ocr.py` from the default parse path
-- update `src/strataforge/ingest/service.py`
-- update `src/strataforge/ingest/text.py` only as needed to separate:
+- add `src/nullvector/ingest/visual.py`
+- either remove or deprecate `src/nullvector/ingest/ocr.py` from the default parse path
+- update `src/nullvector/ingest/service.py`
+- update `src/nullvector/ingest/text.py` only as needed to separate:
   - native PDF text analysis
   - multimodal escalation decisioning
 
@@ -167,11 +167,11 @@ Phase 04 parser outputs must now include:
 Upgrade the tree pipeline to consume visual structure.
 
 Modify:
-- `src/strataforge/tree/headings.py`
-- `src/strataforge/tree/anchors.py`
-- `src/strataforge/tree/verify.py`
-- `src/strataforge/tree/service.py`
-- `src/strataforge/tree/hierarchy.py` only when necessary
+- `src/nullvector/tree/headings.py`
+- `src/nullvector/tree/anchors.py`
+- `src/nullvector/tree/verify.py`
+- `src/nullvector/tree/service.py`
+- `src/nullvector/tree/hierarchy.py` only when necessary
 
 New heading candidate sources:
 - native text

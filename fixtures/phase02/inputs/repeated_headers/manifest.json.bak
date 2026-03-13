@@ -1,0 +1,60 @@
+{
+  "artifact_root": ".",
+  "document_id": "5555555555555555555555555555555555555555555555555555555555555555",
+  "fingerprint": {
+    "document_id": "5555555555555555555555555555555555555555555555555555555555555555",
+    "file_size_bytes": 31,
+    "page_count": 3,
+    "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "source_path": "source/original.pdf"
+  },
+  "ledger_path": "ledger/page-ledger.jsonl",
+  "outline_quality_reports": [
+    {
+      "empty_title_count": 0,
+      "entry_count": 0,
+      "invalid_level_count": 0,
+      "max_depth": 0,
+      "non_monotonic_count": 0,
+      "null_destination_count": 0,
+      "score": 0,
+      "source": "pymupdf"
+    },
+    {
+      "empty_title_count": 0,
+      "entry_count": 0,
+      "invalid_level_count": 0,
+      "max_depth": 0,
+      "non_monotonic_count": 0,
+      "null_destination_count": 0,
+      "score": 0,
+      "source": "pypdf"
+    }
+  ],
+  "page_count": 3,
+  "parse_run_id": "repeated_headers",
+  "pymupdf_outline_path": "outline/pymupdf.normalized.json",
+  "pymupdf_rich_outline_path": "outline/pymupdf.rich.json",
+  "pypdf_outline_path": "outline/pypdf.normalized.json",
+  "selected_outline_path": "outline/selected.json",
+  "selected_outline_source": "none",
+  "settings": {
+    "dense_small_vector_threshold": 2000,
+    "full_page_image_coverage_ratio": 0.98,
+    "high_image_coverage_ratio": 0.65,
+    "min_text_chars": 20,
+    "min_word_count": 5,
+    "ocr_dpi": 300,
+    "ocr_languages": [
+      "eng"
+    ],
+    "pymupdf_version": "1.27.2",
+    "pypdf_version": "6.8.0",
+    "sample_native_rawdict_every_n_pages": 10,
+    "small_vector_max_area_ratio": 0.0005,
+    "tessdata_path": null,
+    "vector_scan_limit": 5000
+  },
+  "settings_digest": "b51b8aa0c6a288379b5166c98a46bfc6d6518c04e798759d1894be25364557d6",
+  "source_copy_path": "source/original.pdf"
+}

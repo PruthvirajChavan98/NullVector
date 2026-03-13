@@ -1,12 +1,12 @@
-"""LangChain edge exporters for committed StrataForge outputs."""
+"""LangChain edge exporters for committed NullVector outputs."""
 
 from __future__ import annotations
 
 import importlib
 from typing import Any
 
-from strataforge.domain.models import NodeCard, NodeSummary, VisualEnrichmentAttachment
-from strataforge.observability import EventBus, ExportCompleted
+from nullvector.domain.models import NodeCard, NodeSummary, VisualEnrichmentAttachment
+from nullvector.observability import EventBus, ExportCompleted
 
 
 class ExporterDependencyError(RuntimeError):

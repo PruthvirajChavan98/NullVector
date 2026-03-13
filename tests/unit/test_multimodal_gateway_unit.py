@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from strataforge.domain import (
+from nullvector.domain import (
     BoundingBox,
     StructuredRegionInsight,
     VisualEnrichmentRequest,
     VisualRegionReference,
 )
-from strataforge.llm.multimodal_gateway import (
+from nullvector.llm.multimodal_gateway import (
     MultimodalFailureCategory,
     MultimodalGatewayConfig,
     MultimodalGatewayError,
@@ -26,7 +26,7 @@ from strataforge.llm.multimodal_gateway import (
     VisualEnrichmentService,
     VisualInsightResponse,
 )
-from strataforge.observability import EventBus
+from nullvector.observability import EventBus
 
 
 def write_attachment(tmp_path: Path, name: str = "region.png") -> Path:

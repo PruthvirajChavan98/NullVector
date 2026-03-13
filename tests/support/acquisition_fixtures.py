@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from strataforge.domain import (
+from nullvector.domain import (
     AcquisitionManifest,
     AcquisitionRunManifest,
     AcquisitionSettings,
@@ -23,13 +23,13 @@ from strataforge.domain import (
     SourceMetadata,
     SourceTrack,
 )
-from strataforge.domain.events import ContentAuthoritativeness
-from strataforge.ingest.acquisition_artifacts import settings_digest
-from strataforge.ingest.projection import (
+from nullvector.domain.events import ContentAuthoritativeness
+from nullvector.ingest.acquisition_artifacts import settings_digest
+from nullvector.ingest.projection import (
     build_canonical_text_substrate,
     project_ledger_to_tree_synthesis_view,
 )
-from strataforge.tree.headings import split_text_lines_with_offsets
+from nullvector.tree.headings import split_text_lines_with_offsets
 
 
 def _read_json(path: Path) -> Any:

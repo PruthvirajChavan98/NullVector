@@ -1,0 +1,89 @@
+{
+  "document_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52",
+  "pages": [
+    {
+      "lines": [
+        {
+          "bbox": {
+            "x0": 72.0,
+            "x1": 481.12188720703125,
+            "y0": 76.6500015258789,
+            "y1": 101.38200378417969
+          },
+          "casefold_punct_text": "overview section for deterministic parser substrate",
+          "content": "Overview section for deterministic parser substrate.",
+          "end_offset": 52,
+          "font_size": 18.0,
+          "layout_cues_available": true,
+          "line_id": "page-0-line-0000",
+          "normalized_text": "overview section for deterministic parser substrate.",
+          "occurrence_index": 0,
+          "page_index": 0,
+          "reading_index": 1,
+          "start_offset": 0,
+          "top_y": 76.6500015258789
+        }
+      ],
+      "page_index": 0,
+      "page_label": "",
+      "text": "Overview section for deterministic parser substrate.",
+      "text_sha256": "221efbc571032a092dc82d712e68df9ddece98a3d0502c05ee52c20279ca571f"
+    },
+    {
+      "lines": [
+        {
+          "bbox": {
+            "x0": 72.0,
+            "x1": 466.181884765625,
+            "y0": 76.6500015258789,
+            "y1": 101.38200378417969
+          },
+          "casefold_punct_text": "detailed section describing page ledger behavior",
+          "content": "Detailed section describing page ledger behavior.",
+          "end_offset": 49,
+          "font_size": 18.0,
+          "layout_cues_available": true,
+          "line_id": "page-1-line-0000",
+          "normalized_text": "detailed section describing page ledger behavior.",
+          "occurrence_index": 0,
+          "page_index": 1,
+          "reading_index": 1,
+          "start_offset": 0,
+          "top_y": 76.6500015258789
+        }
+      ],
+      "page_index": 1,
+      "page_label": "",
+      "text": "Detailed section describing page ledger behavior.",
+      "text_sha256": "ef4ced77efb7efcca3fe6cb2b63bf58c60b41b6125d9f3c2d3ded39f56a23f5d"
+    },
+    {
+      "lines": [
+        {
+          "bbox": {
+            "x0": 72.0,
+            "x1": 392.1119384765625,
+            "y0": 76.6500015258789,
+            "y1": 101.38200378417969
+          },
+          "casefold_punct_text": "appendix material for fixture verification",
+          "content": "Appendix material for fixture verification.",
+          "end_offset": 43,
+          "font_size": 18.0,
+          "layout_cues_available": true,
+          "line_id": "page-2-line-0000",
+          "normalized_text": "appendix material for fixture verification.",
+          "occurrence_index": 0,
+          "page_index": 2,
+          "reading_index": 1,
+          "start_offset": 0,
+          "top_y": 76.6500015258789
+        }
+      ],
+      "page_index": 2,
+      "page_label": "",
+      "text": "Appendix material for fixture verification.",
+      "text_sha256": "635064fc00118b8d4f7dc87d7ac94cf897addab0f42074b990d6f6912c79b148"
+    }
+  ]
+}

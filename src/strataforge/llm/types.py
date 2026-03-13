@@ -19,7 +19,7 @@ from pydantic import (
     JsonValue as PydanticJsonValue,
 )
 
-from strataforge.domain.models import NonEmptyStr, StrataModel
+from nullvector.domain.models import NonEmptyStr, StrataModel
 
 T = TypeVar("T", bound=BaseModel)
 JSONValue = PydanticJsonValue
@@ -70,7 +70,7 @@ class LLMMessage(StrataModel):
 
 
 class GatewayRetryPolicy(StrataModel):
-    """Retry policy owned by StrataForge, not by provider SDKs."""
+    """Retry policy owned by NullVector, not by provider SDKs."""
 
     max_attempts: PositiveInt = 3
     initial_backoff_seconds: PositiveFloat = 0.25
@@ -91,6 +91,9 @@ class LiteLLMProviderConfig(StrataModel):
 
     provider: NonEmptyStr = "litellm"
     model: NonEmptyStr
+    api_key: NonEmptyStr | None = None
+    api_base: NonEmptyStr | None = None
+    api_version: NonEmptyStr | None = None
     api_key_env_var: NonEmptyStr | None = None
     api_base_env_var: NonEmptyStr | None = None
     api_version_env_var: NonEmptyStr | None = None

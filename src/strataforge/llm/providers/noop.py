@@ -6,8 +6,8 @@ from collections.abc import Mapping
 
 from pydantic import model_validator
 
-from strataforge.domain.models import NonEmptyStr, StrataModel
-from strataforge.llm.types import (
+from nullvector.domain.models import NonEmptyStr, StrataModel
+from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayConfig,
     GatewayFailureCategory,

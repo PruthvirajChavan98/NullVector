@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from strataforge.domain import TocDetectionMethod, TocDetectionResult, TreeSettings
-from strataforge.llm import (
+from nullvector.domain import TocDetectionMethod, TocDetectionResult, TreeSettings
+from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
     GatewayService,
@@ -15,10 +15,10 @@ from strataforge.llm import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
-from strataforge.llm.protocols import ProviderAdapter
-from strataforge.llm.types import ProviderInvocationRequest, ProviderInvocationResult
-from strataforge.tree.headings import PageArtifacts
-from strataforge.tree.toc import (
+from nullvector.llm.protocols import ProviderAdapter
+from nullvector.llm.types import ProviderInvocationRequest, ProviderInvocationResult
+from nullvector.tree.headings import PageArtifacts
+from nullvector.tree.toc import (
     DETERMINISTIC_LOW_THRESHOLD,
     TocDetector,
 )

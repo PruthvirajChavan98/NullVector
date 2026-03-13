@@ -1,4 +1,4 @@
-# Codex Runtime Enforcement — StrataForge
+# Codex Runtime Enforcement — NullVector
 
 This repository requires Codex to use:
 1. the sequential-thinking MCP server for non-trivial reasoning

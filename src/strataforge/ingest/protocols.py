@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from strataforge.domain.models import AcquisitionRequest, CanonicalDocumentLedger
+from nullvector.domain.models import AcquisitionRequest, CanonicalDocumentLedger
 
 
 class AcquisitionProvider(Protocol):

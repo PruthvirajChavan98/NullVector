@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from strataforge.observability.events import FrameworkEvent
-from strataforge.observability.subscriber import EventSubscriber
+from nullvector.observability.events import FrameworkEvent
+from nullvector.observability.subscriber import EventSubscriber
 
 
 class EventBus:

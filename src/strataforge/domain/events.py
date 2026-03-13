@@ -7,7 +7,7 @@ from typing import Self
 
 from pydantic import Field, NonNegativeInt, model_validator
 
-from strataforge.domain.common import NonEmptyStr, ScalarValue, StrataModel
+from nullvector.domain.common import NonEmptyStr, ScalarValue, StrataModel
 
 
 class EventSeverity(StrEnum):

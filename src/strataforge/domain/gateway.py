@@ -6,8 +6,8 @@ from typing import Self
 
 from pydantic import model_validator
 
-from strataforge.domain.common import NonEmptyStr, StrataModel
-from strataforge.domain.tree import DecompositionBoundary, TocParsedEntry
+from nullvector.domain.common import NonEmptyStr, StrataModel
+from nullvector.domain.tree import DecompositionBoundary, TocParsedEntry
 
 
 class TocDetectionResponse(StrataModel):

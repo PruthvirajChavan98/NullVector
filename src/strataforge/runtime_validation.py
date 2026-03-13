@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from strataforge.domain.models import AcquisitionRunManifest
+from nullvector.domain.models import AcquisitionRunManifest
 
 
 def validate_writable_root(root: str | None, *, label: str) -> None:

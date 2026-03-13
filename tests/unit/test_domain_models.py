@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from strataforge.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
-from strataforge.domain import (
+from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
+from nullvector.domain import (
     AcquisitionManifest,
     AcquisitionRequest,
     AcquisitionRunIndex,
@@ -69,7 +69,7 @@ from strataforge.domain import (
     VerificationResult,
     VisualArtifact,
 )
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     OutlineSource,
     PageExtractionMethod,
     VerificationSeverity,

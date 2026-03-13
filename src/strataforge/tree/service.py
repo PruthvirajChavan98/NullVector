@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     AcquisitionRunManifest,
     CanonicalTextSubstrate,
     DecompositionMethod,
@@ -32,23 +32,23 @@ from strataforge.domain.models import (
     TreeRunIndex,
     VerificationStatus,
 )
-from strataforge.ingest.artifacts import canonical_json_bytes
-from strataforge.llm.protocols import StructuredLLMGateway
-from strataforge.observability import (
+from nullvector.ingest.artifacts import canonical_json_bytes
+from nullvector.llm.protocols import StructuredLLMGateway
+from nullvector.observability import (
     EventBus,
     HierarchyStrategySelected,
     NodeCommitted,
     NodeVerificationFailed,
 )
-from strataforge.runtime_validation import validate_canonical_text_substrate_contract
-from strataforge.tree.anchors import attach_content_anchors
-from strataforge.tree.decompose import NodeDecomposer
-from strataforge.tree.headings import (
+from nullvector.runtime_validation import validate_canonical_text_substrate_contract
+from nullvector.tree.anchors import attach_content_anchors
+from nullvector.tree.decompose import NodeDecomposer
+from nullvector.tree.headings import (
     PageArtifacts,
     extract_inferred_candidates,
     extract_outline_candidates_with_records,
 )
-from strataforge.tree.hierarchy import (
+from nullvector.tree.hierarchy import (
     attach_default_owned_spans,
     build_hierarchy,
     compute_unassigned_spans,
@@ -56,15 +56,15 @@ from strataforge.tree.hierarchy import (
     project_node_cards,
     reconcile_heading_candidates,
 )
-from strataforge.tree.repair import NoopRepairEngine, RepairEngine
-from strataforge.tree.strategy import (
+from nullvector.tree.repair import NoopRepairEngine, RepairEngine
+from nullvector.tree.strategy import (
     StrategyAttemptResult,
     execute_hierarchy_strategy,
 )
-from strataforge.tree.summarize import NodeSummarizer
-from strataforge.tree.toc import TocDetector
-from strataforge.tree.toc_reconcile import TocReconciler
-from strataforge.tree.verify import LLMVerificationAssistant, verify_hierarchy
+from nullvector.tree.summarize import NodeSummarizer
+from nullvector.tree.toc import TocDetector
+from nullvector.tree.toc_reconcile import TocReconciler
+from nullvector.tree.verify import LLMVerificationAssistant, verify_hierarchy
 
 
 class TreePipelineError(Exception):

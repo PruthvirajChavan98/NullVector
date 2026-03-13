@@ -6,7 +6,7 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     ContentSpan,
     HeadingCandidate,
     HeadingSourceKind,
@@ -23,8 +23,8 @@ from strataforge.domain.models import (
     TreeSettings,
     UnassignedPageSpan,
 )
-from strataforge.tree.anchors import node_anchor_to_source_anchor
-from strataforge.tree.headings import PageArtifacts, numbering_depth
+from nullvector.tree.anchors import node_anchor_to_source_anchor
+from nullvector.tree.headings import PageArtifacts, numbering_depth
 
 
 @dataclass(frozen=True)

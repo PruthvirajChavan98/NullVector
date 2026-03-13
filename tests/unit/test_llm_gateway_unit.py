@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from strataforge.llm import (
+from nullvector.llm import (
     GatewayAssuranceMode,
     GatewayAuditConfig,
     GatewayAuditRecord,
@@ -29,7 +29,7 @@ from strataforge.llm import (
     NoopScriptedResponse,
     StructuredOutputMode,
 )
-from strataforge.llm.types import (
+from nullvector.llm.types import (
     ProviderInvocationFailure,
     ProviderInvocationRequest,
     ProviderInvocationResult,
@@ -238,6 +238,35 @@ def test_litellm_adapter_returns_transport_compatible_assurance(tmp_path: Path) 
 
     assert success.assurance_mode is GatewayAssuranceMode.TRANSPORT_COMPATIBLE
     assert success.output.message == "hello from litellm"
+
+
+def test_litellm_adapter_accepts_direct_provider_credentials(tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_responses(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "id": "litellm-direct-creds",
+            "output_text": '{"message":"hello from direct creds"}',
+        }
+
+    gateway = GatewayService(
+        GatewayConfig(
+            provider=LiteLLMProviderConfig(
+                model="openrouter/test-model",
+                api_key="direct-key",
+                api_base="https://openrouter.ai/api/v1",
+            ),
+            audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
+        ),
+        provider_adapter=LiteLLMSDKAdapter(responses_callable=fake_responses),
+    )
+
+    success = gateway.invoke(make_request(idempotency_key="litellm-direct-creds"))
+
+    assert success.output.message == "hello from direct creds"
+    assert captured["api_key"] == "direct-key"
+    assert captured["base_url"] == "https://openrouter.ai/api/v1"
 
 
 def test_litellm_adapter_rejects_provider_native_requests(tmp_path: Path) -> None:

@@ -8,24 +8,24 @@ import fitz
 import pytest
 from pypdf import PdfReader, PdfWriter
 
-from strataforge.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
-from strataforge.domain.models import OcrMode, OutlineEntry, OutlineSource, ParserSettings
-from strataforge.ingest.artifacts import settings_digest
-from strataforge.ingest.errors import MissingOcrRuntimeError
-from strataforge.ingest.fingerprint import fingerprint_document
-from strataforge.ingest.ocr import (
+from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
+from nullvector.domain.models import OcrMode, OutlineEntry, OutlineSource, ParserSettings
+from nullvector.ingest.artifacts import settings_digest
+from nullvector.ingest.errors import MissingOcrRuntimeError
+from nullvector.ingest.fingerprint import fingerprint_document
+from nullvector.ingest.ocr import (
     extract_ocr_rawdict,
     extract_ocr_text,
     join_ocr_languages,
     validate_ocr_runtime,
 )
-from strataforge.ingest.outline import (
+from nullvector.ingest.outline import (
     extract_pymupdf_outlines,
     extract_pypdf_outlines,
     score_outline,
     select_outline,
 )
-from strataforge.ingest.text import OcrDecision, PageAnalysis, classify_ocr_need
+from nullvector.ingest.text import OcrDecision, PageAnalysis, classify_ocr_need
 
 
 def phase01_fixture(name: str) -> str:
@@ -217,7 +217,7 @@ def test_validate_ocr_runtime_rejects_missing_tesseract(
     tessdata_path = tmp_path / "tessdata"
     tessdata_path.mkdir()
     (tessdata_path / "eng.traineddata").write_text("stub", encoding="utf-8")
-    monkeypatch.setattr("strataforge.ingest.ocr.shutil.which", lambda _: None)
+    monkeypatch.setattr("nullvector.ingest.ocr.shutil.which", lambda _: None)
 
     with pytest.raises(MissingOcrRuntimeError):
         validate_ocr_runtime(

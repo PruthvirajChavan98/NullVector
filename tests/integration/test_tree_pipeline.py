@@ -12,7 +12,7 @@ from typing import Any, cast
 
 import pytest
 
-from strataforge.domain import (
+from nullvector.domain import (
     DocumentFingerprint,
     OcrMode,
     OutlineQualityReport,
@@ -23,9 +23,9 @@ from strataforge.domain import (
     TreeBuildRequest,
     TreeSettings,
 )
-from strataforge.domain.models import PageExtractionMethod
-from strataforge.ingest.artifacts import settings_digest
-from strataforge.llm import (
+from nullvector.domain.models import PageExtractionMethod
+from nullvector.ingest.artifacts import settings_digest
+from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
     GatewayService,
@@ -33,7 +33,7 @@ from strataforge.llm import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
-from strataforge.tree import TreeConflictError, TreePipelineError, build_tree
+from nullvector.tree import TreeConflictError, TreePipelineError, build_tree
 
 from ..support.acquisition_fixtures import convert_legacy_parse_fixture_to_acquisition
 
@@ -542,7 +542,7 @@ def test_progress_notebook_structure_matches_repo_contract() -> None:
     cells = cast(list[dict[str, Any]], notebook["cells"])
 
     assert cells[0]["cell_type"] == "markdown"
-    assert first_source_line(cells[0]).startswith("# StrataForge Progress Notebook")
+    assert first_source_line(cells[0]).startswith("# NullVector Progress Notebook")
     title_cell = "".join(cells[0].get("source", []))
     assert "major-changes-v2" in title_cell
     assert "Phase F-J" in title_cell
@@ -597,7 +597,7 @@ def test_spec_v1_demo_notebook_structure_matches_contract() -> None:
 
     assert cells[0]["cell_type"] == "markdown"
     assert first_source_line(cells[0]).startswith(
-        "# StrataForge Real PDF Parser + Tree Demo Notebook"
+        "# NullVector Real PDF Parser + Tree Demo Notebook"
     )
 
     assert cells[1]["cell_type"] == "markdown"

@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27.0,<2.0.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "strataforge"
+name = "nullvector"
 version = "0.1.0"
 description = "CPU-first document hierarchy framework for deterministic PDF ingestion."
 readme = "README.md"
@@ -39,7 +39,7 @@ indent-style = "space"
 select = ["B", "E", "F", "I", "PTH", "RUF", "SIM", "UP", "W"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["strataforge"]
+known-first-party = ["nullvector"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -47,7 +47,7 @@ strict = true
 warn_unused_configs = true
 show_error_codes = true
 pretty = true
-packages = ["strataforge"]
+packages = ["nullvector"]
 explicit_package_bases = true
 mypy_path = ["src"]
 

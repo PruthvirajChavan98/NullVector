@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from strataforge.domain.models import NonEmptyStr, StrataModel
-from strataforge.llm.types import LLMMessage, LLMRole
+from nullvector.domain.models import NonEmptyStr, StrataModel
+from nullvector.llm.types import LLMMessage, LLMRole
 
 
 class VerificationPromptResponse(StrataModel):

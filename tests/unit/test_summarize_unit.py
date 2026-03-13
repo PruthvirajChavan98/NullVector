@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from strataforge.domain import (
+from nullvector.domain import (
     AnchorSource,
     HierarchyNode,
     HierarchyOrigin,
@@ -13,7 +13,7 @@ from strataforge.domain import (
     PageSourceAnchor,
     PageSpan,
 )
-from strataforge.llm import (
+from nullvector.llm import (
     GatewayAssuranceMode,
     GatewayAuditConfig,
     GatewayConfig,
@@ -21,15 +21,15 @@ from strataforge.llm import (
     GatewayUsage,
     LiteLLMProviderConfig,
 )
-from strataforge.llm.protocols import ProviderAdapter
-from strataforge.llm.types import (
+from nullvector.llm.protocols import ProviderAdapter
+from nullvector.llm.types import (
     ProviderInvocationRequest,
     ProviderInvocationResult,
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
-from strataforge.tree.headings import PageArtifacts
-from strataforge.tree.summarize import NodeSummarizer
+from nullvector.tree.headings import PageArtifacts
+from nullvector.tree.summarize import NodeSummarizer
 
 
 class CaptureSummarizationAdapter:

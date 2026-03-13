@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from strataforge.llm.types import LLMMessage, LLMRole
+from nullvector.llm.types import LLMMessage, LLMRole
 
 
 def build_toc_parse_messages(*, toc_text: str) -> tuple[LLMMessage, ...]:

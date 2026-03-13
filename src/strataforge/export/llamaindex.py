@@ -1,13 +1,13 @@
-"""LlamaIndex edge exporters for committed StrataForge outputs."""
+"""LlamaIndex edge exporters for committed NullVector outputs."""
 
 from __future__ import annotations
 
 import importlib
 from typing import Any
 
-from strataforge.domain.models import NodeCard, NodeSummary, VisualEnrichmentAttachment
-from strataforge.export.langchain import ExporterDependencyError, _base_metadata
-from strataforge.observability import EventBus, ExportCompleted
+from nullvector.domain.models import NodeCard, NodeSummary, VisualEnrichmentAttachment
+from nullvector.export.langchain import ExporterDependencyError, _base_metadata
+from nullvector.observability import EventBus, ExportCompleted
 
 
 def to_llamaindex_node(

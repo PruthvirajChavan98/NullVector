@@ -6,7 +6,7 @@ import io
 import json
 from pathlib import Path
 
-from strataforge.observability import (
+from nullvector.observability import (
     EventBus,
     FrameworkEvent,
     JsonLoggerSubscriber,

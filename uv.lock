@@ -2242,7 +2242,7 @@ wheels = [
 ]
 
 [[package]]
-name = "strataforge"
+name = "nullvector"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -11,19 +11,19 @@ from typing import TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
-from strataforge.domain.models import RepairDecision, RepairRequest
-from strataforge.llm.audit import apply_redaction_hooks, json_safe, persist_audit_record
-from strataforge.llm.config_validation import (
+from nullvector.domain.models import RepairDecision, RepairRequest
+from nullvector.llm.audit import apply_redaction_hooks, json_safe, persist_audit_record
+from nullvector.llm.config_validation import (
     provider_supported_modes,
     validate_gateway_mode_configuration,
 )
-from strataforge.llm.errors import GatewayConfigurationError, error_from_failure
-from strataforge.llm.prompts.repair import RepairPromptResponse, build_repair_messages
-from strataforge.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
-from strataforge.llm.providers.litellm_sdk import LiteLLMSDKAdapter
-from strataforge.llm.providers.openai_http import OpenAIResponsesHTTPAdapter
-from strataforge.llm.retry import backoff_delay_seconds, should_retry
-from strataforge.llm.types import (
+from nullvector.llm.errors import GatewayConfigurationError, error_from_failure
+from nullvector.llm.prompts.repair import RepairPromptResponse, build_repair_messages
+from nullvector.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
+from nullvector.llm.providers.litellm_sdk import LiteLLMSDKAdapter
+from nullvector.llm.providers.openai_http import OpenAIResponsesHTTPAdapter
+from nullvector.llm.retry import backoff_delay_seconds, should_retry
+from nullvector.llm.types import (
     GatewayAttempt,
     GatewayAuditRecord,
     GatewayConfig,
@@ -40,7 +40,7 @@ from strataforge.llm.types import (
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
-from strataforge.runtime_validation import validate_writable_root
+from nullvector.runtime_validation import validate_writable_root
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -234,7 +234,7 @@ def _provider_failure_to_gateway_failure(
 
 
 class GatewayService(StructuredLLMGateway):
-    """Sync-first typed gateway with StrataForge-owned retries and auditing."""
+    """Sync-first typed gateway with NullVector-owned retries and auditing."""
 
     def __init__(
         self,

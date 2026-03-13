@@ -1,6 +1,6 @@
-# StrataForge
+# NullVector
 
-StrataForge is a CPU-first document hierarchy framework for deterministic ingestion of large
+NullVector is a CPU-first document hierarchy framework for deterministic ingestion of large
 technical PDFs into verifiable hierarchical JSON artifacts.
 
 ## Current Scope
@@ -13,7 +13,7 @@ This repository currently establishes:
   OCR gating, and parse-run artifact persistence
 - deterministic Phase 02 tree pipeline for heading extraction, hierarchy assembly, explicit
   unassigned-page tracking, verification, and typed repair artifacts
-- Phase 03 typed LLM gateway with StrataForge-owned retries, audit capture, transport-compatible
+- Phase 03 typed LLM gateway with NullVector-owned retries, audit capture, transport-compatible
   LiteLLM support, a provider-native strict OpenAI Responses adapter, and bounded repair
   integration
 - a parallel v2 acquisition runtime that produces `CanonicalDocumentLedger`, persists a
@@ -39,7 +39,7 @@ Production release remains gated on PyMuPDF commercial-license review. See
 
 ## Phase 03 LLM Gateway
 
-The canonical gateway surface lives under `src/strataforge/llm/` and is intentionally split across
+The canonical gateway surface lives under `src/nullvector/llm/` and is intentionally split across
 three subphases:
 
 - `03A`: typed gateway core, noop adapter, and LiteLLM SDK adapter with
@@ -86,21 +86,21 @@ requested.
 
 The `major-changes-v2` migration now runs acquisition/projection as the primary path:
 
-- `src/strataforge/ingest/acquisition_service.py` orchestrates deterministic acquisition runs under
+- `src/nullvector/ingest/acquisition_service.py` orchestrates deterministic acquisition runs under
   `artifacts/acquisition_runs/`
-- `src/strataforge/ingest/providers/native_pymupdf.py` is the framework-owned native-first
+- `src/nullvector/ingest/providers/native_pymupdf.py` is the framework-owned native-first
   provider
-- `src/strataforge/ingest/projection.py` projects `CanonicalDocumentLedger` into
+- `src/nullvector/ingest/projection.py` projects `CanonicalDocumentLedger` into
   `TreeSynthesisView`
 - `TreeBuildRequest` now builds from `acquisition_manifest_path`
-- `src/strataforge/semantic/` provides the tokenizer boundary plus semantic summarization and
+- `src/nullvector/semantic/` provides the tokenizer boundary plus semantic summarization and
   decomposition services
-- `src/strataforge/observability/` provides the in-process event bus and subscribers
-- `src/strataforge/export/` provides optional edge exporters for LangChain and LlamaIndex
-- `src/strataforge/llm/multimodal_gateway/` provides attachment-only multimodal enrichment
+- `src/nullvector/observability/` provides the in-process event bus and subscribers
+- `src/nullvector/export/` provides optional edge exporters for LangChain and LlamaIndex
+- `src/nullvector/llm/multimodal_gateway/` provides attachment-only multimodal enrichment
 
 The legacy parse substrate is no longer part of the main ingest/tree runtime surface. It remains
-available only through `strataforge.compat.legacy_parse` for compatibility fixtures and migration
+available only through `nullvector.compat.legacy_parse` for compatibility fixtures and migration
 tests.
 
 ## Validation Commands

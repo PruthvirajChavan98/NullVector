@@ -6,7 +6,7 @@ import importlib
 
 import pytest
 
-from strataforge.semantic.tokens import (
+from nullvector.semantic.tokens import (
     HeuristicTokenizer,
     OptionalExactTokenizer,
     resolve_tokenizer,

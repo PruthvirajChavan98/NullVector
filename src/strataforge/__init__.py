@@ -1,6 +1,6 @@
-"""StrataForge package bootstrap."""
+"""NullVector package bootstrap."""
 
-from strataforge.domain import (
+from nullvector.domain import (
     AcquisitionManifest,
     AcquisitionRequest,
     AcquisitionRunIndex,

@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, cast
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     BoundingBox,
     CanonicalPage,
     ContentAuthoritativeness,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from strataforge.domain import (
+from nullvector.domain import (
     AnchorSource,
     HeadingCandidate,
     HeadingScoreBreakdown,
@@ -19,7 +19,7 @@ from strataforge.domain import (
     TocParseMethod,
     TreeSettings,
 )
-from strataforge.llm import (
+from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
     GatewayService,
@@ -27,11 +27,11 @@ from strataforge.llm import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
-from strataforge.llm.protocols import ProviderAdapter
-from strataforge.llm.types import JSONValue, ProviderInvocationRequest, ProviderInvocationResult
-from strataforge.tree.headings import PageArtifacts, normalized_title_key
-from strataforge.tree.hierarchy import determine_outline_trust_mode, reconcile_heading_candidates
-from strataforge.tree.toc_reconcile import TocReconciler
+from nullvector.llm.protocols import ProviderAdapter
+from nullvector.llm.types import JSONValue, ProviderInvocationRequest, ProviderInvocationResult
+from nullvector.tree.headings import PageArtifacts, normalized_title_key
+from nullvector.tree.hierarchy import determine_outline_trust_mode, reconcile_heading_candidates
+from nullvector.tree.toc_reconcile import TocReconciler
 
 
 class CountingProviderAdapter:

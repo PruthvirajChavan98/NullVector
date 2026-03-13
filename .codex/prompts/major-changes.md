@@ -4,21 +4,21 @@ Status note:
   bottom-up summarization, strategy orchestration, and large-node decomposition
 - final pipeline order now runs decomposition before optional final summarization
 
-Act as a principal engineer working inside the existing StrataForge architecture. Implement Prompt 1 only. Do not invent new abstractions beyond what this repository already uses.
+Act as a principal engineer working inside the existing NullVector architecture. Implement Prompt 1 only. Do not invent new abstractions beyond what this repository already uses.
 
 Repository constraints you must respect:
 
-- Public typed models live in `src/strataforge/domain/models.py`.
+- Public typed models live in `src/nullvector/domain/models.py`.
 - Public exports must be wired through:
-  - `src/strataforge/domain/__init__.py`
-  - `src/strataforge/__init__.py`
-- Phase 02 page substrate is `PageArtifacts` in `src/strataforge/tree/headings.py`.
+  - `src/nullvector/domain/__init__.py`
+  - `src/nullvector/__init__.py`
+- Phase 02 page substrate is `PageArtifacts` in `src/nullvector/tree/headings.py`.
 - Repeated header/footer detection already exists as:
-  - `find_repeated_header_footer_lines(...)` in `src/strataforge/tree/headings.py`
+  - `find_repeated_header_footer_lines(...)` in `src/nullvector/tree/headings.py`
 - The LLM gateway contract is NOT `generate_structured`.
   Use the existing typed gateway contract only:
   - `StructuredLLMGateway.invoke(GatewayRequest[T])`
-  - prompt builders belong under `src/strataforge/llm/prompts/`
+  - prompt builders belong under `src/nullvector/llm/prompts/`
   - structured response models should extend `StrataModel`
   - auditability must flow through the existing gateway automatically
 - No new external dependencies.
@@ -32,15 +32,15 @@ Implement deterministic-first TOC detection over persisted parse artifacts, with
 
 Files to add or modify
 
-1. Add new domain contracts in `src/strataforge/domain/models.py`
+1. Add new domain contracts in `src/nullvector/domain/models.py`
 2. Export new contracts from:
-   - `src/strataforge/domain/__init__.py`
-   - `src/strataforge/__init__.py`
+   - `src/nullvector/domain/__init__.py`
+   - `src/nullvector/__init__.py`
 3. Add new prompt builder module:
-   - `src/strataforge/llm/prompts/toc.py`
-4. Update `src/strataforge/llm/prompts/__init__.py`
+   - `src/nullvector/llm/prompts/toc.py`
+4. Update `src/nullvector/llm/prompts/__init__.py`
 5. Add TOC detector implementation:
-   - `src/strataforge/tree/toc.py`
+   - `src/nullvector/tree/toc.py`
 6. Add tests and fixtures under the existing pytest layout
 
 New domain contracts to add
@@ -97,18 +97,18 @@ Do not add any required manifest fields without defaults.
 
 Prompt builder
 
-Create `src/strataforge/llm/prompts/toc.py` with:
+Create `src/nullvector/llm/prompts/toc.py` with:
 
 1. `build_toc_detection_messages(*, page_text: str) -> tuple[LLMMessage, ...]`
 2. Use the existing typed prompt style already present in `repair.py`, `summarization.py`, `verification.py`
 3. The prompt must include only the page text, not system-level repository context, not parse metadata, not cross-page state
 4. The model must be instructed to decide whether the provided page text is a table of contents page and return the typed schema only
 
-Update `src/strataforge/llm/prompts/__init__.py` exports accordingly.
+Update `src/nullvector/llm/prompts/__init__.py` exports accordingly.
 
 TOC detector implementation
 
-Create `src/strataforge/tree/toc.py`.
+Create `src/nullvector/tree/toc.py`.
 
 Add a deterministic-first `TocDetector` class with constructor:
 
@@ -311,22 +311,22 @@ When finished, return:
 
 ---
 
-Act as a principal engineer working inside the existing StrataForge architecture. Implement Prompt 2 only, assuming Prompt 1 has already been completed in this repository.
+Act as a principal engineer working inside the existing NullVector architecture. Implement Prompt 2 only, assuming Prompt 1 has already been completed in this repository.
 
 Do not invent new abstractions beyond what this repository already uses.
 
 Repository constraints you must respect:
 
-- Public typed models live in `src/strataforge/domain/models.py`
+- Public typed models live in `src/nullvector/domain/models.py`
 - Public exports must be wired through:
-  - `src/strataforge/domain/__init__.py`
-  - `src/strataforge/__init__.py`
+  - `src/nullvector/domain/__init__.py`
+  - `src/nullvector/__init__.py`
 - TOC detection contracts from Prompt 1 are the source of truth
 - Heading anchoring already exists in:
-  - `src/strataforge/tree/headings.py`
+  - `src/nullvector/tree/headings.py`
   - `anchor_title_on_page(...)`
 - Current hierarchy trust logic lives in:
-  - `src/strataforge/tree/hierarchy.py`
+  - `src/nullvector/tree/hierarchy.py`
 - The LLM gateway contract is the existing typed gateway:
   - `StructuredLLMGateway.invoke(GatewayRequest[T])`
 - No new external dependencies
@@ -340,16 +340,16 @@ Implement deterministic TOC parsing and TOC-to-physical-page reconciliation, wit
 
 Files to add or modify
 
-1. Add new domain contracts in `src/strataforge/domain/models.py`
+1. Add new domain contracts in `src/nullvector/domain/models.py`
 2. Export new contracts from:
-   - `src/strataforge/domain/__init__.py`
-   - `src/strataforge/__init__.py`
+   - `src/nullvector/domain/__init__.py`
+   - `src/nullvector/__init__.py`
 3. Add new prompt builder module:
-   - `src/strataforge/llm/prompts/toc_reconcile.py`
-4. Update `src/strataforge/llm/prompts/__init__.py`
+   - `src/nullvector/llm/prompts/toc_reconcile.py`
+4. Update `src/nullvector/llm/prompts/__init__.py`
 5. Add reconciliation implementation:
-   - `src/strataforge/tree/toc_reconcile.py`
-6. Update `src/strataforge/tree/hierarchy.py` additively
+   - `src/nullvector/tree/toc_reconcile.py`
+6. Update `src/nullvector/tree/hierarchy.py` additively
 7. Add tests and fixtures under the existing pytest layout
 
 New domain contracts to add
@@ -394,7 +394,7 @@ Do not add required manifest fields without defaults.
 
 Prompt builder
 
-Create `src/strataforge/llm/prompts/toc_reconcile.py` with:
+Create `src/nullvector/llm/prompts/toc_reconcile.py` with:
 
 1. `build_toc_parse_messages(*, toc_text: str) -> tuple[LLMMessage, ...]`
 2. It must request only structured parsing of the TOC text into:
@@ -404,11 +404,11 @@ Create `src/strataforge/llm/prompts/toc_reconcile.py` with:
 3. The prompt must include only the TOC text
 4. It must not include repository context or pipeline state
 
-Update `src/strataforge/llm/prompts/__init__.py` exports accordingly.
+Update `src/nullvector/llm/prompts/__init__.py` exports accordingly.
 
 Reconciler implementation
 
-Create `src/strataforge/tree/toc_reconcile.py`.
+Create `src/nullvector/tree/toc_reconcile.py`.
 
 Add a `TocReconciler` class with constructor:
 
@@ -495,7 +495,7 @@ Requirements for TOC-derived candidates:
 
 6. Integration-ready hooks in hierarchy logic
 
-Update `src/strataforge/tree/hierarchy.py` additively:
+Update `src/nullvector/tree/hierarchy.py` additively:
 
 - `determine_outline_trust_mode(...)` must accept an optional parameter:
   - `toc_candidates: Sequence[HeadingCandidate] = ()`
@@ -599,15 +599,15 @@ When finished, return:
 
 ---
 
-Act as a principal engineer working inside the existing StrataForge architecture. Implement Prompt 3 only, assuming Prompts 1 and 2 may or may not already exist.
+Act as a principal engineer working inside the existing NullVector architecture. Implement Prompt 3 only, assuming Prompts 1 and 2 may or may not already exist.
 
 Do not invent new abstractions beyond what this repository already uses.
 
 Repository constraints you must respect:
 
-- Verification logic currently lives in `src/strataforge/tree/verify.py`
+- Verification logic currently lives in `src/nullvector/tree/verify.py`
 - Verification prompt artifacts already exist in:
-  - `src/strataforge/llm/prompts/verification.py`
+  - `src/nullvector/llm/prompts/verification.py`
 - The structured response model already exists:
   - `VerificationPromptResponse`
 - The gateway contract is the existing typed gateway:
@@ -622,13 +622,13 @@ Add an opt-in LLM verification assistant for nodes that fail deterministic title
 
 Files to add or modify
 
-1. Add any new domain contracts needed in `src/strataforge/domain/models.py`
+1. Add any new domain contracts needed in `src/nullvector/domain/models.py`
 2. Export them from:
-   - `src/strataforge/domain/__init__.py`
-   - `src/strataforge/__init__.py`
-3. Update `src/strataforge/llm/prompts/verification.py` only as needed
+   - `src/nullvector/domain/__init__.py`
+   - `src/nullvector/__init__.py`
+3. Update `src/nullvector/llm/prompts/verification.py` only as needed
 4. Add or extend verification assistant logic in:
-   - `src/strataforge/tree/verify.py`
+   - `src/nullvector/tree/verify.py`
 5. Add tests under the existing pytest layout
 
 New domain changes
@@ -672,7 +672,7 @@ Do not add free-form system context about the whole pipeline.
 
 Verification assistant implementation
 
-In `src/strataforge/tree/verify.py`, add an `LLMVerificationAssistant` class.
+In `src/nullvector/tree/verify.py`, add an `LLMVerificationAssistant` class.
 
 Constructor:
 - `gateway: StructuredLLMGateway`
@@ -825,7 +825,7 @@ When finished, return:
 ---
 
 
-Act as a principal engineer working inside the existing StrataForge architecture. Implement Prompt 4 only.
+Act as a principal engineer working inside the existing NullVector architecture. Implement Prompt 4 only.
 
 Do not invent abstractions that fight the current sync-first repository design.
 
@@ -835,7 +835,7 @@ Repository constraints you must respect:
 - The gateway contract is sync:
   - `StructuredLLMGateway.invoke(GatewayRequest[T])`
 - Existing summarization prompt artifacts live in:
-  - `src/strataforge/llm/prompts/summarization.py`
+  - `src/nullvector/llm/prompts/summarization.py`
 - `NodeCard` already contains:
   - `summary: str | None`
   - `keywords: tuple[...]`
@@ -853,16 +853,16 @@ Implement bottom-up hierarchical summarization for committed nodes only, where p
 
 Files to add or modify
 
-1. Add any new domain contracts in `src/strataforge/domain/models.py`
+1. Add any new domain contracts in `src/nullvector/domain/models.py`
 2. Export them from:
-   - `src/strataforge/domain/__init__.py`
-   - `src/strataforge/__init__.py`
+   - `src/nullvector/domain/__init__.py`
+   - `src/nullvector/__init__.py`
 3. Update or extend:
-   - `src/strataforge/llm/prompts/summarization.py`
+   - `src/nullvector/llm/prompts/summarization.py`
 4. Add summarization implementation:
-   - `src/strataforge/tree/summarize.py`
+   - `src/nullvector/tree/summarize.py`
 5. Update:
-   - `src/strataforge/tree/service.py`
+   - `src/nullvector/tree/service.py`
 6. Add tests under the existing pytest layout
 
 New domain contracts
@@ -916,7 +916,7 @@ The prompt must explicitly instruct the model not to invent information.
 
 Summarizer implementation
 
-Create `src/strataforge/tree/summarize.py`.
+Create `src/nullvector/tree/summarize.py`.
 
 Add a `NodeSummarizer` class with constructor:
 
@@ -1072,14 +1072,14 @@ When finished, return:
 ---
 
 
-Act as a principal engineer working inside the existing StrataForge architecture. Implement Prompt 5 only, assuming Prompts 1 to 4 may exist.
+Act as a principal engineer working inside the existing NullVector architecture. Implement Prompt 5 only, assuming Prompts 1 to 4 may exist.
 
 Do not replace working logic with a theoretical framework. Build a typed orchestration layer around the current pipeline behavior and preserve backward compatibility.
 
 Repository constraints you must respect:
 
-- Current build orchestration lives in `src/strataforge/tree/service.py`
-- Current trust-mode logic lives in `src/strataforge/tree/hierarchy.py`
+- Current build orchestration lives in `src/nullvector/tree/service.py`
+- Current trust-mode logic lives in `src/nullvector/tree/hierarchy.py`
 - Existing tree pipeline already has:
   - heading extraction
   - hierarchy assembly
@@ -1095,14 +1095,14 @@ Introduce a typed hierarchy strategy selection and fallback cascade system witho
 
 Files to add or modify
 
-1. Add new domain contracts in `src/strataforge/domain/models.py`
+1. Add new domain contracts in `src/nullvector/domain/models.py`
 2. Export them from:
-   - `src/strataforge/domain/__init__.py`
-   - `src/strataforge/__init__.py`
+   - `src/nullvector/domain/__init__.py`
+   - `src/nullvector/__init__.py`
 3. Add new orchestration module:
-   - `src/strataforge/tree/strategy.py`
+   - `src/nullvector/tree/strategy.py`
 4. Update:
-   - `src/strataforge/tree/service.py`
+   - `src/nullvector/tree/service.py`
 5. Add tests under the existing pytest layout
 
 New domain contracts
@@ -1143,7 +1143,7 @@ Do not add required fields without defaults.
 
 Strategy module
 
-Create `src/strataforge/tree/strategy.py`.
+Create `src/nullvector/tree/strategy.py`.
 
 Implement:
 
@@ -1283,7 +1283,7 @@ When finished, return:
 
 ---
 
-Act as a principal engineer working inside the existing StrataForge architecture. Implement Prompt 6 only, assuming Prompts 1 to 5 may exist.
+Act as a principal engineer working inside the existing NullVector architecture. Implement Prompt 6 only, assuming Prompts 1 to 5 may exist.
 
 This prompt must be adapted to the real repository shape, not the conceptual one.
 
@@ -1297,7 +1297,7 @@ Repository constraints you must respect:
   - `heading_anchor`
 - There is no nested in-memory tree object in the current pipeline
 - Heading extraction already exists in:
-  - `src/strataforge/tree/headings.py`
+  - `src/nullvector/tree/headings.py`
 - Verification currently assumes top-of-page heading checks, so decomposition must account for in-page subsection headings carefully
 - The gateway is sync-first:
   - `StructuredLLMGateway.invoke(GatewayRequest[T])`
@@ -1315,19 +1315,19 @@ Implement bounded recursive decomposition of very large committed leaf nodes, us
 
 Files to add or modify
 
-1. Add new domain contracts in `src/strataforge/domain/models.py`
+1. Add new domain contracts in `src/nullvector/domain/models.py`
 2. Export them from:
-   - `src/strataforge/domain/__init__.py`
-   - `src/strataforge/__init__.py`
+   - `src/nullvector/domain/__init__.py`
+   - `src/nullvector/__init__.py`
 3. Add new prompt builder module:
-   - `src/strataforge/llm/prompts/decomposition.py`
-4. Update `src/strataforge/llm/prompts/__init__.py`
+   - `src/nullvector/llm/prompts/decomposition.py`
+4. Update `src/nullvector/llm/prompts/__init__.py`
 5. Add decomposition implementation:
-   - `src/strataforge/tree/decompose.py`
+   - `src/nullvector/tree/decompose.py`
 6. Update verification additively in:
-   - `src/strataforge/tree/verify.py`
+   - `src/nullvector/tree/verify.py`
 7. Update:
-   - `src/strataforge/tree/service.py`
+   - `src/nullvector/tree/service.py`
 8. Add tests under the existing pytest layout
 
 New domain contracts
@@ -1369,7 +1369,7 @@ Do not add required fields without defaults.
 
 Prompt builder
 
-Create `src/strataforge/llm/prompts/decomposition.py` with:
+Create `src/nullvector/llm/prompts/decomposition.py` with:
 
 1. `build_decomposition_messages(
       *,
@@ -1387,7 +1387,7 @@ Update `llm/prompts/__init__.py` accordingly.
 
 Decomposer implementation
 
-Create `src/strataforge/tree/decompose.py`.
+Create `src/nullvector/tree/decompose.py`.
 
 Add a `NodeDecomposer` class with constructor:
 
@@ -1574,7 +1574,7 @@ Execute these prompts in this exact order:
 
 Non-negotiable constraints across all prompts:
 
-- Use the real StrataForge repo APIs, not imaginary ones
+- Use the real NullVector repo APIs, not imaginary ones
 - Use `StructuredLLMGateway.invoke(GatewayRequest[T])` for all LLM work
 - All new models extend `StrataModel`
 - All new enums extend `StrEnum`

@@ -1,0 +1,28 @@
+{
+  "committed_titles": [
+    "Overview",
+    "Details",
+    "Appendix"
+  ],
+  "node_levels": {
+    "Appendix": 1,
+    "Details": 2,
+    "Overview": 1
+  },
+  "node_spans": {
+    "Appendix": [
+      2,
+      2
+    ],
+    "Details": [
+      1,
+      1
+    ],
+    "Overview": [
+      0,
+      1
+    ]
+  },
+  "outline_trust_mode": "outline_primary",
+  "unassigned_spans": []
+}

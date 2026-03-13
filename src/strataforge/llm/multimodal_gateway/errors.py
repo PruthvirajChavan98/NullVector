@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from strataforge.llm.multimodal_gateway.types import (
+from nullvector.llm.multimodal_gateway.types import (
     MultimodalGatewayAuditRecord,
     MultimodalGatewayFailure,
 )

@@ -1,19 +1,19 @@
 """Attachment-only multimodal gateway exports."""
 
-from strataforge.llm.multimodal_gateway.errors import MultimodalGatewayError
-from strataforge.llm.multimodal_gateway.protocols import (
+from nullvector.llm.multimodal_gateway.errors import MultimodalGatewayError
+from nullvector.llm.multimodal_gateway.protocols import (
     MultimodalProviderAdapter,
     StructuredMultimodalGateway,
 )
-from strataforge.llm.multimodal_gateway.providers import (
+from nullvector.llm.multimodal_gateway.providers import (
     NoopMultimodalProviderAdapter,
     NoopMultimodalResponse,
 )
-from strataforge.llm.multimodal_gateway.service import (
+from nullvector.llm.multimodal_gateway.service import (
     MultimodalGatewayService,
     VisualEnrichmentService,
 )
-from strataforge.llm.multimodal_gateway.types import (
+from nullvector.llm.multimodal_gateway.types import (
     MultimodalAssuranceMode,
     MultimodalFailureCategory,
     MultimodalGatewayAuditRecord,

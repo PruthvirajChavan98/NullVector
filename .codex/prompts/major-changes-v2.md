@@ -2,7 +2,7 @@
 > additive v2 domain split, native-first acquisition runtime, projection generation, acquisition-
 > backed tree builds, tokenizer-backed semantic services, multimodal attachment-only gateway
 > scaffolding, observability event bus/subscribers, edge exporters, and legacy v1 parse-runtime
-> isolation under `strataforge.compat.legacy_parse`.
+> isolation under `nullvector.compat.legacy_parse`.
 >
 > Validation evidence recorded for the F-J completion pass:
 > - `bash .codex/bin/preflight-codex.sh`
@@ -40,11 +40,11 @@ So the blueprint is valid as a direction, but not yet lock-ready as an implement
 
 The current framework is built around a deterministic parse-run model:
 
-* `strataforge/ingest/service.py` creates a `ParseRunManifest`
+* `nullvector/ingest/service.py` creates a `ParseRunManifest`
 * per-page outputs are recorded in `PageLedgerRow`
 * native extraction and optional local OCR are fused in the ingest substrate
 * the tree pipeline consumes persisted text/rawdict artifacts from Phase 01
-* `strataforge/tree/service.py` reconstructs `PageArtifacts` from those artifacts
+* `nullvector/tree/service.py` reconstructs `PageArtifacts` from those artifacts
 * tree building directly consumes page text plus optional rawdict layout cues
 * LLM usage exists only for text-based structured tasks:
 
@@ -60,15 +60,15 @@ This means the current architecture is not ingestion-provider neutral. It is par
 
 Your blueprint correctly identifies these current-code issues:
 
-* `strataforge/ingest/ocr.py` hardwires local OCR into the core.
+* `nullvector/ingest/ocr.py` hardwires local OCR into the core.
 * `ParserSettings` contains OCR-specific fields:
 
   * `ocr_languages`
   * `tessdata_path`
   * `ocr_dpi`
 * `PageLedgerRow` bakes in local OCR artifact paths and OCR-specific state.
-* `strataforge/ingest/text.py` is not a pure profiler; it is an OCR routing engine.
-* `strataforge/tree/service.py` reaches back into raw page extraction artifacts directly instead of consuming a cleaner synthesis boundary.
+* `nullvector/ingest/text.py` is not a pure profiler; it is an OCR routing engine.
+* `nullvector/tree/service.py` reaches back into raw page extraction artifacts directly instead of consuming a cleaner synthesis boundary.
 * `observability/__init__.py` is only a placeholder.
 * there is no canonical multimodal ledger with provenance.
 * there is no export boundary for LangChain/LlamaIndex.
@@ -81,8 +81,8 @@ The current tree pipeline depends on richer page structure than your current des
 
 Examples:
 
-* `strataforge/tree/headings.py` uses rawdict-derived signals like `top_y` and `font_size`.
-* `strataforge/tree/toc.py` computes `font_uniformity_signal()` from rawdict lines.
+* `nullvector/tree/headings.py` uses rawdict-derived signals like `top_y` and `font_size`.
+* `nullvector/tree/toc.py` computes `font_uniformity_signal()` from rawdict lines.
 * `anchor_title_on_page()` depends on stable line anchoring and occurrence indices.
 * verification logic relies on local page line boundaries and offsets.
 
@@ -286,7 +286,7 @@ That is a real architectural dependency.
 
 #### H. “Exact token counting via tiktoken” is not what the current code does
 
-Current code in `strataforge/tree/summarize.py` uses:
+Current code in `nullvector/tree/summarize.py` uses:
 
 * `estimate_token_count(text) = int(len(text.split()) * 1.3)`
 
@@ -481,7 +481,7 @@ Without this phase, the implementation will drift.
 
 ### Phase 1: Split domain models
 
-Current `strataforge/domain/models.py` is too monolithic.
+Current `nullvector/domain/models.py` is too monolithic.
 
 Split it into at least:
 
@@ -621,75 +621,75 @@ Here is the concrete module-by-module map.
 
 ### Keep, but refactor
 
-`strataforge/ingest/fingerprint.py`
+`nullvector/ingest/fingerprint.py`
 
 * Keep.
 * Still useful for source identity and idempotency.
 
-`strataforge/ingest/outline.py`
+`nullvector/ingest/outline.py`
 
 * Keep.
 * Still belongs in native ingestion.
 * It becomes part of the native provider, not the whole ingestion architecture.
 
-`strataforge/ingest/artifacts.py`
+`nullvector/ingest/artifacts.py`
 
 * Keep conceptually.
 * Refactor to persist the canonical ledger and v2 manifests.
 
-`strataforge/tree/hierarchy.py`
+`nullvector/tree/hierarchy.py`
 
 * Mostly keep.
 * The hierarchy assembly logic is still valuable.
 * It should consume projected candidates, not parse-ledger artifacts.
 
-`strataforge/tree/strategy.py`
+`nullvector/tree/strategy.py`
 
 * Keep.
 * Strategy orchestration remains useful.
 
-`strataforge/tree/decompose.py`
+`nullvector/tree/decompose.py`
 
 * Keep with boundary cleanup.
 * It already follows deterministic-first logic, which is good.
 
-`strataforge/tree/summarize.py`
+`nullvector/tree/summarize.py`
 
 * Keep with tokenizer refactor.
 * Current architecture is fine conceptually.
 
-`strataforge/tree/verify.py`
+`nullvector/tree/verify.py`
 
 * Keep but make provenance-aware.
 * Verification should be able to weight trust tiers.
 
-`strataforge/llm/*`
+`nullvector/llm/*`
 
 * Keep as the text structured gateway.
 * But it is not enough for multimodal Phase 04 as currently designed.
 
 ### Keep, but move responsibility
 
-`strataforge/tree/toc.py`
+`nullvector/tree/toc.py`
 
 * Keep, but it must consume normalized synthesis lines/layout cues.
 
-`strataforge/tree/toc_reconcile.py`
+`nullvector/tree/toc_reconcile.py`
 
 * Keep, same reason.
 
-`strataforge/tree/headings.py`
+`nullvector/tree/headings.py`
 
 * Keep the scoring logic.
 * Replace raw Phase 01 artifact dependency with synthesis primitives.
 
-`strataforge/tree/anchors.py`
+`nullvector/tree/anchors.py`
 
 * Keep after the new line/offset model is stable.
 
 ### Delete or retire
 
-`strataforge/ingest/ocr.py`
+`nullvector/ingest/ocr.py`
 
 * Delete from core.
 
@@ -711,12 +711,12 @@ Any OCR-specific artifact fields in `PageLedgerRow`
 
 ### Split and redesign
 
-`strataforge/domain/models.py`
+`nullvector/domain/models.py`
 
 * Split aggressively.
 * It is doing too much.
 
-`strataforge/ingest/service.py`
+`nullvector/ingest/service.py`
 
 * Split into:
 
@@ -725,12 +725,12 @@ Any OCR-specific artifact fields in `PageLedgerRow`
   * ledger merger
   * manifest writer
 
-`strataforge/ingest/text.py`
+`nullvector/ingest/text.py`
 
 * Rename and refactor into profiling/layout normalization logic.
 * Stop making OCR decisions.
 
-`strataforge/tree/service.py`
+`nullvector/tree/service.py`
 
 * This becomes the main Phase 02 orchestrator over `TreeSynthesisView`, not over parse artifacts.
 
@@ -791,13 +791,13 @@ These should be formal.
 
 ---
 
-Yes. Here is the architecture I would lock for StrataForge.
+Yes. Here is the architecture I would lock for NullVector.
 
 This is not a loose concept note. It is a concrete framework architecture with boundaries, execution flow, domain contracts, module layout, and migration strategy from your current codebase.
 
 # 1. The architectural position
 
-StrataForge should become a document-to-structured-knowledge framework with four strict internal boundaries:
+NullVector should become a document-to-structured-knowledge framework with four strict internal boundaries:
 
 1. **Acquisition boundary**
    Reads a source and produces a typed, provider-neutral canonical ledger.
@@ -809,11 +809,11 @@ StrataForge should become a document-to-structured-knowledge framework with four
    Runs summarization, decomposition, verification, and optional multimodal enrichment over committed nodes.
 
 4. **Export boundary**
-   Projects committed StrataForge-native outputs into downstream ecosystem objects such as LangChain or LlamaIndex, without polluting the core.
+   Projects committed NullVector-native outputs into downstream ecosystem objects such as LangChain or LlamaIndex, without polluting the core.
 
 The central correction is this:
 
-**StrataForge must not model ingestion as one exclusive whole-document “track.”**
+**NullVector must not model ingestion as one exclusive whole-document “track.”**
 It must model ingestion as **native-first acquisition plus selective per-page or per-region enrichment**, with explicit provenance attached to every emitted block.
 
 That is the enterprise-grade architecture.
@@ -843,7 +843,7 @@ Every extracted block must know:
 
 ## 2.4 Phase 02 does not consume provider payloads
 
-The tree builder must never parse AWS/Azure/GCP/VLM JSON. It consumes only a StrataForge-owned structural projection.
+The tree builder must never parse AWS/Azure/GCP/VLM JSON. It consumes only a NullVector-owned structural projection.
 
 ## 2.5 External provider logic belongs outside the core
 
@@ -864,7 +864,7 @@ Users own:
 
 ## 2.6 Exporters live at the edge
 
-LangChain, LlamaIndex, vector DB helpers, and app-specific orchestration remain external projections of StrataForge-native objects.
+LangChain, LlamaIndex, vector DB helpers, and app-specific orchestration remain external projections of NullVector-native objects.
 
 ## 2.7 Typed events, not ad hoc logs
 
@@ -971,7 +971,7 @@ Inputs:
 
 Outputs:
 
-* StrataForge-native export artifacts
+* NullVector-native export artifacts
 * edge projections to LangChain/LlamaIndex/etc.
 
 What happens:
@@ -1275,7 +1275,7 @@ So the projection must preserve normalized versions of those signals, not discar
 This is how I would restructure the repo.
 
 ```text
-strataforge/
+nullvector/
   __init__.py
 
   constants.py
@@ -1692,7 +1692,7 @@ Because the canonical ledger becomes the primary Phase 01 output, not page-ledge
 
 This is where LangChain belongs.
 
-## 16.1 StrataForge-native outputs
+## 16.1 NullVector-native outputs
 
 Primary outputs remain:
 
@@ -1858,6 +1858,6 @@ These contain logic worth preserving.
 
 This is the final concise form.
 
-**StrataForge is a native-first document framework that produces a provider-neutral canonical document ledger, represents unresolved content as typed artifacts, selectively merges user-owned external OCR or VLM enrichments at page or region granularity, projects the merged ledger into a synthesis-safe structural view for deterministic hierarchy construction, performs bounded semantic compression and optional multimodal enrichment over committed nodes, and exports the final node graph to external ecosystems only at the boundary.**
+**NullVector is a native-first document framework that produces a provider-neutral canonical document ledger, represents unresolved content as typed artifacts, selectively merges user-owned external OCR or VLM enrichments at page or region granularity, projects the merged ledger into a synthesis-safe structural view for deterministic hierarchy construction, performs bounded semantic compression and optional multimodal enrichment over committed nodes, and exports the final node graph to external ecosystems only at the boundary.**
 
 That is the architecture.

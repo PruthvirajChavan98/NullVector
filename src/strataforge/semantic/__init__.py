@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from strataforge.semantic.tokens import (
+from nullvector.semantic.tokens import (
     HeuristicTokenizer,
     OptionalExactTokenizer,
     Tokenizer,
@@ -24,11 +24,11 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     if name in {"NodeDecomposer"}:
-        from strataforge.semantic.decompose import NodeDecomposer
+        from nullvector.semantic.decompose import NodeDecomposer
 
         return NodeDecomposer
     if name in {"NodeSummarizer", "estimate_token_count"}:
-        from strataforge.semantic.summarize import NodeSummarizer, estimate_token_count
+        from nullvector.semantic.summarize import NodeSummarizer, estimate_token_count
 
         return {"NodeSummarizer": NodeSummarizer, "estimate_token_count": estimate_token_count}[
             name

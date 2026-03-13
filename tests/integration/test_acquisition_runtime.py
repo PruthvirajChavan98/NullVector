@@ -8,14 +8,14 @@ from typing import Any, cast
 
 import pytest
 
-from strataforge.domain import (
+from nullvector.domain import (
     AcquisitionRequest,
     TreeBuildRequest,
 )
-from strataforge.ingest import acquire_document
-from strataforge.ingest.errors import ParseConflictError
-from strataforge.observability import EventBus
-from strataforge.tree import build_tree
+from nullvector.ingest import acquire_document
+from nullvector.ingest.errors import ParseConflictError
+from nullvector.observability import EventBus
+from nullvector.tree import build_tree
 
 PHASE01_FIXTURES = Path("fixtures/pdfs/phase01")
 

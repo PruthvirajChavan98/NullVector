@@ -10,8 +10,8 @@ import fitz
 from pypdf import PdfReader
 from pypdf import __version__ as pypdf_version
 
-from strataforge.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
-from strataforge.domain.models import (
+from nullvector.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
+from nullvector.domain.models import (
     DocumentFingerprint,
     OcrMode,
     PageExtractionMethod,
@@ -21,25 +21,25 @@ from strataforge.domain.models import (
     ParseRunIndex,
     ParseRunManifest,
 )
-from strataforge.ingest.artifacts import ArtifactStore, settings_digest
-from strataforge.ingest.errors import (
+from nullvector.ingest.artifacts import ArtifactStore, settings_digest
+from nullvector.ingest.errors import (
     ExtractionFailureError,
     ParseConflictError,
     ParseSubstrateError,
 )
-from strataforge.ingest.fingerprint import fingerprint_document
-from strataforge.ingest.ocr import (
+from nullvector.ingest.fingerprint import fingerprint_document
+from nullvector.ingest.ocr import (
     build_ocr_textpage,
     extract_ocr_rawdict,
     extract_ocr_text,
     validate_ocr_runtime,
 )
-from strataforge.ingest.outline import (
+from nullvector.ingest.outline import (
     extract_pymupdf_outlines,
     extract_pypdf_outlines,
     select_outline,
 )
-from strataforge.ingest.text import analyze_native_page, classify_ocr_need
+from nullvector.ingest.text import analyze_native_page, classify_ocr_need
 
 fitz_module: Any = fitz
 

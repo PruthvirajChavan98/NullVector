@@ -6,8 +6,8 @@ import shutil
 from pathlib import Path
 from typing import Any, cast
 
-from strataforge.domain.models import OcrMode, ParserSettings
-from strataforge.ingest.errors import MissingOcrRuntimeError
+from nullvector.domain.models import OcrMode, ParserSettings
+from nullvector.ingest.errors import MissingOcrRuntimeError
 
 
 def join_ocr_languages(languages: tuple[str, ...]) -> str:

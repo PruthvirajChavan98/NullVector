@@ -1,6 +1,6 @@
 # PyMuPDF Licensing Gate
 
-StrataForge Phase 01 uses `PyMuPDF` for deterministic text extraction, outline extraction support,
+NullVector Phase 01 uses `PyMuPDF` for deterministic text extraction, outline extraction support,
 page rendering, and OCR orchestration.
 
 ## Release posture

@@ -6,17 +6,17 @@ import json
 import re
 from pathlib import Path
 
-from strataforge.domain.models import (
+from nullvector.domain.models import (
     TocDetectionMethod,
     TocDetectionResponse,
     TocDetectionResult,
     TocPageScore,
     TreeSettings,
 )
-from strataforge.llm.prompts import build_toc_detection_messages
-from strataforge.llm.protocols import StructuredLLMGateway
-from strataforge.llm.types import GatewayRequest
-from strataforge.tree.headings import (
+from nullvector.llm.prompts import build_toc_detection_messages
+from nullvector.llm.protocols import StructuredLLMGateway
+from nullvector.llm.types import GatewayRequest
+from nullvector.tree.headings import (
     PageArtifacts,
     _line_lists_for_page,
     extract_rawdict_lines,

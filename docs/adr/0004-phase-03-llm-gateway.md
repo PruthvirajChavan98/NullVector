@@ -5,7 +5,7 @@
 
 ## Context
 
-Phase 03 needs a typed LLM gateway that keeps the core StrataForge contract independent from any
+Phase 03 needs a typed LLM gateway that keeps the core NullVector contract independent from any
 single SDK while still landing one practical compatibility adapter and one provider-native strict
 reference path. The gateway must preserve strict schema validation, typed failures, audit capture,
 and bounded repair integration without allowing third-party frameworks to define the canonical
@@ -21,7 +21,7 @@ Implement the Phase 03 LLM gateway in three subphases:
   repair integration through the existing `RepairEngine` protocol
 - `03C`: failure normalization hardening, audit stabilization, docs, and notebook closeout
 
-StrataForge owns:
+NullVector owns:
 
 - request and response contracts
 - JSON Schema generation from Pydantic models

@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-StrataForge uses ADRs to capture non-trivial technical decisions and their consequences.
+NullVector uses ADRs to capture non-trivial technical decisions and their consequences.
 
 ## Conventions
 

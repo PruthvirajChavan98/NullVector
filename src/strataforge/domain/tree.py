@@ -7,7 +7,7 @@ from typing import Self
 
 from pydantic import Field, NonNegativeInt, PositiveFloat, PositiveInt, model_validator
 
-from strataforge.domain.common import (
+from nullvector.domain.common import (
     BoundingBox,
     GeometryCoordinateSpace,
     NodeOwnedSpan,
@@ -18,8 +18,8 @@ from strataforge.domain.common import (
     Sha256Hex,
     StrataModel,
 )
-from strataforge.domain.events import DocumentEvent, EventSeverity, TrustTier
-from strataforge.domain.ledger import OutlineEntry
+from nullvector.domain.events import DocumentEvent, EventSeverity, TrustTier
+from nullvector.domain.ledger import OutlineEntry
 
 
 class AnchorSource(StrEnum):

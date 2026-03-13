@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import Field, NonNegativeInt
 
-from strataforge.domain.common import NonEmptyStr, StrataModel
+from nullvector.domain.common import NonEmptyStr, StrataModel
 
 
 class FrameworkEvent(StrataModel):

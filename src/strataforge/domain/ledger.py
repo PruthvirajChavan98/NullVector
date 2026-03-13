@@ -13,13 +13,13 @@ from pydantic import (
     model_validator,
 )
 
-from strataforge.constants import (
+from nullvector.constants import (
     DEFAULT_ACQUISITION_ARTIFACT_ROOT,
     DEFAULT_ARTIFACT_ROOT,
     EXPECTED_PYMUPDF_VERSION,
     EXPECTED_PYPDF_VERSION,
 )
-from strataforge.domain.common import (
+from nullvector.domain.common import (
     BoundingBox,
     GeometryCoordinateSpace,
     NonEmptyStr,
@@ -27,7 +27,7 @@ from strataforge.domain.common import (
     Sha256Hex,
     StrataModel,
 )
-from strataforge.domain.events import (
+from nullvector.domain.events import (
     DocumentEvent,
     EventSeverity,
     ExtractionProvenance,

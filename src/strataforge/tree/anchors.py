@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from strataforge.domain.models import HierarchyNode, NodeAnchor, PageSourceAnchor
-from strataforge.tree.headings import (
+from nullvector.domain.models import HierarchyNode, NodeAnchor, PageSourceAnchor
+from nullvector.tree.headings import (
     PageArtifacts,
     normalized_title_key,
     split_text_lines_with_offsets,

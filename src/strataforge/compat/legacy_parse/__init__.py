@@ -1,6 +1,6 @@
 """Deprecated legacy parse substrate compatibility exports."""
 
-from strataforge.ingest.service import ParserSubstrateService, parse_document
+from nullvector.ingest.service import ParserSubstrateService, parse_document
 
 __all__ = [
     "ParserSubstrateService",

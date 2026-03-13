@@ -1,5 +1,5 @@
 ---
-description: Run the full StrataForge CI pipeline (format, lint, typecheck, test) and verify notebook state.
+description: Run the full NullVector CI pipeline (format, lint, typecheck, test) and verify notebook state.
 ---
 
 # CI Verification Workflow

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from strataforge.llm.types import LLMMessage, LLMRole
+from nullvector.llm.types import LLMMessage, LLMRole
 
 
 def build_decomposition_messages(
@@ -16,7 +16,7 @@ def build_decomposition_messages(
         LLMMessage(
             role=LLMRole.SYSTEM,
             content=(
-                "You are assisting bounded hierarchy decomposition for StrataForge. "
+                "You are assisting bounded hierarchy decomposition for NullVector. "
                 "Only identify subsection boundaries that are visibly supported by the "
                 "supplied page text. Use the <page_N> markers exactly as the physical "
                 "page indices for any returned entries. If the evidence is weak, return "

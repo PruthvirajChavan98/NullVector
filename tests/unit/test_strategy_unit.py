@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import cast
 
-from strataforge.domain import (
+from nullvector.domain import (
     HeadingCandidate,
     HierarchyStrategy,
     OutlineSource,
     OutlineTrustMode,
     TreeSettings,
 )
-from strataforge.tree.strategy import (
+from nullvector.tree.strategy import (
     StrategyAttemptResult,
     execute_hierarchy_strategy,
     select_hierarchy_strategy,

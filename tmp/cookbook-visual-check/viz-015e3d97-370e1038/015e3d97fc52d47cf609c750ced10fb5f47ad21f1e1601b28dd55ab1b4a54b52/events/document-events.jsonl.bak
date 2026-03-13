@@ -1,0 +1,1 @@
+{"details": {"page_count": 3, "provider_identity": "native_pymupdf"}, "event_id": "015e3d97fc52d47cf609c750ced10fb5f47ad21f1e1601b28dd55ab1b4a54b52-acquisition-native", "event_name": "native_acquisition_completed", "message": "native PyMuPDF acquisition completed", "severity": "info"}
