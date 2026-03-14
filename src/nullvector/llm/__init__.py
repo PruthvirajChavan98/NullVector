@@ -14,6 +14,7 @@ from nullvector.llm.errors import (
     GatewayValidationError,
 )
 from nullvector.llm.multimodal_gateway import (
+    LiteLLMMultimodalAdapter,
     MultimodalFailureCategory,
     MultimodalGatewayConfig,
     MultimodalGatewayError,
@@ -80,6 +81,7 @@ __all__ = [
     "GatewayValidationError",
     "LLMMessage",
     "LLMRole",
+    "LiteLLMMultimodalAdapter",
     "LiteLLMProviderConfig",
     "LiteLLMSDKAdapter",
     "MultimodalFailureCategory",

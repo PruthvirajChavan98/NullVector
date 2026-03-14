@@ -6,7 +6,11 @@ __pycache__/
 *.py[cod]
 build/
 dist/
+tmp/
 .coverage
+.dumperignore
+.diffignore
+.ipynb_checkpoints/
 htmlcov/
 artifacts/
 fixtures/phase02/inputs/*/tree/

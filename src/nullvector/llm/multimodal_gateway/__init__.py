@@ -6,6 +6,7 @@ from nullvector.llm.multimodal_gateway.protocols import (
     StructuredMultimodalGateway,
 )
 from nullvector.llm.multimodal_gateway.providers import (
+    LiteLLMMultimodalAdapter,
     NoopMultimodalProviderAdapter,
     NoopMultimodalResponse,
 )
@@ -28,6 +29,7 @@ from nullvector.llm.multimodal_gateway.types import (
 )
 
 __all__ = [
+    "LiteLLMMultimodalAdapter",
     "MultimodalAssuranceMode",
     "MultimodalFailureCategory",
     "MultimodalGatewayAuditRecord",

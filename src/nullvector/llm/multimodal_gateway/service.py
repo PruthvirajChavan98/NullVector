@@ -18,6 +18,9 @@ from nullvector.llm.multimodal_gateway.protocols import (
     MultimodalProviderAdapter,
     StructuredMultimodalGateway,
 )
+from nullvector.llm.multimodal_gateway.providers.litellm_sdk import (
+    LiteLLMMultimodalAdapter,
+)
 from nullvector.llm.multimodal_gateway.providers.noop import NoopMultimodalProviderAdapter
 from nullvector.llm.multimodal_gateway.types import (
     JSONValue,
@@ -74,6 +77,8 @@ def _validate_region_inputs(request: MultimodalGatewayRequest[T]) -> None:
 
 
 def _default_provider_adapter(config: MultimodalGatewayConfig) -> MultimodalProviderAdapter:
+    if config.provider.provider == "litellm_multimodal":
+        return LiteLLMMultimodalAdapter()
     return NoopMultimodalProviderAdapter({})
 
 

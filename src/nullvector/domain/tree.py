@@ -5,7 +5,14 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Self
 
-from pydantic import Field, NonNegativeInt, PositiveFloat, PositiveInt, model_validator
+from pydantic import (
+    Field,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+    field_validator,
+    model_validator,
+)
 
 from nullvector.domain.common import (
     BoundingBox,
@@ -384,6 +391,16 @@ class HierarchyNode(StrataModel):
     confidence: float = 0.0
     verification_match_tier: TitleMatchTier = TitleMatchTier.NONE
 
+    @field_validator("path", "owned_spans", "source_anchors", mode="before")
+    @classmethod
+    def _coerce_sequence_fields(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
     @model_validator(mode="after")
     def validate_hierarchy_node(self) -> Self:
         if not self.path:
@@ -461,6 +478,16 @@ class NodeCard(StrataModel):
     summary_token_count: NonNegativeInt | None = None
     source_anchors: tuple[PageSourceAnchor, ...] = Field(default_factory=tuple)
 
+    @field_validator("path", "owned_spans", "keywords", "source_anchors", mode="before")
+    @classmethod
+    def _coerce_sequence_fields(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
     @model_validator(mode="after")
     def validate_path_and_anchors(self) -> Self:
         if not self.path:
@@ -505,6 +532,16 @@ class NodeSummary(StrataModel):
     gateway_assurance_mode: NonEmptyStr | None = None
     gateway_audit_path: NonEmptyStr | None = None
     gateway_usage: SemanticUsage | None = None
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def _coerce_keywords(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
 
 
 class DecompositionReport(StrataModel):
@@ -618,6 +655,16 @@ class TreeNodeVerificationResult(StrataModel):
     covered_page_span: PageSpan | None = None
     notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
 
+    @field_validator("issues", "notes", mode="before")
+    @classmethod
+    def _coerce_result_sequences(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:
         has_error = any(issue.severity == VerificationSeverity.ERROR for issue in self.issues)
@@ -640,6 +687,22 @@ class VerificationReport(StrataModel):
     document_issues: tuple[VerificationIssue, ...] = Field(default_factory=tuple)
     unassigned_spans: tuple[UnassignedPageSpan, ...] = Field(default_factory=tuple)
     notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+
+    @field_validator(
+        "node_results",
+        "document_issues",
+        "unassigned_spans",
+        "notes",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_report_sequences(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
 
     @model_validator(mode="after")
     def validate_report(self) -> Self:
@@ -664,6 +727,16 @@ class VerificationResult(StrataModel):
     issues: tuple[VerificationIssue, ...] = Field(default_factory=tuple)
     covered_page_span: PageSpan | None = None
     notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+
+    @field_validator("issues", "notes", mode="before")
+    @classmethod
+    def _coerce_result_sequences(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
 
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:
