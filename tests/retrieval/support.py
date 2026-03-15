@@ -44,9 +44,13 @@ from nullvector.domain import (
 from nullvector.domain.common import ContentSpan
 from nullvector.domain.events import ContentAuthoritativeness
 from nullvector.domain.tree import HierarchyOrigin, VerificationStatus
-from nullvector.ingest.acquisition_artifacts import settings_digest as acquisition_settings_digest
-from nullvector.ingest.artifacts import canonical_json_bytes
 from nullvector.ingest.projection import build_canonical_text_substrate
+from nullvector.storage._serialization import (
+    canonical_json_bytes,
+)
+from nullvector.storage._serialization import (
+    settings_digest as acquisition_settings_digest,
+)
 
 
 def _json_safe(value: Any) -> Any:

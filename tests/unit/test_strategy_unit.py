@@ -9,7 +9,6 @@ from nullvector.domain import (
     HierarchyStrategy,
     OutlineSource,
     OutlineTrustMode,
-    TreeSettings,
 )
 from nullvector.tree.strategy import (
     StrategyAttemptResult,
@@ -18,10 +17,14 @@ from nullvector.tree.strategy import (
 )
 
 
-def make_attempt_result(strategy: HierarchyStrategy, accuracy: float) -> StrategyAttemptResult:
+def make_attempt_result(
+    strategy: HierarchyStrategy,
+    *,
+    committed_node_count: int = 1,
+    full_document_unassigned: bool = False,
+) -> StrategyAttemptResult:
     return StrategyAttemptResult(
         strategy=strategy,
-        accuracy=accuracy,
         artifact_root=f"/tmp/{strategy.value}",
         committed_hierarchy_path=f"/tmp/{strategy.value}/committed.json",
         node_cards_path=f"/tmp/{strategy.value}/node-cards.json",
@@ -33,8 +36,9 @@ def make_attempt_result(strategy: HierarchyStrategy, accuracy: float) -> Strateg
         repaired_hierarchy_path=f"/tmp/{strategy.value}/repaired.json",
         unassigned_spans_path=f"/tmp/{strategy.value}/unassigned.json",
         build_report_path=f"/tmp/{strategy.value}/build-report.json",
-        committed_node_count=1,
+        committed_node_count=committed_node_count,
         unassigned_span_count=0,
+        full_document_unassigned=full_document_unassigned,
     )
 
 
@@ -68,10 +72,9 @@ def test_select_hierarchy_strategy_exposes_llm_assist_when_gateway_exists() -> N
         selected_outline_source=OutlineSource.NONE,
         toc_candidates=(),
         gateway_available=True,
-        settings=TreeSettings(max_strategy_cascade_depth=2),
         attempt_runner=lambda strategy, attempt_index: make_attempt_result(
             strategy,
-            accuracy=0.0 if attempt_index == 1 else 0.9,
+            committed_node_count=0 if attempt_index == 1 else 1,
         ),
     )
 
@@ -80,28 +83,29 @@ def test_select_hierarchy_strategy_exposes_llm_assist_when_gateway_exists() -> N
         HierarchyStrategy.INFERRED_DETERMINISTIC,
     )
     assert result.strategy is HierarchyStrategy.INFERRED_DETERMINISTIC
-    assert report.cascade_depth == 1
+    assert report.fallback_reasons == ("inferred_with_llm_assist:zero_committed_nodes",)
 
 
-def test_execute_hierarchy_strategy_uses_bounded_cascade() -> None:
+def test_execute_hierarchy_strategy_falls_back_on_full_document_gap() -> None:
     attempted: list[HierarchyStrategy] = []
 
     def runner(strategy: HierarchyStrategy, attempt_index: int) -> StrategyAttemptResult:
         attempted.append(strategy)
-        accuracy = 0.2 if attempt_index == 1 else 0.8
-        return make_attempt_result(strategy, accuracy)
+        return make_attempt_result(
+            strategy,
+            full_document_unassigned=attempt_index == 1,
+        )
 
     result, report = execute_hierarchy_strategy(
         current_trust_mode=OutlineTrustMode.OUTLINE_PRIMARY,
         selected_outline_source=OutlineSource.PYMUPDF,
         toc_candidates=(),
         gateway_available=False,
-        settings=TreeSettings(strategy_accuracy_threshold=0.6, max_strategy_cascade_depth=2),
         attempt_runner=runner,
     )
 
     assert len(attempted) == 2
-    assert report.accuracy_at_each_level == (0.2, 0.8)
+    assert report.fallback_reasons == ("outline_only:full_document_unassigned",)
     assert result.strategy is HierarchyStrategy.INFERRED_DETERMINISTIC
 
 
@@ -111,10 +115,8 @@ def test_execute_hierarchy_strategy_skips_llm_only_paths_without_gateway() -> No
         selected_outline_source=OutlineSource.NONE,
         toc_candidates=(),
         gateway_available=False,
-        settings=TreeSettings(max_strategy_cascade_depth=2),
         attempt_runner=lambda strategy, attempt_index: make_attempt_result(
             strategy,
-            accuracy=1.0,
         ),
     )
 
@@ -122,20 +124,18 @@ def test_execute_hierarchy_strategy_skips_llm_only_paths_without_gateway() -> No
     assert result.strategy is HierarchyStrategy.INFERRED_DETERMINISTIC
 
 
-def test_execute_hierarchy_strategy_treats_cascade_depth_as_fallback_budget() -> None:
+def test_execute_hierarchy_strategy_tries_remaining_paths_until_hard_failure_clears() -> None:
     attempted: list[HierarchyStrategy] = []
 
     def runner(strategy: HierarchyStrategy, attempt_index: int) -> StrategyAttemptResult:
-        del attempt_index
         attempted.append(strategy)
-        return make_attempt_result(strategy, 0.0)
+        return make_attempt_result(strategy, committed_node_count=0 if attempt_index < 3 else 1)
 
-    _, report = execute_hierarchy_strategy(
+    result, report = execute_hierarchy_strategy(
         current_trust_mode=OutlineTrustMode.INFERRED_PRIMARY,
         selected_outline_source=OutlineSource.NONE,
         toc_candidates=cast(tuple[HeadingCandidate, ...], ("placeholder",)),
         gateway_available=True,
-        settings=TreeSettings(max_strategy_cascade_depth=2),
         attempt_runner=runner,
     )
 
@@ -144,4 +144,8 @@ def test_execute_hierarchy_strategy_treats_cascade_depth_as_fallback_budget() ->
         HierarchyStrategy.INFERRED_WITH_LLM_ASSIST,
         HierarchyStrategy.INFERRED_DETERMINISTIC,
     ]
-    assert report.cascade_depth == 2
+    assert result.strategy is HierarchyStrategy.INFERRED_DETERMINISTIC
+    assert report.fallback_reasons == (
+        "toc_derived:zero_committed_nodes",
+        "inferred_with_llm_assist:zero_committed_nodes",
+    )

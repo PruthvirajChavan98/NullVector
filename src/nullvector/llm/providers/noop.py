@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from pydantic import model_validator
 
-from nullvector.domain.models import NonEmptyStr, StrataModel
+from nullvector.domain.common import NonEmptyStr, NullVectorModel
 from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayConfig,
@@ -21,7 +21,7 @@ from nullvector.llm.types import (
 )
 
 
-class NoopScriptedResponse(StrataModel):
+class NoopScriptedResponse(NullVectorModel):
     """Explicit scripted result returned by the noop adapter."""
 
     output_json: dict[str, JSONValue] | None = None

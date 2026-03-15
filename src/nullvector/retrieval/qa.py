@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-import string
 
-from nullvector.domain.common import NonEmptyStr, StrataModel
+from nullvector._text import normalize_text
+from nullvector.domain.common import NonEmptyStr, NullVectorModel, PageSpan
 from nullvector.domain.retrieval import (
     AnswerCitation,
     RetrievalCorpus,
@@ -13,28 +13,32 @@ from nullvector.domain.retrieval import (
     RetrievalUnitType,
 )
 from nullvector.domain.tree import VisualEnrichmentRequest
-from nullvector.llm.multimodal_gateway.errors import MultimodalGatewayError
+from nullvector.llm.errors import GatewayError
+from nullvector.llm.protocols import StructuredLLMGateway
+from nullvector.llm.visual import enrich_visual_region
 from nullvector.retrieval.service import RetrievalService
 
-_PUNCTUATION_TABLE = str.maketrans({character: " " for character in string.punctuation})
 
+def _page_label_for_span(page_span: PageSpan) -> str:
+    """Derive a human-readable page label from a zero-indexed page span."""
 
-def _normalize_text(value: str) -> str:
-    return " ".join(value.casefold().translate(_PUNCTUATION_TABLE).split())
+    start_page = page_span.start_page + 1
+    end_page = page_span.end_page + 1
+    return str(start_page) if start_page == end_page else f"{start_page}-{end_page}"
 
 
 def _excerpt_for_hit(hit: RetrievalHit, query: str) -> str | None:
     text = hit.unit.text
     if text is None or not text.strip():
         return None
-    normalized_query_terms = tuple(term for term in _normalize_text(query).split() if term)
+    normalized_query_terms = tuple(term for term in normalize_text(query).split() if term)
     best_line = ""
     best_score = -1
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
             continue
-        line_terms = set(_normalize_text(stripped).split())
+        line_terms = set(normalize_text(stripped).split())
         score = len(set(normalized_query_terms) & line_terms)
         if score > best_score:
             best_line = stripped
@@ -43,7 +47,7 @@ def _excerpt_for_hit(hit: RetrievalHit, query: str) -> str | None:
     return excerpt[:280]
 
 
-class QAResponse(StrataModel):
+class QAResponse(NullVectorModel):
     """Grounded answer payload returned by retrieval QA."""
 
     answer: NonEmptyStr
@@ -58,10 +62,10 @@ class RetrievalQAService:
     def __init__(
         self,
         retrieval_service: RetrievalService,
-        multimodal_service: object | None = None,
+        gateway: StructuredLLMGateway | None = None,
     ) -> None:
         self._retrieval_service = retrieval_service
-        self._multimodal_service = multimodal_service
+        self._gateway = gateway
 
     def answer(
         self,
@@ -84,7 +88,8 @@ class RetrievalQAService:
             visual_hits = tuple(
                 hit
                 for hit in hits
-                if hit.unit.unit_type in {
+                if hit.unit.unit_type
+                in {
                     RetrievalUnitType.VISUAL,
                     RetrievalUnitType.UNRESOLVED_VISUAL,
                 }
@@ -105,10 +110,10 @@ class RetrievalQAService:
                     retrieval_hits=hits,
                     answer_mode="cached_visual_attachment",
                 )
-            if self._multimodal_service is not None and top_visual.unit.visual_region is not None:
+            if self._gateway is not None and top_visual.unit.visual_region is not None:
                 try:
                     enriched = self._enrich_visual_hit(hit=top_visual, query=query)
-                except MultimodalGatewayError:
+                except GatewayError:
                     enriched = None
                 except Exception:
                     enriched = None
@@ -143,9 +148,7 @@ class RetrievalQAService:
             answer=answer,
             citations=tuple(self._citation_for_hit(hit, query=query) for hit in citations_source),
             retrieval_hits=hits,
-            answer_mode="authoritative_text"
-            if authoritative_hits
-            else "interpretive_fallback",
+            answer_mode="authoritative_text" if authoritative_hits else "interpretive_fallback",
         )
 
     def _citation_for_hit(self, hit: RetrievalHit, *, query: str) -> AnswerCitation:
@@ -153,6 +156,7 @@ class RetrievalQAService:
             document_id=hit.unit.document_id,
             unit_id=hit.unit.unit_id,
             page_span=hit.unit.page_span,
+            page_label=_page_label_for_span(hit.unit.page_span),
             node_id=hit.unit.node_id,
             quote=_excerpt_for_hit(hit, query),
             asset_path=hit.unit.asset_path,
@@ -177,13 +181,11 @@ class RetrievalQAService:
         )
 
     def _enrich_visual_hit(self, *, hit: RetrievalHit, query: str) -> QAResponse | None:
-        if self._multimodal_service is None or hit.unit.visual_region is None:
-            return None
-        enrich = getattr(self._multimodal_service, "enrich", None)
-        if not callable(enrich):
+        if self._gateway is None or hit.unit.visual_region is None:
             return None
         request_id = hashlib.sha256(f"{hit.unit.unit_id}|{query}".encode()).hexdigest()[:24]
-        attachment = enrich(
+        attachment = enrich_visual_region(
+            self._gateway,
             VisualEnrichmentRequest(
                 request_id=request_id,
                 region=hit.unit.visual_region,
@@ -193,7 +195,7 @@ class RetrievalQAService:
                 ),
                 node_id=hit.unit.node_id,
                 metadata={"query": query},
-            )
+            ),
         )
         return QAResponse(
             answer=attachment.insight.summary,
@@ -202,6 +204,7 @@ class RetrievalQAService:
                     document_id=hit.unit.document_id,
                     unit_id=hit.unit.unit_id,
                     page_span=hit.unit.page_span,
+                    page_label=_page_label_for_span(hit.unit.page_span),
                     node_id=hit.unit.node_id,
                     quote=attachment.insight.summary,
                     asset_path=hit.unit.asset_path or hit.unit.page_render_path,

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import string
-
-from nullvector.domain.models import PageSpan
+from nullvector._text import normalize_text, tokenize
+from nullvector.domain.common import PageSpan
 from nullvector.domain.retrieval import (
     QueryPlan,
     RetrievalEvidence,
@@ -12,7 +11,6 @@ from nullvector.domain.retrieval import (
     RetrievalUnitType,
 )
 
-_PUNCTUATION_TABLE = str.maketrans({character: " " for character in string.punctuation})
 _STOPWORDS = {
     "a",
     "about",
@@ -28,15 +26,7 @@ _STOPWORDS = {
     "when",
     "why",
 }
-
-
-def _normalize_text(value: str) -> str:
-    return " ".join(value.casefold().translate(_PUNCTUATION_TABLE).split())
-
-
-def _tokenize(value: str) -> tuple[str, ...]:
-    normalized = _normalize_text(value)
-    return tuple(token for token in normalized.split() if token and token not in _STOPWORDS)
+_STOPWORDS_FROZEN = frozenset(_STOPWORDS)
 
 
 def _intersects(left: PageSpan, right: PageSpan) -> bool:
@@ -45,8 +35,8 @@ def _intersects(left: PageSpan, right: PageSpan) -> bool:
 
 def _contains_phrase(candidate: RetrievalEvidence, phrase: str) -> bool:
     haystacks = [candidate.title or "", candidate.text or ""]
-    normalized_phrase = _normalize_text(phrase)
-    return any(normalized_phrase in _normalize_text(value) for value in haystacks if value)
+    normalized_phrase = normalize_text(phrase)
+    return any(normalized_phrase in normalize_text(value) for value in haystacks if value)
 
 
 def _matched_terms(
@@ -57,8 +47,9 @@ def _matched_terms(
 ) -> tuple[str, ...]:
     terms: list[str] = []
     candidate_tokens = set(
-        _tokenize(
-            " ".join(part for part in (candidate.title or "", candidate.text or "") if part)
+        tokenize(
+            " ".join(part for part in (candidate.title or "", candidate.text or "") if part),
+            stopwords=_STOPWORDS_FROZEN,
         )
     )
     for token in query_tokens:
@@ -80,7 +71,7 @@ class RetrievalRanker:
         plan: QueryPlan,
         candidates: tuple[RetrievalEvidence, ...],
     ) -> tuple[RetrievalHit, ...]:
-        query_tokens = _tokenize(query)
+        query_tokens = tokenize(query, stopwords=_STOPWORDS_FROZEN)
         hits: list[RetrievalHit] = []
 
         for candidate in candidates:
@@ -122,9 +113,9 @@ class RetrievalRanker:
                 breakdown["quoted_phrase_match"] = 12.0 * quoted_matches
 
             title_matches = 0.0
-            normalized_title = _normalize_text(candidate.title or "")
+            normalized_title = normalize_text(candidate.title or "")
             for phrase in plan.title_like_phrases:
-                normalized_phrase = _normalize_text(phrase)
+                normalized_phrase = normalize_text(phrase)
                 if normalized_phrase and normalized_phrase == normalized_title:
                     title_matches += 1
                 elif normalized_phrase and normalized_phrase in normalized_title:
@@ -132,17 +123,21 @@ class RetrievalRanker:
             if title_matches:
                 breakdown["title_match"] = 8.0 * title_matches
 
-            keyword_overlap = len(set(query_tokens) & set(_tokenize(" ".join(candidate.keywords))))
+            keyword_overlap = len(
+                set(query_tokens)
+                & set(tokenize(" ".join(candidate.keywords), stopwords=_STOPWORDS_FROZEN))
+            )
             if keyword_overlap:
                 breakdown["keyword_overlap"] = 2.0 * keyword_overlap
 
             token_overlap = len(
                 set(query_tokens)
                 & set(
-                    _tokenize(
+                    tokenize(
                         " ".join(
                             part for part in (candidate.title or "", candidate.text or "") if part
-                        )
+                        ),
+                        stopwords=_STOPWORDS_FROZEN,
                     )
                 )
             )

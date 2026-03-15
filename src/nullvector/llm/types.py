@@ -19,7 +19,8 @@ from pydantic import (
     JsonValue as PydanticJsonValue,
 )
 
-from nullvector.domain.models import NonEmptyStr, StrataModel
+from nullvector.domain.common import NonEmptyStr, NullVectorModel
+from nullvector.domain.tree import StructuredRegionInsight, VisualRegionReference
 
 T = TypeVar("T", bound=BaseModel)
 JSONValue = PydanticJsonValue
@@ -62,14 +63,22 @@ class GatewayFailureCategory(StrEnum):
     UNKNOWN_PROVIDER_FAILURE = "unknown_provider_failure"
 
 
-class LLMMessage(StrataModel):
+class LLMMessage(NullVectorModel):
     """Single structured prompt message."""
 
     role: LLMRole
     content: NonEmptyStr
 
 
-class GatewayRetryPolicy(StrataModel):
+class RegionImageInput(NullVectorModel):
+    """Explicit persisted image attachment supplied alongside a gateway request."""
+
+    region: VisualRegionReference
+    image_path: NonEmptyStr
+    media_type: NonEmptyStr | None = None
+
+
+class GatewayRetryPolicy(NullVectorModel):
     """Retry policy owned by NullVector, not by provider SDKs."""
 
     max_attempts: PositiveInt = 3
@@ -78,7 +87,7 @@ class GatewayRetryPolicy(StrataModel):
     max_backoff_seconds: PositiveFloat = 2.0
 
 
-class GatewayAuditConfig(StrataModel):
+class GatewayAuditConfig(NullVectorModel):
     """Audit capture and persistence controls."""
 
     persist_root: NonEmptyStr | None = None
@@ -86,7 +95,7 @@ class GatewayAuditConfig(StrataModel):
     capture_raw_response: bool = True
 
 
-class LiteLLMProviderConfig(StrataModel):
+class LiteLLMProviderConfig(NullVectorModel):
     """Config for the LiteLLM SDK adapter."""
 
     provider: NonEmptyStr = "litellm"
@@ -100,7 +109,7 @@ class LiteLLMProviderConfig(StrataModel):
     extra_body: dict[str, JSONValue] = Field(default_factory=dict)
 
 
-class OpenAIProviderConfig(StrataModel):
+class OpenAIProviderConfig(NullVectorModel):
     """Config for the direct OpenAI Responses API adapter."""
 
     provider: NonEmptyStr = "openai_http"
@@ -115,7 +124,7 @@ class OpenAIProviderConfig(StrataModel):
 ProviderConfig = LiteLLMProviderConfig | OpenAIProviderConfig
 
 
-class GatewayConfig(StrataModel):
+class GatewayConfig(NullVectorModel):
     """Gateway-level configuration and provider selection."""
 
     provider: ProviderConfig
@@ -125,11 +134,12 @@ class GatewayConfig(StrataModel):
     structured_output_mode_preference: StructuredOutputMode | None = None
 
 
-class GatewayRequest(StrataModel, Generic[T]):
+class GatewayRequest(NullVectorModel, Generic[T]):
     """Single structured request against the gateway."""
 
     operation_name: NonEmptyStr
     messages: tuple[LLMMessage, ...]
+    attachments: tuple[RegionImageInput, ...] = ()
     response_model: type[T] = Field(exclude=True, repr=False)
     model_name: NonEmptyStr | None = None
     temperature: NonNegativeFloat | None = 0.0
@@ -149,7 +159,7 @@ class GatewayRequest(StrataModel, Generic[T]):
         return self
 
 
-class GatewayUsage(StrataModel):
+class GatewayUsage(NullVectorModel):
     """Normalized token usage accounting."""
 
     input_tokens: NonNegativeInt = 0
@@ -168,7 +178,7 @@ class GatewayUsage(StrataModel):
         return self
 
 
-class GatewayAttempt(StrataModel):
+class GatewayAttempt(NullVectorModel):
     """One observable gateway attempt."""
 
     attempt_number: PositiveInt
@@ -195,7 +205,7 @@ class GatewayAttempt(StrataModel):
         return self
 
 
-class GatewayFailure(StrataModel):
+class GatewayFailure(NullVectorModel):
     """Typed failure envelope persisted and surfaced by the gateway."""
 
     request_id: NonEmptyStr
@@ -215,7 +225,7 @@ class GatewayFailure(StrataModel):
     details: dict[str, JSONValue] = Field(default_factory=dict)
 
 
-class GatewaySuccess(StrataModel, Generic[T]):
+class GatewaySuccess(NullVectorModel, Generic[T]):
     """Validated success payload returned across the public boundary."""
 
     request_id: NonEmptyStr
@@ -232,7 +242,7 @@ class GatewaySuccess(StrataModel, Generic[T]):
     audit_path: NonEmptyStr | None = None
 
 
-class GatewayAuditRecord(StrataModel):
+class GatewayAuditRecord(NullVectorModel):
     """Redacted, persistable gateway audit artifact."""
 
     audit_id: NonEmptyStr
@@ -244,6 +254,7 @@ class GatewayAuditRecord(StrataModel):
     structured_output_mode: StructuredOutputMode
     captured_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     messages: tuple[LLMMessage, ...]
+    attachments: tuple[RegionImageInput, ...] = ()
     request_payload: JSONValue | None = None
     response_payload: JSONValue | None = None
     parsed_output: JSONValue | None = None
@@ -252,28 +263,13 @@ class GatewayAuditRecord(StrataModel):
     metadata: dict[str, JSONValue] = Field(default_factory=dict)
 
 
-class GatewayOutcome(StrataModel, Generic[T]):
-    """Internal unified result object produced before invoke() raises or returns."""
-
-    success: GatewaySuccess[T] | None = None
-    failure: GatewayFailure | None = None
-    audit_record: GatewayAuditRecord
-    audit_path: NonEmptyStr | None = None
-
-    @model_validator(mode="after")
-    def validate_outcome(self) -> GatewayOutcome[T]:
-        if (self.success is None) == (self.failure is None):
-            msg = "exactly one of success or failure must be present"
-            raise ValueError(msg)
-        return self
-
-
-class ProviderInvocationRequest(StrataModel):
+class ProviderInvocationRequest(NullVectorModel):
     """JSON-safe request passed to provider adapters."""
 
     request_id: NonEmptyStr
     operation_name: NonEmptyStr
     messages: tuple[LLMMessage, ...]
+    attachments: tuple[RegionImageInput, ...] = ()
     model_name: NonEmptyStr
     structured_output_mode: StructuredOutputMode
     response_model_name: NonEmptyStr
@@ -286,7 +282,7 @@ class ProviderInvocationRequest(StrataModel):
     idempotency_key: NonEmptyStr | None = None
 
 
-class ProviderInvocationSuccess(StrataModel):
+class ProviderInvocationSuccess(NullVectorModel):
     """Normalized successful provider response before Pydantic validation."""
 
     provider_name: NonEmptyStr
@@ -303,7 +299,7 @@ class ProviderInvocationSuccess(StrataModel):
     provider_response_id: NonEmptyStr | None = None
 
 
-class ProviderInvocationFailure(StrataModel):
+class ProviderInvocationFailure(NullVectorModel):
     """Normalized provider failure before retry/audit handling."""
 
     provider_name: NonEmptyStr
@@ -322,7 +318,7 @@ class ProviderInvocationFailure(StrataModel):
     details: dict[str, JSONValue] = Field(default_factory=dict)
 
 
-class ProviderInvocationResult(StrataModel):
+class ProviderInvocationResult(NullVectorModel):
     """Exactly-one wrapper around normalized provider results."""
 
     success: ProviderInvocationSuccess | None = None
@@ -334,3 +330,9 @@ class ProviderInvocationResult(StrataModel):
             msg = "exactly one of success or failure must be present"
             raise ValueError(msg)
         return self
+
+
+class VisualInsightResponse(NullVectorModel):
+    """Default structured attachment-enrichment response."""
+
+    insight: StructuredRegionInsight

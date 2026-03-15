@@ -6,7 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
-from nullvector.domain.models import OcrMode, ParserSettings
+from nullvector.domain.ledger import OcrMode, ParserSettings
 
 
 @dataclass(frozen=True)

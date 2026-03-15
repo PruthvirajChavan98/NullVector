@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nullvector.domain.models import PageSpan
+from nullvector.domain.common import PageSpan
 from nullvector.domain.retrieval import (
     QueryPlan,
     RetrievalEvidence,

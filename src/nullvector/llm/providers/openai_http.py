@@ -58,7 +58,7 @@ def _extract_output_json(payload: dict[str, Any]) -> JSONValue | None:
             if not isinstance(content, dict):
                 continue
             if "parsed" in content:
-                return json_safe(content["parsed"])
+                return cast(JSONValue, json_safe(content["parsed"]))
     return None
 
 
@@ -197,6 +197,21 @@ class OpenAIResponsesHTTPAdapter:
                     structured_output_mode=request.structured_output_mode,
                     category=GatewayFailureCategory.UNSUPPORTED_CAPABILITY,
                     message="OpenAI strict adapter requires provider-native structured output mode",
+                    retryable=False,
+                    raw_request_payload=request.model_dump(mode="json"),
+                ),
+            )
+        if request.attachments:
+            return ProviderInvocationResult(
+                failure=ProviderInvocationFailure(
+                    provider_name=self.provider_name,
+                    model_name=request.model_name,
+                    assurance_mode=GatewayAssuranceMode.PROVIDER_NATIVE_STRICT,
+                    structured_output_mode=request.structured_output_mode,
+                    category=GatewayFailureCategory.UNSUPPORTED_CAPABILITY,
+                    message=(
+                        "OpenAI direct HTTP adapter does not support attachments in this runtime"
+                    ),
                     retryable=False,
                     raw_request_payload=request.model_dump(mode="json"),
                 ),

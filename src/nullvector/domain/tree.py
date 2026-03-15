@@ -19,11 +19,11 @@ from nullvector.domain.common import (
     GeometryCoordinateSpace,
     NodeOwnedSpan,
     NonEmptyStr,
+    NullVectorModel,
     PageSourceAnchor,
     PageSpan,
     ScalarValue,
     Sha256Hex,
-    StrataModel,
 )
 from nullvector.domain.events import DocumentEvent, EventSeverity, TrustTier
 from nullvector.domain.ledger import OutlineEntry
@@ -155,7 +155,7 @@ class VerificationSeverity(StrEnum):
     ERROR = "error"
 
 
-class TreeSettings(StrataModel):
+class TreeSettings(NullVectorModel):
     """Tuneable deterministic thresholds and policies for tree synthesis."""
 
     outline_null_destination_rate_threshold: PositiveFloat = 0.15
@@ -163,14 +163,6 @@ class TreeSettings(StrataModel):
     outline_low_agreement_threshold: PositiveFloat = 0.30
     heading_score_keep_threshold: NonNegativeInt = 30
     heading_score_high_confidence_threshold: NonNegativeInt = 50
-    title_token_containment_threshold: PositiveFloat = 0.60
-    short_title_max_length_for_edit_distance: PositiveInt = 32
-    short_title_edit_distance_threshold: PositiveInt = 2
-    maximum_allowed_page_adjacency: PositiveInt = 1
-    repeated_header_footer_min_repetitions: PositiveInt = 2
-    top_of_page_line_limit: PositiveInt = 3
-    strategy_accuracy_threshold: PositiveFloat = 0.60
-    max_strategy_cascade_depth: PositiveInt = 2
     max_pages_per_leaf_node: PositiveInt = 10
     max_tokens_per_leaf_node: PositiveInt = 20000
     max_decomposition_depth: PositiveInt = 2
@@ -189,12 +181,6 @@ class TreeSettings(StrataModel):
                 "outline_low_agreement_threshold"
             )
             raise ValueError(msg)
-        if self.title_token_containment_threshold > 1:
-            msg = "title_token_containment_threshold must be less than or equal to 1"
-            raise ValueError(msg)
-        if self.strategy_accuracy_threshold > 1:
-            msg = "strategy_accuracy_threshold must be less than or equal to 1"
-            raise ValueError(msg)
         if self.heading_score_high_confidence_threshold < self.heading_score_keep_threshold:
             msg = (
                 "heading_score_high_confidence_threshold must be greater than or equal to "
@@ -204,7 +190,7 @@ class TreeSettings(StrataModel):
         return self
 
 
-class TreeBuildRequest(StrataModel):
+class TreeBuildRequest(NullVectorModel):
     """Input contract for a deterministic tree build."""
 
     acquisition_manifest_path: NonEmptyStr
@@ -213,7 +199,7 @@ class TreeBuildRequest(StrataModel):
     settings: TreeSettings = Field(default_factory=TreeSettings)
 
 
-class TocPageScore(StrataModel):
+class TocPageScore(NullVectorModel):
     """Deterministic and hybrid TOC-likeness signals for a single page."""
 
     page_index: NonNegativeInt
@@ -244,7 +230,7 @@ class TocPageScore(StrataModel):
         return self
 
 
-class TocDetectionResult(StrataModel):
+class TocDetectionResult(NullVectorModel):
     """Persistable TOC detection result over the leading parse artifact pages."""
 
     toc_page_indices: tuple[NonNegativeInt, ...] = ()
@@ -254,7 +240,7 @@ class TocDetectionResult(StrataModel):
     has_page_numbers: bool = False
 
 
-class TocParsedEntry(StrataModel):
+class TocParsedEntry(NullVectorModel):
     """Single parsed entry recovered from TOC text."""
 
     structure: str | None = None
@@ -262,7 +248,7 @@ class TocParsedEntry(StrataModel):
     page_number: NonNegativeInt | None = None
 
 
-class OutlineAnchorRecord(StrataModel):
+class OutlineAnchorRecord(NullVectorModel):
     """Auditable anchoring outcome for one outline entry."""
 
     document_id: NonEmptyStr
@@ -275,7 +261,7 @@ class OutlineAnchorRecord(StrataModel):
     reason: NonEmptyStr | None = None
 
 
-class DecompositionBoundary(StrataModel):
+class DecompositionBoundary(NullVectorModel):
     """Bounded subsection boundary returned by deterministic or LLM decomposition."""
 
     title: NonEmptyStr
@@ -283,7 +269,7 @@ class DecompositionBoundary(StrataModel):
     level_hint: PositiveInt | None = None
 
 
-class TocReconciliationResult(StrataModel):
+class TocReconciliationResult(NullVectorModel):
     """Deterministic TOC-to-physical-page reconciliation result."""
 
     parsed_entries: tuple[TocParsedEntry, ...] = Field(default_factory=tuple)
@@ -300,7 +286,7 @@ class TocReconciliationResult(StrataModel):
         return self
 
 
-class NodeAnchor(StrataModel):
+class NodeAnchor(NullVectorModel):
     """Deterministic heading anchor used to start a hierarchy node."""
 
     page: NonNegativeInt
@@ -318,7 +304,7 @@ class NodeAnchor(StrataModel):
         return self
 
 
-class HeadingScoreBreakdown(StrataModel):
+class HeadingScoreBreakdown(NullVectorModel):
     """Explicit signal breakdown for heading candidate scoring."""
 
     numbering_signal: int = 0
@@ -334,7 +320,7 @@ class HeadingScoreBreakdown(StrataModel):
     final_score: int
 
 
-class HeadingCandidate(StrataModel):
+class HeadingCandidate(NullVectorModel):
     """Deterministic heading candidate extracted from persisted source artifacts."""
 
     document_id: NonEmptyStr
@@ -350,7 +336,7 @@ class HeadingCandidate(StrataModel):
     high_confidence: bool = False
 
 
-class RepairRequest(StrataModel):
+class RepairRequest(NullVectorModel):
     """Typed repair request envelope emitted by deterministic tree logic."""
 
     request_id: NonEmptyStr
@@ -360,7 +346,7 @@ class RepairRequest(StrataModel):
     details: dict[str, str] = Field(default_factory=dict)
 
 
-class RepairDecision(StrataModel):
+class RepairDecision(NullVectorModel):
     """Typed repair decision recorded for audit and later gateway integration."""
 
     subject_id: NonEmptyStr
@@ -373,7 +359,7 @@ class RepairDecision(StrataModel):
     details: dict[str, str] = Field(default_factory=dict)
 
 
-class HierarchyNode(StrataModel):
+class HierarchyNode(NullVectorModel):
     """Internal verified hierarchy node used before projecting to NodeCard."""
 
     node_id: NonEmptyStr
@@ -415,7 +401,7 @@ class HierarchyNode(StrataModel):
         return self
 
 
-class UnassignedPageSpan(StrataModel):
+class UnassignedPageSpan(NullVectorModel):
     """Explicit page coverage gap emitted when no verified node owns a page span."""
 
     document_id: NonEmptyStr
@@ -423,7 +409,7 @@ class UnassignedPageSpan(StrataModel):
     page_span: PageSpan
 
 
-class HierarchyBuildReport(StrataModel):
+class HierarchyBuildReport(NullVectorModel):
     """Deterministic build summary and ambiguity accounting for a tree run."""
 
     document_id: NonEmptyStr
@@ -443,7 +429,7 @@ class HierarchyBuildReport(StrataModel):
     notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
 
 
-class StrategyRationale(StrataModel):
+class StrategyRationale(NullVectorModel):
     """Deterministic rationale used for strategy selection."""
 
     reasons: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
@@ -452,17 +438,16 @@ class StrategyRationale(StrataModel):
     gateway_available: bool
 
 
-class StrategyExecutionReport(StrataModel):
+class StrategyExecutionReport(NullVectorModel):
     """Auditable record of attempted and selected hierarchy strategies."""
 
     attempted_strategies: tuple[HierarchyStrategy, ...]
     selected_strategy: HierarchyStrategy
     rationale: StrategyRationale
-    cascade_depth: NonNegativeInt
-    accuracy_at_each_level: tuple[float, ...] = Field(default_factory=tuple)
+    fallback_reasons: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
 
 
-class NodeCard(StrataModel):
+class NodeCard(NullVectorModel):
     """Compact hierarchical node contract used across parse and verification phases."""
 
     node_id: NonEmptyStr
@@ -499,7 +484,7 @@ class NodeCard(StrataModel):
         return self
 
 
-class SemanticUsage(StrataModel):
+class SemanticUsage(NullVectorModel):
     """Normalized token-usage snapshot for semantic operations."""
 
     input_tokens: NonNegativeInt = 0
@@ -517,7 +502,7 @@ class SemanticUsage(StrataModel):
         return self
 
 
-class NodeSummary(StrataModel):
+class NodeSummary(NullVectorModel):
     """Persistable summary payload for a committed hierarchy node."""
 
     node_id: NonEmptyStr
@@ -544,7 +529,7 @@ class NodeSummary(StrataModel):
         return value
 
 
-class DecompositionReport(StrataModel):
+class DecompositionReport(NullVectorModel):
     """Persistable audit report for large-node decomposition."""
 
     decomposed_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
@@ -559,7 +544,7 @@ class DecompositionReport(StrataModel):
     gateway_audit_paths: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
 
 
-class VisualRegionReference(StrataModel):
+class VisualRegionReference(NullVectorModel):
     """Stable reference to a visual region eligible for enrichment."""
 
     document_id: NonEmptyStr
@@ -574,7 +559,7 @@ class VisualRegionReference(StrataModel):
     node_id: NonEmptyStr | None = None
 
 
-class StructuredRegionInsight(StrataModel):
+class StructuredRegionInsight(NullVectorModel):
     """Non-authoritative structured insight produced from a visual region."""
 
     summary: NonEmptyStr
@@ -590,7 +575,7 @@ class StructuredRegionInsight(StrataModel):
         return self
 
 
-class VisualEnrichmentRequest(StrataModel):
+class VisualEnrichmentRequest(NullVectorModel):
     """Attachment-only enrichment request over one unresolved visual region."""
 
     request_id: NonEmptyStr
@@ -600,7 +585,7 @@ class VisualEnrichmentRequest(StrataModel):
     metadata: dict[str, ScalarValue] = Field(default_factory=dict)
 
 
-class VisualEnrichmentAttachment(StrataModel):
+class VisualEnrichmentAttachment(NullVectorModel):
     """Non-authoritative visual insight attached to a node or region."""
 
     attachment_id: NonEmptyStr
@@ -621,7 +606,7 @@ class VisualEnrichmentAttachment(StrataModel):
         return self
 
 
-class VerificationIssue(StrataModel):
+class VerificationIssue(NullVectorModel):
     """Single verification finding."""
 
     code: NonEmptyStr
@@ -630,7 +615,7 @@ class VerificationIssue(StrataModel):
     page_span: PageSpan | None = None
 
 
-class LLMVerificationAssistRecord(StrataModel):
+class LLMVerificationAssistRecord(NullVectorModel):
     """Persistable grounded-evidence record for verification assists."""
 
     node_id: NonEmptyStr
@@ -644,7 +629,7 @@ class LLMVerificationAssistRecord(StrataModel):
     accepted: bool = False
 
 
-class TreeNodeVerificationResult(StrataModel):
+class TreeNodeVerificationResult(NullVectorModel):
     """Tree-specific verification result for a committed hierarchy node."""
 
     document_id: NonEmptyStr
@@ -677,7 +662,7 @@ class TreeNodeVerificationResult(StrataModel):
         return self
 
 
-class VerificationReport(StrataModel):
+class VerificationReport(NullVectorModel):
     """Document-level verification report for a committed tree build."""
 
     document_id: NonEmptyStr
@@ -717,7 +702,7 @@ class VerificationReport(StrataModel):
         return self
 
 
-class VerificationResult(StrataModel):
+class VerificationResult(NullVectorModel):
     """Structured verification output for a node or document-level check."""
 
     document_id: NonEmptyStr
@@ -750,7 +735,7 @@ class VerificationResult(StrataModel):
         return self
 
 
-class TreeRunIndex(StrataModel):
+class TreeRunIndex(NullVectorModel):
     """Tree-run registry entry enforcing tree_run_id uniqueness within an artifact namespace."""
 
     tree_run_id: NonEmptyStr
@@ -760,10 +745,10 @@ class TreeRunIndex(StrataModel):
     acquisition_artifact_identity: NonEmptyStr
     acquisition_fingerprint_sha256: Sha256Hex
     settings_digest: Sha256Hex
-    manifest_path: NonEmptyStr
+    manifest_path: NonEmptyStr | None = None
 
 
-class TreeBuildManifest(StrataModel):
+class TreeBuildManifest(NullVectorModel):
     """Filesystem-backed manifest for a deterministic tree build."""
 
     tree_run_id: NonEmptyStr
@@ -772,20 +757,20 @@ class TreeBuildManifest(StrataModel):
     acquisition_manifest_path: NonEmptyStr
     acquisition_artifact_identity: NonEmptyStr
     acquisition_fingerprint_sha256: Sha256Hex
-    artifact_root: NonEmptyStr
+    artifact_root: NonEmptyStr | None = None
     settings: TreeSettings
     settings_digest: Sha256Hex
-    run_index_path: NonEmptyStr
-    headings_path: NonEmptyStr
-    raw_hierarchy_path: NonEmptyStr
-    repair_requests_path: NonEmptyStr
-    repair_decisions_path: NonEmptyStr
-    repaired_hierarchy_path: NonEmptyStr
-    committed_hierarchy_path: NonEmptyStr
-    node_cards_path: NonEmptyStr
-    unassigned_spans_path: NonEmptyStr
-    verification_report_path: NonEmptyStr
-    build_report_path: NonEmptyStr
+    run_index_path: NonEmptyStr | None = None
+    headings_path: NonEmptyStr | None = None
+    raw_hierarchy_path: NonEmptyStr | None = None
+    repair_requests_path: NonEmptyStr | None = None
+    repair_decisions_path: NonEmptyStr | None = None
+    repaired_hierarchy_path: NonEmptyStr | None = None
+    committed_hierarchy_path: NonEmptyStr | None = None
+    node_cards_path: NonEmptyStr | None = None
+    unassigned_spans_path: NonEmptyStr | None = None
+    verification_report_path: NonEmptyStr | None = None
+    build_report_path: NonEmptyStr | None = None
     toc_detection_path: NonEmptyStr | None = None
     toc_reconciliation_path: NonEmptyStr | None = None
     llm_verification_assists_path: NonEmptyStr | None = None
@@ -796,7 +781,7 @@ class TreeBuildManifest(StrataModel):
     unassigned_span_count: NonNegativeInt
 
 
-class SynthesisTextProjection(StrataModel):
+class SynthesisTextProjection(NullVectorModel):
     """Projected text surface derived from table-like or non-line blocks."""
 
     projection_id: NonEmptyStr
@@ -806,7 +791,7 @@ class SynthesisTextProjection(StrataModel):
     trust_tier: TrustTier
 
 
-class SynthesisUnresolvedRegion(StrataModel):
+class SynthesisUnresolvedRegion(NullVectorModel):
     """Projection-safe unresolved region without provider-native payload leakage."""
 
     region_id: NonEmptyStr
@@ -816,7 +801,7 @@ class SynthesisUnresolvedRegion(StrataModel):
     recommended_fallback: NonEmptyStr
 
 
-class SynthesisTrustSummary(StrataModel):
+class SynthesisTrustSummary(NullVectorModel):
     """Compact trust summary surfaced to tree synthesis."""
 
     dominant_trust_tier: TrustTier | None = None
@@ -824,7 +809,7 @@ class SynthesisTrustSummary(StrataModel):
     interpretive_content_present: bool = False
 
 
-class SynthesisLine(StrataModel):
+class SynthesisLine(NullVectorModel):
     """Projection line preserving offsets, layout cues, and normalized trust."""
 
     line_id: NonEmptyStr
@@ -850,7 +835,7 @@ class SynthesisLine(StrataModel):
         return self
 
 
-class SynthesisPage(StrataModel):
+class SynthesisPage(NullVectorModel):
     """Projection-safe page substrate used for hierarchy construction."""
 
     page_index: NonNegativeInt
@@ -863,7 +848,7 @@ class SynthesisPage(StrataModel):
     unresolved_regions: tuple[SynthesisUnresolvedRegion, ...] = Field(default_factory=tuple)
 
 
-class TreeSynthesisView(StrataModel):
+class TreeSynthesisView(NullVectorModel):
     """Projection boundary protecting tree synthesis from provider payloads."""
 
     document_id: NonEmptyStr

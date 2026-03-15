@@ -3,26 +3,41 @@
 from __future__ import annotations
 
 import re
-import string
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from nullvector.domain.models import (
+from nullvector._text import (
+    casefold_punct_key as shared_casefold_punct_key,
+)
+from nullvector._text import (
+    collapse_whitespace as shared_collapse_whitespace,
+)
+from nullvector._text import (
+    display_text,
+    levenshtein_distance,
+    normalized_text_key,
+)
+from nullvector.domain.ledger import CanonicalTextLine, OutlineEntry
+from nullvector.domain.tree import (
     AnchorSource,
-    CanonicalTextLine,
     HeadingCandidate,
     HeadingScoreBreakdown,
     HeadingSourceKind,
     NodeAnchor,
     OutlineAnchorRecord,
     OutlineAnchorStatus,
-    OutlineEntry,
     TreeSettings,
+)
+from nullvector.tree._constants import (
+    MAXIMUM_ALLOWED_PAGE_ADJACENCY,
+    REPEATED_HEADER_FOOTER_MIN_REPETITIONS,
+    SHORT_TITLE_EDIT_DISTANCE_THRESHOLD,
+    SHORT_TITLE_MAX_LENGTH_FOR_EDIT_DISTANCE,
+    TITLE_TOKEN_CONTAINMENT_THRESHOLD,
 )
 
 NUMBERING_PATTERN = re.compile(r"^(?P<prefix>\d+(?:\.\d+)*)(?:[.)])?\s+(?P<title>.+)$")
-PUNCTUATION_TABLE = str.maketrans("", "", string.punctuation)
 
 
 @dataclass(frozen=True)
@@ -55,7 +70,7 @@ class PageLine:
 def collapse_whitespace(value: str) -> str:
     """Collapse internal whitespace while preserving character meaning."""
 
-    return " ".join(value.split())
+    return shared_collapse_whitespace(value)
 
 
 def strip_line_preserve_internal_whitespace(value: str) -> str:
@@ -67,19 +82,19 @@ def strip_line_preserve_internal_whitespace(value: str) -> str:
 def normalize_heading_text(value: str) -> str:
     """Return a display-stable heading string with collapsed whitespace."""
 
-    return collapse_whitespace(value.strip())
+    return display_text(value)
 
 
 def normalized_title_key(value: str) -> str:
     """Return a casefolded comparison key for title matching and path stability."""
 
-    return normalize_heading_text(value).casefold()
+    return normalized_text_key(value)
 
 
 def casefold_punct_key(value: str) -> str:
     """Return a punctuation-insensitive comparison key."""
 
-    return normalized_title_key(value).translate(PUNCTUATION_TABLE)
+    return shared_casefold_punct_key(value)
 
 
 def tokenize_title(value: str) -> tuple[str, ...]:
@@ -90,27 +105,7 @@ def tokenize_title(value: str) -> tuple[str, ...]:
 
 
 def _levenshtein_distance(left: str, right: str) -> int:
-    if left == right:
-        return 0
-    if not left:
-        return len(right)
-    if not right:
-        return len(left)
-
-    previous = list(range(len(right) + 1))
-    for left_index, left_char in enumerate(left, start=1):
-        current = [left_index]
-        for right_index, right_char in enumerate(right, start=1):
-            cost = 0 if left_char == right_char else 1
-            current.append(
-                min(
-                    previous[right_index] + 1,
-                    current[right_index - 1] + 1,
-                    previous[right_index - 1] + cost,
-                ),
-            )
-        previous = current
-    return previous[-1]
+    return levenshtein_distance(left, right)
 
 
 def numbering_depth(value: str) -> int | None:
@@ -250,7 +245,7 @@ def find_repeated_header_footer_lines(
     return {
         line
         for line, count in repeated_candidates.items()
-        if count >= settings.repeated_header_footer_min_repetitions
+        if count >= REPEATED_HEADER_FOOTER_MIN_REPETITIONS
     }
 
 
@@ -339,16 +334,16 @@ def anchor_title_on_page(
                 for line in candidate_lines
                 if (line_tokens := set(tokenize_title(line.text)))
                 and len(title_tokens & line_tokens) / len(title_tokens)
-                >= settings.title_token_containment_threshold
+                >= TITLE_TOKEN_CONTAINMENT_THRESHOLD
             ]
             if occurrence_index < len(containment):
                 return build_node_anchor(containment[occurrence_index])
-        if len(normalized) <= settings.short_title_max_length_for_edit_distance:
+        if len(normalized) <= SHORT_TITLE_MAX_LENGTH_FOR_EDIT_DISTANCE:
             edit_matches = [
                 line
                 for line in candidate_lines
                 if _levenshtein_distance(normalized, line.normalized_text)
-                <= settings.short_title_edit_distance_threshold
+                <= SHORT_TITLE_EDIT_DISTANCE_THRESHOLD
             ]
             if occurrence_index < len(edit_matches):
                 return build_node_anchor(edit_matches[occurrence_index])
@@ -375,7 +370,7 @@ def _matches_outline_title(
     for entry in outline_entries:
         if entry.page_index is None:
             continue
-        if abs(entry.page_index - line.page_index) > settings.maximum_allowed_page_adjacency:
+        if abs(entry.page_index - line.page_index) > MAXIMUM_ALLOWED_PAGE_ADJACENCY:
             continue
         if normalized_title_key(entry.title) == line.normalized_text:
             return True, entry.level

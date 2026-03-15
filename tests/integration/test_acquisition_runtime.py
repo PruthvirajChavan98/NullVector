@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,7 +15,6 @@ from nullvector.domain import (
 )
 from nullvector.ingest import acquire_document
 from nullvector.ingest.errors import ParseConflictError
-from nullvector.observability import EventBus
 from nullvector.tree import build_tree
 
 PHASE01_FIXTURES = Path("fixtures/pdfs/phase01")
@@ -24,6 +24,18 @@ def _load_json(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+class _CaptureHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[dict[str, object]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        payload = getattr(record, "nullvector_event", None)
+        if isinstance(payload, dict):
+            self.events.append(payload)
+
+
+@pytest.mark.integration
 def test_acquisition_runtime_persists_ledger_projection_and_outline_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -38,6 +50,7 @@ def test_acquisition_runtime_persists_ledger_projection_and_outline_artifacts(
     ledger = cast(dict[str, Any], _load_json(manifest.ledger_path))
     projection = cast(dict[str, Any], _load_json(manifest.projection_view_path or ""))
     selected_outline = cast(dict[str, Any], _load_json(manifest.selected_outline_path))
+    assert manifest.artifact_root is not None
     run_index = cast(
         dict[str, Any],
         _load_json(str(Path(manifest.artifact_root).parent / "run-index.json")),
@@ -55,6 +68,7 @@ def test_acquisition_runtime_persists_ledger_projection_and_outline_artifacts(
     assert any(page["lines"] for page in projection["pages"])
 
 
+@pytest.mark.integration
 def test_acquisition_runtime_persists_canonical_text_substrate_without_outline_augmentation(
     tmp_path: Path,
 ) -> None:
@@ -77,6 +91,7 @@ def test_acquisition_runtime_persists_canonical_text_substrate_without_outline_a
     assert selected_outline["entries"][1]["title"] == "Details"
 
 
+@pytest.mark.integration
 def test_acquisition_run_is_idempotent_and_conflicts_on_changed_input(tmp_path: Path) -> None:
     request = AcquisitionRequest(
         source_path=str(PHASE01_FIXTURES / "born_digital_with_outline.pdf"),
@@ -108,6 +123,7 @@ def test_acquisition_run_is_idempotent_and_conflicts_on_changed_input(tmp_path: 
         )
 
 
+@pytest.mark.integration
 def test_tree_build_accepts_acquisition_manifest(tmp_path: Path) -> None:
     pdf_path = PHASE01_FIXTURES / "born_digital_with_outline.pdf"
     acquisition_manifest = acquire_document(
@@ -117,6 +133,7 @@ def test_tree_build_accepts_acquisition_manifest(tmp_path: Path) -> None:
             artifact_root=str(tmp_path / "acquisition-runs"),
         )
     )
+    assert acquisition_manifest.artifact_root is not None
     acquisition_tree = build_tree(
         TreeBuildRequest(
             acquisition_manifest_path=str(
@@ -146,27 +163,34 @@ def test_tree_build_accepts_acquisition_manifest(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.integration
 def test_acquisition_and_tree_build_emit_expected_events(tmp_path: Path) -> None:
-    event_bus = EventBus()
+    logger = logging.getLogger("nullvector.test.acquisition")
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    capture = _CaptureHandler()
+    logger.addHandler(capture)
     manifest = acquire_document(
         AcquisitionRequest(
             source_path=str(PHASE01_FIXTURES / "born_digital_with_outline.pdf"),
             acquisition_run_id="evented-acquisition",
             artifact_root=str(tmp_path / "acquisition-runs"),
         ),
-        event_bus=event_bus,
+        logger=logger,
     )
 
+    assert manifest.artifact_root is not None
     build_tree(
         TreeBuildRequest(
             acquisition_manifest_path=str(Path(manifest.artifact_root) / "manifest.json"),
             tree_run_id="evented-tree-build",
             summarize=False,
         ),
-        event_bus=event_bus,
+        logger=logger,
     )
 
-    event_names = [event.event_name for event in event_bus.published_events]
+    event_names = [str(event["event_name"]) for event in capture.events]
 
     assert event_names[:2] == [
         "SourceFingerprintComputed",
@@ -177,6 +201,7 @@ def test_acquisition_and_tree_build_emit_expected_events(tmp_path: Path) -> None
     assert "NodeCommitted" in event_names
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("fixture_name", ["scanned_subset.pdf", "mixed_content.pdf"])
 def test_visual_regions_persist_real_attachment_assets(
     tmp_path: Path,

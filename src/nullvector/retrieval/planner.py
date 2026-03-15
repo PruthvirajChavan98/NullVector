@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-import string
 
-from nullvector.domain.models import PageSpan
+from nullvector._text import collapse_whitespace, normalize_text
+from nullvector.domain.common import PageSpan
 from nullvector.domain.retrieval import (
     QueryPlan,
     RetrievalModality,
@@ -15,24 +15,19 @@ from nullvector.domain.retrieval import (
 _QUOTED_PATTERN = re.compile(r"['\"]([^'\"]+)['\"]")
 _PAGE_NUMBER_PATTERN = re.compile(r"\bpage\s+(?P<number>\d+)\b")
 _STRUCTURAL_PATTERN = re.compile(r"\b(?:section|chapter|appendix|heading)\s+[a-z0-9][a-z0-9 .:-]*")
-_PUNCTUATION_TABLE = str.maketrans({character: " " for character in string.punctuation})
 _VISUAL_TERMS = ("image", "photo", "figure", "diagram", "chart", "illustration")
 _TABLE_TERMS = ("table", "tabular")
 
 
-def _collapse_whitespace(value: str) -> str:
-    return " ".join(value.split()).strip()
-
-
 def _normalize_phrase(value: str) -> str:
-    return _collapse_whitespace(value.casefold().translate(_PUNCTUATION_TABLE))
+    return normalize_text(value)
 
 
 def _dedupe(values: list[str]) -> tuple[str, ...]:
     ordered: list[str] = []
     seen: set[str] = set()
     for value in values:
-        normalized = _collapse_whitespace(value)
+        normalized = collapse_whitespace(value)
         if not normalized or normalized in seen:
             continue
         seen.add(normalized)
@@ -86,8 +81,7 @@ class QueryPlanner:
             title_like_phrases
             or quoted_phrases
             or any(
-                term in normalized_query
-                for term in ("section", "chapter", "appendix", "heading")
+                term in normalized_query for term in ("section", "chapter", "appendix", "heading")
             )
         )
 

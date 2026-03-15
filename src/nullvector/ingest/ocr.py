@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any, cast
 
-from nullvector.domain.models import OcrMode, ParserSettings
+from nullvector.domain.ledger import OcrMode, ParserSettings
 from nullvector.ingest.errors import MissingOcrRuntimeError
 
 

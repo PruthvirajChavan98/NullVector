@@ -7,17 +7,18 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, cast
 
-from nullvector.domain.models import (
-    BoundingBox,
-    CanonicalPage,
+from nullvector.domain.common import BoundingBox, ScalarValue
+from nullvector.domain.events import (
     ContentAuthoritativeness,
     EventSeverity,
     ExtractionProvenance,
     GroundingEvidence,
-    LineBlock,
     PageEvent,
-    ScalarValue,
     SourceTrack,
+)
+from nullvector.domain.ledger import (
+    CanonicalPage,
+    LineBlock,
     TableArtifact,
     TextBlock,
     UnresolvedRegion,
@@ -267,22 +268,63 @@ def _table_artifacts(
     return tuple(artifacts)
 
 
+def _bbox_iou(a: BoundingBox, b: BoundingBox) -> float:
+    """Intersection-over-union for two bounding boxes."""
+    ix0 = max(a.x0, b.x0)
+    iy0 = max(a.y0, b.y0)
+    ix1 = min(a.x1, b.x1)
+    iy1 = min(a.y1, b.y1)
+    if ix1 <= ix0 or iy1 <= iy0:
+        return 0.0
+    intersection = (ix1 - ix0) * (iy1 - iy0)
+    area_a = (a.x1 - a.x0) * (a.y1 - a.y0)
+    area_b = (b.x1 - b.x0) * (b.y1 - b.y0)
+    union = area_a + area_b - intersection
+    if union <= 0:
+        return 0.0
+    return intersection / union
+
+
+_IMAGE_DEDUP_IOU_THRESHOLD = 0.7
+
+
+def _deduplicate_bboxes(
+    bboxes: list[BoundingBox],
+) -> list[int]:
+    """Return indices of bboxes to keep after merging near-duplicates.
+
+    PyMuPDF ``get_image_info()`` returns one entry per image *reference* in
+    the PDF — masks, soft-masks, and repeated XObject placements produce
+    multiple entries for the same visual area.  This function keeps only
+    distinct visual regions by suppressing entries whose IoU with an
+    already-kept entry exceeds the threshold.
+    """
+    kept: list[int] = []
+    for i, bbox in enumerate(bboxes):
+        if any(_bbox_iou(bbox, bboxes[k]) > _IMAGE_DEDUP_IOU_THRESHOLD for k in kept):
+            continue
+        kept.append(i)
+    return kept
+
+
 def _image_blocks(
     *,
     page_index: int,
     page: Any,
     fallback_bbox: BoundingBox,
 ) -> tuple[VisualArtifact, ...]:
+    raw_infos: list[dict[str, Any]] = list(page.get_image_info())
+    bboxes = [_bbox_from_raw(info.get("bbox"), fallback=fallback_bbox) for info in raw_infos]
+    kept_indices = _deduplicate_bboxes(bboxes)
     blocks: list[VisualArtifact] = []
-    for index, image_info in enumerate(page.get_image_info()):
-        bbox = _bbox_from_raw(image_info.get("bbox"), fallback=fallback_bbox)
+    for output_index, raw_index in enumerate(kept_indices):
         blocks.append(
             VisualArtifact(
-                visual_id=f"page-{page_index}-visual-{index:04d}",
-                bbox=bbox,
-                reading_index=index,
+                visual_id=f"page-{page_index}-visual-{output_index:04d}",
+                bbox=bboxes[raw_index],
+                reading_index=output_index,
                 kind_hint="embedded_image",
-                image_ref=f"page-{page_index}-image-{index:04d}",
+                image_ref=f"page-{page_index}-image-{raw_index:04d}",
                 needs_enrichment=True,
                 provenance=_visual_provenance(),
             )
@@ -413,25 +455,16 @@ def profile_page(
     unresolved_regions: list[UnresolvedRegion] = []
     page_events: list[PageEvent] = []
     if not text_blocks and visual_artifacts:
-        for index, visual in enumerate(visual_artifacts):
-            unresolved_regions.append(
-                _make_unresolved_region(
-                    page_index=page_index,
-                    index=index,
-                    bbox=visual.bbox,
-                    reason_code="image_only_region",
-                    severity=EventSeverity.WARNING,
-                    recommended_fallback="external_ocr_or_visual_enrichment",
-                    reading_index=visual.reading_index,
-                )
-            )
         page_events.append(
             _make_page_event(
                 page_index=page_index,
-                event_name="image_only_region_detected",
-                message="native extraction found image-only regions without usable native text",
-                severity=EventSeverity.WARNING,
-                details={"document_id": document_id},
+                event_name="image_only_page_detected",
+                message="native extraction found image-only page without usable native text",
+                severity=EventSeverity.INFO,
+                details={
+                    "document_id": document_id,
+                    "visual_artifact_count": len(visual_artifacts),
+                },
             )
         )
     if dense_vector_count >= dense_vector_threshold:

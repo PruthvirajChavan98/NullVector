@@ -10,7 +10,7 @@ import pytest
 
 from nullvector.compat.legacy_parse import parse_document
 from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
-from nullvector.domain.models import ParseRequest, ParserSettings
+from nullvector.domain.ledger import ParseRequest, ParserSettings
 from nullvector.ingest import MissingOcrRuntimeError, ParseConflictError
 
 FIXTURE_DIR = Path("fixtures/pdfs/phase01")
@@ -48,6 +48,7 @@ def read_ledger_rows(manifest_path: Path) -> list[dict[str, Any]]:
     ]
 
 
+@pytest.mark.integration
 def test_parse_born_digital_with_outline_persists_both_outline_sources(tmp_path: Path) -> None:
     expected = load_expected("born_digital_with_outline.json")
     manifest = parse_document(
@@ -79,6 +80,7 @@ def test_parse_born_digital_with_outline_persists_both_outline_sources(tmp_path:
     assert ledger_rows[0]["extraction_method"] == "native_text"
 
 
+@pytest.mark.integration
 def test_parse_writes_run_index_pointing_to_manifest(tmp_path: Path) -> None:
     artifact_root = tmp_path / "artifacts"
     manifest = parse_document(
@@ -101,6 +103,7 @@ def test_parse_writes_run_index_pointing_to_manifest(tmp_path: Path) -> None:
     assert Path(run_index["manifest_path"]) == Path(manifest.artifact_root) / "manifest.json"
 
 
+@pytest.mark.integration
 def test_parse_born_digital_without_outline_yields_empty_selected_outline(tmp_path: Path) -> None:
     expected = load_expected("born_digital_without_outline.json")
     manifest = parse_document(
@@ -122,6 +125,7 @@ def test_parse_born_digital_without_outline_yields_empty_selected_outline(tmp_pa
     assert all(row["needs_ocr"] is False for row in ledger_rows)
 
 
+@pytest.mark.integration
 def test_parse_native_only_document_succeeds_without_tessdata(tmp_path: Path) -> None:
     manifest = parse_document(
         ParseRequest(
@@ -142,6 +146,7 @@ def test_parse_native_only_document_succeeds_without_tessdata(tmp_path: Path) ->
     assert all(row["needs_ocr"] is False for row in ledger_rows)
 
 
+@pytest.mark.integration
 def test_parse_scanned_subset_produces_ocr_artifacts(tmp_path: Path) -> None:
     expected = load_expected("scanned_subset.json")
     manifest = parse_document(
@@ -167,6 +172,7 @@ def test_parse_scanned_subset_produces_ocr_artifacts(tmp_path: Path) -> None:
     assert "SCANNED" in ocr_text.upper()
 
 
+@pytest.mark.integration
 def test_parse_ocr_document_fails_when_tessdata_directory_is_missing(tmp_path: Path) -> None:
     with pytest.raises(MissingOcrRuntimeError):
         parse_document(
@@ -183,6 +189,7 @@ def test_parse_ocr_document_fails_when_tessdata_directory_is_missing(tmp_path: P
         )
 
 
+@pytest.mark.integration
 def test_parse_mixed_content_uses_partial_ocr(tmp_path: Path) -> None:
     expected = load_expected("mixed_content.json")
     manifest = parse_document(
@@ -206,6 +213,7 @@ def test_parse_mixed_content_uses_partial_ocr(tmp_path: Path) -> None:
     assert ledger_rows[1]["ocr_mode"] == expected["ocr_modes"]["1"]
 
 
+@pytest.mark.integration
 def test_parse_rerun_is_idempotent_and_conflicts_on_setting_change(tmp_path: Path) -> None:
     request = ParseRequest(
         source_path=str(FIXTURE_DIR / "born_digital_with_outline.pdf"),
@@ -228,6 +236,7 @@ def test_parse_rerun_is_idempotent_and_conflicts_on_setting_change(tmp_path: Pat
         parse_document(changed_request)
 
 
+@pytest.mark.integration
 def test_parse_run_id_conflicts_when_reused_for_different_document(tmp_path: Path) -> None:
     artifact_root = str(tmp_path / "artifacts")
     parse_document(

@@ -28,8 +28,8 @@ class GeometryCoordinateSpace(StrEnum):
     UNROTATED_PAGE = "unrotated_page"
 
 
-class StrataModel(BaseModel):
-    """Common strict model configuration."""
+class NullVectorModel(BaseModel):
+    """Strict frozen base for all NullVector domain models."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -39,7 +39,7 @@ class StrataModel(BaseModel):
     )
 
 
-class BoundingBox(StrataModel):
+class BoundingBox(NullVectorModel):
     """Axis-aligned page-local bounding box."""
 
     x0: float
@@ -58,7 +58,7 @@ class BoundingBox(StrataModel):
         return self
 
 
-class PageSpan(StrataModel):
+class PageSpan(NullVectorModel):
     """Inclusive page span within a source document."""
 
     start_page: NonNegativeInt
@@ -72,7 +72,7 @@ class PageSpan(StrataModel):
         return self
 
 
-class PageSourceAnchor(StrataModel):
+class PageSourceAnchor(NullVectorModel):
     """Grounding anchor for summaries and verification."""
 
     page: NonNegativeInt
@@ -88,7 +88,7 @@ class PageSourceAnchor(StrataModel):
         return self
 
 
-class ContentSpan(StrataModel):
+class ContentSpan(NullVectorModel):
     """Offset-aware inclusive/exclusive span within the document."""
 
     start_page: NonNegativeInt
@@ -107,7 +107,7 @@ class ContentSpan(StrataModel):
         return self
 
 
-class NodeOwnedSpan(StrataModel):
+class NodeOwnedSpan(NullVectorModel):
     """Explicit content ownership span for decomposition-aware nodes."""
 
     span: ContentSpan
@@ -120,9 +120,9 @@ __all__ = [
     "GeometryCoordinateSpace",
     "NodeOwnedSpan",
     "NonEmptyStr",
+    "NullVectorModel",
     "PageSourceAnchor",
     "PageSpan",
     "ScalarValue",
     "Sha256Hex",
-    "StrataModel",
 ]

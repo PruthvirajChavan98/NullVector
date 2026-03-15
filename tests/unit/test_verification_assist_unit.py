@@ -16,7 +16,7 @@ from nullvector.domain import (
     TitleMatchTier,
     TreeSettings,
 )
-from nullvector.domain.models import VerificationStatus
+from nullvector.domain.tree import VerificationStatus
 from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,

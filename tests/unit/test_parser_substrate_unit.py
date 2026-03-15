@@ -9,8 +9,7 @@ import pytest
 from pypdf import PdfReader, PdfWriter
 
 from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
-from nullvector.domain.models import OcrMode, OutlineEntry, OutlineSource, ParserSettings
-from nullvector.ingest.artifacts import settings_digest
+from nullvector.domain.ledger import OcrMode, OutlineEntry, OutlineSource, ParserSettings
 from nullvector.ingest.errors import MissingOcrRuntimeError
 from nullvector.ingest.fingerprint import fingerprint_document
 from nullvector.ingest.ocr import (
@@ -26,6 +25,7 @@ from nullvector.ingest.outline import (
     select_outline,
 )
 from nullvector.ingest.text import OcrDecision, PageAnalysis, classify_ocr_need
+from nullvector.storage._serialization import settings_digest
 
 
 def phase01_fixture(name: str) -> str:

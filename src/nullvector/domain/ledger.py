@@ -14,8 +14,6 @@ from pydantic import (
 )
 
 from nullvector.constants import (
-    DEFAULT_ACQUISITION_ARTIFACT_ROOT,
-    DEFAULT_ARTIFACT_ROOT,
     EXPECTED_PYMUPDF_VERSION,
     EXPECTED_PYPDF_VERSION,
 )
@@ -23,9 +21,9 @@ from nullvector.domain.common import (
     BoundingBox,
     GeometryCoordinateSpace,
     NonEmptyStr,
+    NullVectorModel,
     ScalarValue,
     Sha256Hex,
-    StrataModel,
 )
 from nullvector.domain.events import (
     DocumentEvent,
@@ -80,7 +78,7 @@ class ParseErrorCode(StrEnum):
     EXTRACTION_FAILED = "extraction_failed"
 
 
-class ParseJobState(StrataModel):
+class ParseJobState(NullVectorModel):
     """Progress-oriented parse job state tracked through the workflow lifecycle."""
 
     job_id: NonEmptyStr
@@ -102,7 +100,7 @@ class ParseJobState(StrataModel):
         return self
 
 
-class DocumentFingerprint(StrataModel):
+class DocumentFingerprint(NullVectorModel):
     """Stable source fingerprint used for idempotency and provenance."""
 
     document_id: NonEmptyStr
@@ -112,7 +110,7 @@ class DocumentFingerprint(StrataModel):
     page_count: NonNegativeInt
 
 
-class OutlineEntry(StrataModel):
+class OutlineEntry(NullVectorModel):
     """Normalized outline entry for either parser source."""
 
     level: PositiveInt
@@ -121,7 +119,7 @@ class OutlineEntry(StrataModel):
     source: OutlineSource
 
 
-class OutlineQualityReport(StrataModel):
+class OutlineQualityReport(NullVectorModel):
     """Selection metrics for normalized outlines."""
 
     source: OutlineSource
@@ -134,7 +132,7 @@ class OutlineQualityReport(StrataModel):
     score: int
 
 
-class ParserSettings(StrataModel):
+class ParserSettings(NullVectorModel):
     """Deterministic parser settings captured in the manifest and settings digest."""
 
     ocr_languages: tuple[NonEmptyStr, ...] = ("eng",)
@@ -174,7 +172,7 @@ class ParserSettings(StrataModel):
         return self
 
 
-class AcquisitionSettings(StrataModel):
+class AcquisitionSettings(NullVectorModel):
     """Deterministic settings for the native-first v2 acquisition runtime."""
 
     pymupdf_version: NonEmptyStr = EXPECTED_PYMUPDF_VERSION
@@ -200,16 +198,16 @@ class AcquisitionSettings(StrataModel):
         return self
 
 
-class ParseRequest(StrataModel):
+class ParseRequest(NullVectorModel):
     """Input contract for deterministic parse runs."""
 
     source_path: NonEmptyStr
     parse_run_id: NonEmptyStr
-    artifact_root: NonEmptyStr = DEFAULT_ARTIFACT_ROOT
+    artifact_root: NonEmptyStr | None = None
     settings: ParserSettings = Field(default_factory=ParserSettings)
 
 
-class ParseFailure(StrataModel):
+class ParseFailure(NullVectorModel):
     """Typed parse failure payload for substrate errors."""
 
     code: ParseErrorCode
@@ -219,7 +217,7 @@ class ParseFailure(StrataModel):
     details: dict[str, str] = Field(default_factory=dict)
 
 
-class ParseRunIndex(StrataModel):
+class ParseRunIndex(NullVectorModel):
     """Parse-run root index used to enforce global parse_run_id uniqueness."""
 
     parse_run_id: NonEmptyStr
@@ -229,7 +227,7 @@ class ParseRunIndex(StrataModel):
     manifest_path: NonEmptyStr
 
 
-class PageLedgerRow(StrataModel):
+class PageLedgerRow(NullVectorModel):
     """Canonical per-page extraction ledger entry."""
 
     document_id: NonEmptyStr
@@ -286,12 +284,12 @@ class PageLedgerRow(StrataModel):
         return self
 
 
-class ParseRunManifest(StrataModel):
+class ParseRunManifest(NullVectorModel):
     """Filesystem-backed manifest for a deterministic parse run."""
 
     parse_run_id: NonEmptyStr
     document_id: NonEmptyStr
-    artifact_root: NonEmptyStr
+    artifact_root: NonEmptyStr | None = None
     fingerprint: DocumentFingerprint
     settings: ParserSettings
     settings_digest: Sha256Hex
@@ -306,7 +304,7 @@ class ParseRunManifest(StrataModel):
     page_count: NonNegativeInt
 
 
-class SourceMetadata(StrataModel):
+class SourceMetadata(NullVectorModel):
     """Stable source metadata persisted alongside the canonical document ledger."""
 
     source_path: NonEmptyStr
@@ -316,17 +314,17 @@ class SourceMetadata(StrataModel):
     extra: dict[str, ScalarValue] = Field(default_factory=dict)
 
 
-class AcquisitionRequest(StrataModel):
+class AcquisitionRequest(NullVectorModel):
     """Input contract for deterministic v2 acquisition runs."""
 
     source_path: NonEmptyStr
     acquisition_run_id: NonEmptyStr
-    artifact_root: NonEmptyStr = DEFAULT_ACQUISITION_ARTIFACT_ROOT
+    artifact_root: NonEmptyStr | None = None
     provider_identity: NonEmptyStr = "native_pymupdf"
     settings: AcquisitionSettings = Field(default_factory=AcquisitionSettings)
 
 
-class AcquisitionManifest(StrataModel):
+class AcquisitionManifest(NullVectorModel):
     """Filesystem-backed acquisition manifest for the future v2 ingestion boundary."""
 
     source_fingerprint_sha256: Sha256Hex
@@ -341,7 +339,7 @@ class AcquisitionManifest(StrataModel):
     event_stream_path: NonEmptyStr | None = None
 
 
-class AcquisitionRunIndex(StrataModel):
+class AcquisitionRunIndex(NullVectorModel):
     """Run-root index used to enforce global acquisition_run_id uniqueness."""
 
     acquisition_run_id: NonEmptyStr
@@ -351,12 +349,12 @@ class AcquisitionRunIndex(StrataModel):
     manifest_path: NonEmptyStr
 
 
-class AcquisitionRunManifest(StrataModel):
+class AcquisitionRunManifest(NullVectorModel):
     """Filesystem-backed manifest for a deterministic v2 acquisition run."""
 
     acquisition_run_id: NonEmptyStr
     document_id: NonEmptyStr
-    artifact_root: NonEmptyStr
+    artifact_root: NonEmptyStr | None = None
     source_fingerprint: DocumentFingerprint
     settings: AcquisitionSettings
     settings_digest: Sha256Hex
@@ -375,7 +373,7 @@ class AcquisitionRunManifest(StrataModel):
     canonical_text_substrate_path: NonEmptyStr | None = None
 
 
-class TextBlock(StrataModel):
+class TextBlock(NullVectorModel):
     """Normalized text block in the canonical acquisition ledger."""
 
     block_type: Literal["text_block"] = "text_block"
@@ -389,7 +387,7 @@ class TextBlock(StrataModel):
     grounding: GroundingEvidence
 
 
-class LineBlock(StrataModel):
+class LineBlock(NullVectorModel):
     """Optional canonical line-level artifact for stable offsets and layout cues."""
 
     block_type: Literal["line_block"] = "line_block"
@@ -404,7 +402,7 @@ class LineBlock(StrataModel):
     provenance: ExtractionProvenance
 
 
-class TableArtifact(StrataModel):
+class TableArtifact(NullVectorModel):
     """Deterministically recovered table-like content."""
 
     block_type: Literal["table_artifact"] = "table_artifact"
@@ -424,7 +422,7 @@ class TableArtifact(StrataModel):
         return self
 
 
-class VisualArtifact(StrataModel):
+class VisualArtifact(NullVectorModel):
     """Canonical record for a visual region that may require enrichment."""
 
     block_type: Literal["visual_artifact"] = "visual_artifact"
@@ -441,7 +439,7 @@ class VisualArtifact(StrataModel):
     provenance: ExtractionProvenance
 
 
-class UnresolvedRegion(StrataModel):
+class UnresolvedRegion(NullVectorModel):
     """Typed incompleteness contract for unresolved or unsafe-to-recover regions."""
 
     block_type: Literal["unresolved_region"] = "unresolved_region"
@@ -458,7 +456,7 @@ class UnresolvedRegion(StrataModel):
     provenance: ExtractionProvenance
 
 
-class CanonicalTextPage(StrataModel):
+class CanonicalTextPage(NullVectorModel):
     """Authoritative page-local text substrate for downstream tree and semantic use."""
 
     page_index: NonNegativeInt
@@ -468,7 +466,7 @@ class CanonicalTextPage(StrataModel):
     lines: tuple[CanonicalTextLine, ...] = Field(default_factory=tuple)
 
 
-class CanonicalTextLine(StrataModel):
+class CanonicalTextLine(NullVectorModel):
     """Stable downstream text line with offsets and layout cues."""
 
     line_id: NonEmptyStr
@@ -493,7 +491,7 @@ class CanonicalTextLine(StrataModel):
         return self
 
 
-class CanonicalTextSubstrate(StrataModel):
+class CanonicalTextSubstrate(NullVectorModel):
     """Persisted, projection-safe text substrate with stable offsets by page."""
 
     document_id: NonEmptyStr
@@ -506,7 +504,7 @@ PageBlock = Annotated[
 ]
 
 
-class CanonicalPage(StrataModel):
+class CanonicalPage(NullVectorModel):
     """Authoritative per-page unit in the v2 canonical document ledger."""
 
     page_index: NonNegativeInt
@@ -519,7 +517,7 @@ class CanonicalPage(StrataModel):
     events: tuple[PageEvent, ...] = Field(default_factory=tuple)
 
 
-class CanonicalDocumentLedger(StrataModel):
+class CanonicalDocumentLedger(NullVectorModel):
     """Authoritative ingestion boundary for acquisition and enrichment outputs."""
 
     ledger_version: NonEmptyStr = "canonical-document-ledger.v2alpha1"

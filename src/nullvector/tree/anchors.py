@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from nullvector.domain.models import HierarchyNode, NodeAnchor, PageSourceAnchor
+from nullvector.domain.common import PageSourceAnchor
+from nullvector.domain.tree import HierarchyNode, NodeAnchor
 from nullvector.tree.headings import (
     PageArtifacts,
     normalized_title_key,

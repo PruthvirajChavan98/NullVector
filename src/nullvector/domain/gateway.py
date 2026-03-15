@@ -6,11 +6,11 @@ from typing import Self
 
 from pydantic import model_validator
 
-from nullvector.domain.common import NonEmptyStr, StrataModel
+from nullvector.domain.common import NonEmptyStr, NullVectorModel
 from nullvector.domain.tree import DecompositionBoundary, TocParsedEntry
 
 
-class TocDetectionResponse(StrataModel):
+class TocDetectionResponse(NullVectorModel):
     """Typed structured response for ambiguous TOC page detection."""
 
     is_toc: bool
@@ -25,13 +25,13 @@ class TocDetectionResponse(StrataModel):
         return self
 
 
-class TocParseResponse(StrataModel):
+class TocParseResponse(NullVectorModel):
     """Typed structured TOC parsing response from the gateway."""
 
     entries: tuple[TocParsedEntry, ...]
 
 
-class DecompositionPromptResponse(StrataModel):
+class DecompositionPromptResponse(NullVectorModel):
     """Typed structured response for large-node decomposition."""
 
     entries: tuple[DecompositionBoundary, ...] = ()

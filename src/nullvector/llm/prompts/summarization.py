@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 
-from nullvector.domain.models import NonEmptyStr, StrataModel
+from nullvector.domain.common import NonEmptyStr, NullVectorModel
 from nullvector.llm.types import LLMMessage, LLMRole
 
 
-class SummarizationPromptResponse(StrataModel):
+class SummarizationPromptResponse(NullVectorModel):
     """Typed summarization output for later workflow phases."""
 
     summary: NonEmptyStr

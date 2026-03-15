@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
+
+import pytest
 
 from nullvector import (
     AcquisitionRequest,
@@ -23,23 +26,25 @@ from nullvector import (
     TrustTier,
     VerificationResult,
 )
-from nullvector.domain.models import AcquisitionRequest as DomainAcquisitionRequest
-from nullvector.domain.models import AcquisitionRunIndex as DomainAcquisitionRunIndex
-from nullvector.domain.models import AcquisitionRunManifest as DomainAcquisitionRunManifest
-from nullvector.domain.models import CanonicalDocumentLedger as DomainCanonicalDocumentLedger
-from nullvector.domain.models import ContentSpan as DomainContentSpan
-from nullvector.domain.models import ExtractionProvenance as DomainExtractionProvenance
-from nullvector.domain.models import NodeCard as DomainNodeCard
-from nullvector.domain.models import NodeOwnedSpan as DomainNodeOwnedSpan
-from nullvector.domain.models import PageLedgerRow as DomainPageLedgerRow
-from nullvector.domain.models import ParseJobLifecycle as DomainParseJobLifecycle
-from nullvector.domain.models import ParseJobState as DomainParseJobState
-from nullvector.domain.models import TreeBuildManifest as DomainTreeBuildManifest
-from nullvector.domain.models import TreeBuildRequest as DomainTreeBuildRequest
-from nullvector.domain.models import TreeNodeVerificationResult as DomainTreeNodeVerificationResult
-from nullvector.domain.models import TreeSynthesisView as DomainTreeSynthesisView
-from nullvector.domain.models import TrustTier as DomainTrustTier
-from nullvector.domain.models import VerificationResult as DomainVerificationResult
+from nullvector.domain.common import ContentSpan as DomainContentSpan
+from nullvector.domain.common import NodeOwnedSpan as DomainNodeOwnedSpan
+from nullvector.domain.events import ExtractionProvenance as DomainExtractionProvenance
+from nullvector.domain.events import TrustTier as DomainTrustTier
+from nullvector.domain.ledger import AcquisitionRequest as DomainAcquisitionRequest
+from nullvector.domain.ledger import AcquisitionRunIndex as DomainAcquisitionRunIndex
+from nullvector.domain.ledger import AcquisitionRunManifest as DomainAcquisitionRunManifest
+from nullvector.domain.ledger import CanonicalDocumentLedger as DomainCanonicalDocumentLedger
+from nullvector.domain.ledger import PageLedgerRow as DomainPageLedgerRow
+from nullvector.domain.ledger import ParseJobLifecycle as DomainParseJobLifecycle
+from nullvector.domain.ledger import ParseJobState as DomainParseJobState
+from nullvector.domain.tree import NodeCard as DomainNodeCard
+from nullvector.domain.tree import TreeBuildManifest as DomainTreeBuildManifest
+from nullvector.domain.tree import TreeBuildRequest as DomainTreeBuildRequest
+from nullvector.domain.tree import TreeNodeVerificationResult as DomainTreeNodeVerificationResult
+from nullvector.domain.tree import TreeSynthesisView as DomainTreeSynthesisView
+from nullvector.domain.tree import VerificationResult as DomainVerificationResult
+
+pytestmark = pytest.mark.integration
 
 
 def test_required_bootstrap_paths_exist() -> None:
@@ -50,10 +55,12 @@ def test_required_bootstrap_paths_exist() -> None:
         repo_root / "src" / "nullvector" / "domain" / "events.py",
         repo_root / "src" / "nullvector" / "domain" / "gateway.py",
         repo_root / "src" / "nullvector" / "domain" / "ledger.py",
-        repo_root / "src" / "nullvector" / "domain" / "models.py",
         repo_root / "src" / "nullvector" / "domain" / "tree.py",
+        repo_root / "src" / "nullvector" / "_serialization.py",
+        repo_root / "src" / "nullvector" / "_text.py",
         repo_root / "src" / "nullvector" / "ingest" / "protocols.py",
         repo_root / "src" / "nullvector" / "ingest" / "acquisition_artifacts.py",
+        repo_root / "src" / "nullvector" / "ingest" / "pdf_backend.py",
         repo_root / "src" / "nullvector" / "ingest" / "profiling.py",
         repo_root / "src" / "nullvector" / "ingest" / "projection.py",
         repo_root / "src" / "nullvector" / "ingest" / "acquisition_service.py",
@@ -61,9 +68,8 @@ def test_required_bootstrap_paths_exist() -> None:
         repo_root / "src" / "nullvector" / "semantic" / "tokens.py",
         repo_root / "src" / "nullvector" / "semantic" / "summarize.py",
         repo_root / "src" / "nullvector" / "semantic" / "decompose.py",
-        repo_root / "src" / "nullvector" / "llm" / "multimodal_gateway" / "service.py",
-        repo_root / "src" / "nullvector" / "observability" / "bus.py",
-        repo_root / "src" / "nullvector" / "observability" / "events.py",
+        repo_root / "src" / "nullvector" / "llm" / "visual.py",
+        repo_root / "src" / "nullvector" / "observability" / "logging.py",
         repo_root / "src" / "nullvector" / "export" / "langchain.py",
         repo_root / "src" / "nullvector" / "export" / "llamaindex.py",
         repo_root / "docs" / "adr" / "0001-phase-00-bootstrap.md",
@@ -97,3 +103,11 @@ def test_top_level_exports_resolve_to_authoritative_models() -> None:
     assert TreeNodeVerificationResult is DomainTreeNodeVerificationResult
     assert TrustTier is DomainTrustTier
     assert VerificationResult is DomainVerificationResult
+
+
+def test_legacy_domain_models_module_is_not_present() -> None:
+    try:
+        importlib.import_module("nullvector.domain.models")
+    except ModuleNotFoundError:
+        return
+    raise AssertionError("nullvector.domain.models should not be importable")

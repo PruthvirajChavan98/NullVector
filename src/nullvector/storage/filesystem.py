@@ -33,9 +33,12 @@ class FilesystemDocumentStore:
         run_type: str,
         run_id: str,
         document_id: str,
-        artifact_root: str,
+        artifact_root: str | None = None,
         identity: Mapping[str, ScalarValue],
     ) -> tuple[bool, dict[str, Any]]:
+        if artifact_root is None:
+            msg = "FilesystemDocumentStore.reserve_run requires artifact_root"
+            raise ValueError(msg)
         run_root = Path(artifact_root).parent
         record_path = run_root / "run-index.json"
         if record_path.exists():

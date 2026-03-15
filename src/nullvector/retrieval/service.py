@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nullvector.domain.models import PageSpan
+from nullvector.domain.common import PageSpan
 from nullvector.domain.retrieval import (
     QueryPlan,
     RetrievalCorpus,
@@ -10,9 +10,11 @@ from nullvector.domain.retrieval import (
     RetrievalHit,
     RetrievalUnitType,
 )
-from nullvector.retrieval.index import InMemoryRetrievalIndex
+from nullvector.retrieval.index import InMemoryRetrievalIndex, PostgresRetrievalIndex
 from nullvector.retrieval.planner import QueryPlanner
 from nullvector.retrieval.rank import RetrievalRanker
+from nullvector.storage import StorageConfig, build_document_store
+from nullvector.storage.config import StorageBackend
 
 
 def _intersects(unit: RetrievalEvidence, page_span: PageSpan) -> bool:
@@ -40,9 +42,12 @@ class RetrievalService:
         self,
         planner: QueryPlanner,
         ranker: RetrievalRanker,
+        *,
+        storage: StorageConfig | None = None,
     ) -> None:
         self._planner = planner
         self._ranker = ranker
+        self._storage = storage
 
     def plan(self, *, corpus: RetrievalCorpus, query: str) -> QueryPlan:
         plan = self._planner.plan(query)
@@ -56,19 +61,46 @@ class RetrievalService:
     def search(
         self,
         *,
-        corpus: RetrievalCorpus,
+        corpus: RetrievalCorpus | None = None,
+        document_id: str | None = None,
         query: str,
         limit: int = 10,
     ) -> tuple[RetrievalHit, ...]:
-        plan = self.plan(corpus=corpus, query=query)
-        index = InMemoryRetrievalIndex(corpus)
+        if corpus is None and document_id is None:
+            msg = "retrieval search requires either a corpus or a document_id"
+            raise ValueError(msg)
+        if corpus is not None:
+            plan = self.plan(corpus=corpus, query=query)
+        else:
+            plan = self._planner.plan(query)
+        index = self._index(corpus=corpus, document_id=document_id)
         candidates = index.filter_units(plan)
         if not candidates:
+            if corpus is None:
+                return ()
             candidates = self._widen_candidates(corpus=corpus, plan=plan)
         if not candidates:
             return ()
         ranked = self._ranker.rank(query=query, plan=plan, candidates=candidates)
         return ranked[:limit]
+
+    def _index(
+        self,
+        *,
+        corpus: RetrievalCorpus | None,
+        document_id: str | None,
+    ) -> InMemoryRetrievalIndex | PostgresRetrievalIndex:
+        if corpus is not None:
+            return InMemoryRetrievalIndex(corpus)
+        assert document_id is not None
+        store = build_document_store(
+            self._storage,
+            default_filesystem_root=".",
+        )
+        if store.backend is StorageBackend.POSTGRES:
+            return PostgresRetrievalIndex(store, document_id=document_id)
+        msg = "filesystem retrieval search requires a loaded retrieval corpus"
+        raise ValueError(msg)
 
     def _widen_candidates(
         self,

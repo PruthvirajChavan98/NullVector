@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
 
-import fitz
-
-from nullvector.domain.models import DocumentFingerprint
+from nullvector.domain.ledger import DocumentFingerprint
 from nullvector.ingest.errors import InvalidSourceError
-
-fitz_module: Any = fitz
+from nullvector.ingest.pdf_backend import open_document
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -36,7 +32,7 @@ def fingerprint_document(source_path: str) -> DocumentFingerprint:
     sha256 = _sha256_path(source)
 
     try:
-        with fitz_module.open(str(source)) as document:
+        with open_document(str(source)) as document:
             page_count = document.page_count
     except RuntimeError as exc:
         raise InvalidSourceError("source PDF could not be opened", source_path=str(source)) from exc

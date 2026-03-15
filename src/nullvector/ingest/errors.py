@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nullvector.domain.models import ParseErrorCode, ParseFailure
+from nullvector.domain.ledger import ParseErrorCode, ParseFailure
 
 
 class ParseSubstrateError(Exception):

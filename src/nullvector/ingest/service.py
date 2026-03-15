@@ -4,24 +4,19 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-import fitz
 from pypdf import PdfReader
-from pypdf import __version__ as pypdf_version
 
-from nullvector.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
-from nullvector.domain.models import (
+from nullvector.constants import DEFAULT_ARTIFACT_ROOT
+from nullvector.domain.ledger import (
     DocumentFingerprint,
     OcrMode,
     PageExtractionMethod,
     PageLedgerRow,
     ParseRequest,
-    ParserSettings,
-    ParseRunIndex,
     ParseRunManifest,
 )
-from nullvector.ingest.artifacts import ArtifactStore, settings_digest
 from nullvector.ingest.errors import (
     ExtractionFailureError,
     ParseConflictError,
@@ -39,23 +34,22 @@ from nullvector.ingest.outline import (
     extract_pypdf_outlines,
     select_outline,
 )
+from nullvector.ingest.pdf_backend import open_document
 from nullvector.ingest.text import analyze_native_page, classify_ocr_need
-
-fitz_module: Any = fitz
+from nullvector.runtime_validation import validate_pdf_runtime_versions
+from nullvector.storage import StorageConfig, build_document_store
+from nullvector.storage._serialization import (
+    canonical_json_text,
+    json_safe,
+    run_identity_matches,
+    settings_digest,
+)
+from nullvector.storage.config import PostgresStorageConfig
+from nullvector.storage.protocol import RunScopedStore
 
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
 
 
 def _persist_native_rawdict(page_index: int, sample_every: int) -> bool:
@@ -63,50 +57,89 @@ def _persist_native_rawdict(page_index: int, sample_every: int) -> bool:
 
 
 class ParserSubstrateService:
-    """Filesystem-backed deterministic PDF parser substrate."""
+    """Storage-backed deterministic PDF parser substrate."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, storage: StorageConfig | None = None) -> None:
         self._ocr_runtime_validated = False
+        self._storage = storage
 
     def parse(self, request: ParseRequest) -> ParseRunManifest:
         self._ocr_runtime_validated = False
-        self._validate_parser_versions(request.settings)
+        validate_pdf_runtime_versions(
+            configured_pymupdf_version=request.settings.pymupdf_version,
+            configured_pypdf_version=request.settings.pypdf_version,
+        )
         fingerprint = fingerprint_document(request.source_path)
-        store = ArtifactStore(request.artifact_root, request.parse_run_id, fingerprint.document_id)
         digest = settings_digest(request.settings)
-        run_index = store.load_run_index()
-        if run_index is not None:
-            if (
-                run_index.document_id == fingerprint.document_id
-                and run_index.fingerprint_sha256 == fingerprint.sha256
-                and run_index.settings_digest == digest
-            ):
-                manifest = store.load_manifest_at(run_index.manifest_path)
-                if manifest is None:
+        _is_postgres = isinstance(self._storage, PostgresStorageConfig)
+        if _is_postgres:
+            artifact_root: str | None = None
+        else:
+            _base = request.artifact_root or DEFAULT_ARTIFACT_ROOT
+            artifact_root = str(Path(_base) / request.parse_run_id / fingerprint.document_id)
+        store = build_document_store(
+            self._storage,
+            default_filesystem_root=artifact_root,
+        )
+        store.register_document(fingerprint)
+        expected_identity = {
+            "document_id": fingerprint.document_id,
+            "fingerprint_sha256": fingerprint.sha256,
+            "settings_digest": digest,
+        }
+        created, run_record = store.reserve_run(
+            run_type="parse",
+            run_id=request.parse_run_id,
+            document_id=fingerprint.document_id,
+            artifact_root=artifact_root,
+            identity=expected_identity,
+        )
+        run_store = store.for_run(
+            run_type="parse",
+            run_id=request.parse_run_id,
+            document_id=fingerprint.document_id,
+        )
+        if not created:
+            if run_identity_matches(run_record, expected_identity):
+                manifest_ref = cast(
+                    str | None,
+                    run_record.get("manifest_ref") or run_record.get("manifest_path"),
+                )
+                if manifest_ref is None:
                     msg = "parse_run_id index points to a missing manifest"
                     raise ExtractionFailureError(msg, document_id=fingerprint.document_id)
-                return manifest
+                return ParseRunManifest.model_validate_json(
+                    canonical_json_text(store.read_json_artifact(manifest_ref))
+                )
             raise ParseConflictError(
                 "parse_run_id already exists with different document, fingerprint, or settings",
                 parse_run_id=request.parse_run_id,
                 document_id=fingerprint.document_id,
             )
 
-        store.ensure()
-        source_copy_path = store.copy_source(request.source_path)
-        store.write_json("source/fingerprint.json", fingerprint)
+        source_copy_path = run_store.put_binary(
+            asset_path="source/original.pdf",
+            content_type="application/pdf",
+            data=Path(request.source_path).read_bytes(),
+        )
+        run_store.put_json(
+            artifact_kind="fingerprint",
+            artifact_path="source/fingerprint.json",
+            payload=fingerprint,
+        )
 
         try:
-            with fitz_module.open(request.source_path) as document:
+            with open_document(request.source_path) as document:
                 reader = PdfReader(request.source_path)
                 manifest = self._parse_document(
                     request=request,
                     fingerprint=fingerprint,
-                    store=store,
+                    store=run_store,
                     source_copy_path=source_copy_path,
                     document=document,
                     reader=reader,
                     digest=digest,
+                    artifact_root=artifact_root,
                 )
         except ParseSubstrateError:
             raise
@@ -116,15 +149,14 @@ class ParserSubstrateService:
                 document_id=fingerprint.document_id,
             ) from exc
 
-        manifest_path = store.write_manifest(manifest)
-        store.write_run_index(
-            ParseRunIndex(
-                parse_run_id=request.parse_run_id,
-                document_id=fingerprint.document_id,
-                fingerprint_sha256=fingerprint.sha256,
-                settings_digest=digest,
-                manifest_path=manifest_path,
-            ),
+        manifest_path = run_store.put_json(
+            artifact_kind="manifest",
+            artifact_path="manifest.json",
+            payload=manifest,
+        )
+        run_store.complete(
+            manifest_ref=manifest_path,
+            manifest=manifest,
         )
         return manifest
 
@@ -133,11 +165,12 @@ class ParserSubstrateService:
         *,
         request: ParseRequest,
         fingerprint: DocumentFingerprint,
-        store: ArtifactStore,
+        store: RunScopedStore,
         source_copy_path: str,
         document: Any,
         reader: PdfReader,
         digest: str,
+        artifact_root: str | None,
     ) -> ParseRunManifest:
         pymupdf_rich, pymupdf_entries = extract_pymupdf_outlines(document)
         pypdf_raw, pypdf_entries = extract_pypdf_outlines(reader)
@@ -146,14 +179,35 @@ class ParserSubstrateService:
             pypdf_entries,
         )
 
-        pymupdf_outline_path = store.write_json("outline/pymupdf.normalized.json", pymupdf_entries)
-        pymupdf_rich_outline_path = store.write_json("outline/pymupdf.rich.json", pymupdf_rich)
-        store.write_json("outline/pypdf.raw.json", pypdf_raw)
-        pypdf_outline_path = store.write_json("outline/pypdf.normalized.json", pypdf_entries)
-        store.write_json("outline/quality-report.json", outline_reports)
-        selected_outline_path = store.write_json(
-            "outline/selected.json",
-            {
+        pymupdf_outline_path = store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/pymupdf.normalized.json",
+            payload=pymupdf_entries,
+        )
+        pymupdf_rich_outline_path = store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/pymupdf.rich.json",
+            payload=pymupdf_rich,
+        )
+        store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/pypdf.raw.json",
+            payload=pypdf_raw,
+        )
+        pypdf_outline_path = store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/pypdf.normalized.json",
+            payload=pypdf_entries,
+        )
+        store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/quality-report.json",
+            payload=outline_reports,
+        )
+        selected_outline_path = store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/selected.json",
+            payload={
                 "selected_source": selected_source,
                 "entries": selected_outline,
             },
@@ -174,11 +228,15 @@ class ParserSubstrateService:
             ledger_rows.append(ledger_row)
             text_offset = ledger_row.text_offset_end
 
-        ledger_path = store.write_ledger("ledger/page-ledger.jsonl", ledger_rows)
+        ledger_path = store.put_jsonl(
+            artifact_kind="ledger",
+            artifact_path="ledger/page-ledger.jsonl",
+            payloads=tuple(ledger_rows),
+        )
         return ParseRunManifest(
             parse_run_id=request.parse_run_id,
             document_id=fingerprint.document_id,
-            artifact_root=str(store.base_path),
+            artifact_root=artifact_root,
             fingerprint=fingerprint,
             settings=request.settings,
             settings_digest=digest,
@@ -198,7 +256,7 @@ class ParserSubstrateService:
         *,
         request: ParseRequest,
         fingerprint: DocumentFingerprint,
-        store: ArtifactStore,
+        store: RunScopedStore,
         page: Any,
         page_index: int,
         text_offset: int,
@@ -207,17 +265,19 @@ class ParserSubstrateService:
         decision = classify_ocr_need(native_analysis, request.settings)
         page_dir = Path("pages") / f"{page_index:06d}"
 
-        native_text_artifact_path = store.write_text(
-            str(page_dir / "native.txt"),
-            native_analysis.native_text,
+        native_text_artifact_path = store.put_text(
+            artifact_kind="page_text",
+            artifact_path=str(page_dir / "native.txt"),
+            content=native_analysis.native_text,
         )
         native_rawdict_artifact_path: str | None = None
         if _persist_native_rawdict(
             page_index, request.settings.sample_native_rawdict_every_n_pages
         ):
-            native_rawdict_artifact_path = store.write_json_gz(
-                str(page_dir / "native.rawdict.json.gz"),
-                native_analysis.native_rawdict,
+            native_rawdict_artifact_path = store.put_json(
+                artifact_kind="page_rawdict",
+                artifact_path=str(page_dir / "native.rawdict.json.gz"),
+                payload=native_analysis.native_rawdict,
             )
 
         text_artifact_path = native_text_artifact_path
@@ -241,9 +301,10 @@ class ParserSubstrateService:
                 )
                 self._ocr_runtime_validated = True
             pixmap = page.get_pixmap(dpi=request.settings.ocr_dpi)
-            render_artifact_path = store.write_bytes(
-                str(page_dir / "render.png"),
-                pixmap.tobytes("png"),
+            render_artifact_path = store.put_binary(
+                asset_path=str(page_dir / "render.png"),
+                content_type="image/png",
+                data=pixmap.tobytes("png"),
             )
             ocr_render_artifact_path = render_artifact_path
             textpage = build_ocr_textpage(
@@ -255,10 +316,15 @@ class ParserSubstrateService:
             )
             final_text = extract_ocr_text(page, textpage)
             ocr_rawdict = extract_ocr_rawdict(page, textpage)
-            ocr_text_artifact_path = store.write_text(str(page_dir / "ocr.txt"), final_text)
-            ocr_rawdict_artifact_path = store.write_json_gz(
-                str(page_dir / "ocr.rawdict.json.gz"),
-                _json_safe(ocr_rawdict),
+            ocr_text_artifact_path = store.put_text(
+                artifact_kind="page_text",
+                artifact_path=str(page_dir / "ocr.txt"),
+                content=final_text,
+            )
+            ocr_rawdict_artifact_path = store.put_json(
+                artifact_kind="page_rawdict",
+                artifact_path=str(page_dir / "ocr.rawdict.json.gz"),
+                payload=json_safe(ocr_rawdict),
             )
             text_artifact_path = ocr_text_artifact_path
             if decision.ocr_mode == OcrMode.NONE:  # pragma: no cover - defensive impossible state
@@ -300,52 +366,12 @@ class ParserSubstrateService:
             ocr_render_artifact_path=ocr_render_artifact_path,
         )
 
-    def _validate_parser_versions(self, settings: ParserSettings) -> None:
-        if settings.pymupdf_version not in CERTIFIED_PYMUPDF_VERSIONS:
-            msg = (
-                f"configured PyMuPDF version {settings.pymupdf_version} is not in the certified "
-                f"set {CERTIFIED_PYMUPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if settings.pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
-            msg = (
-                f"configured pypdf version {settings.pypdf_version} is not in the certified set "
-                f"{CERTIFIED_PYPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if fitz.VersionBind not in CERTIFIED_PYMUPDF_VERSIONS:
-            msg = (
-                f"installed PyMuPDF version {fitz.VersionBind} is outside the certified set "
-                f"{CERTIFIED_PYMUPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
-            msg = (
-                f"installed pypdf version {pypdf_version} is outside the certified set "
-                f"{CERTIFIED_PYPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if fitz.VersionBind != settings.pymupdf_version:
-            msg = (
-                f"configured PyMuPDF version {settings.pymupdf_version} "
-                f"does not match installed {fitz.VersionBind}"
-            )
-            raise ExtractionFailureError(
-                msg,
-                document_id="unknown",
-            )
-        if pypdf_version != settings.pypdf_version:
-            msg = (
-                f"configured pypdf version {settings.pypdf_version} "
-                f"does not match installed {pypdf_version}"
-            )
-            raise ExtractionFailureError(
-                msg,
-                document_id="unknown",
-            )
 
-
-def parse_document(request: ParseRequest) -> ParseRunManifest:
+def parse_document(
+    request: ParseRequest,
+    *,
+    storage: StorageConfig | None = None,
+) -> ParseRunManifest:
     """Parse a document through the deterministic substrate."""
 
-    return ParserSubstrateService().parse(request)
+    return ParserSubstrateService(storage=storage).parse(request)

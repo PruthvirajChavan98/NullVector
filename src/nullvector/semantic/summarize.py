@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from logging import Logger
 from pathlib import Path
 from typing import Any
 
-from nullvector.domain.models import (
+from nullvector.domain.tree import (
     HierarchyNode,
     NodeCard,
     NodeSummary,
@@ -17,32 +18,12 @@ from nullvector.domain.models import (
 from nullvector.llm.prompts import SummarizationPromptResponse, build_summarization_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest, GatewayUsage
-from nullvector.observability import EventBus, NodeSummarized
+from nullvector.observability.logging import log_event
 from nullvector.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
+from nullvector.storage._serialization import write_json_file
 from nullvector.tree.headings import PageArtifacts
 
 LEAF_PASSTHROUGH_TOKEN_THRESHOLD = 200
-
-
-def _json_safe(value: Any) -> Any:
-    if hasattr(value, "model_dump") and callable(value.model_dump):
-        return _json_safe(value.model_dump(mode="json"))
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _write_json(path: Path, payload: Any) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
-        encoding="utf-8",
-    )
-    return str(path)
 
 
 def estimate_token_count(text: str) -> int:
@@ -135,12 +116,12 @@ class NodeSummarizer:
         gateway: StructuredLLMGateway,
         max_workers: int = 4,
         tokenizer: Tokenizer | None = None,
-        event_bus: EventBus | None = None,
+        logger: Logger | None = None,
     ) -> None:
         self._gateway = gateway
         self._max_workers = max_workers
         self._tokenizer = resolve_tokenizer(tokenizer)
-        self._event_bus = event_bus
+        self._logger = logger
         self._artifact_path: str | None = None
 
     @property
@@ -153,6 +134,7 @@ class NodeSummarizer:
         nodes: tuple[HierarchyNode, ...],
         pages: tuple[PageArtifacts, ...],
         artifact_root: str | None = None,
+        artifact_writer: Callable[[str, Any], str] | None = None,
     ) -> tuple[tuple[HierarchyNode, ...], tuple[NodeCard, ...], tuple[NodeSummary, ...]]:
         pages_by_index = {page.page_index: page for page in pages}
         children_by_parent: dict[str, tuple[HierarchyNode, ...]] = {}
@@ -202,8 +184,13 @@ class NodeSummarizer:
             )
             for node in ordered_nodes
         )
-        if artifact_root is not None:
-            self._artifact_path = _write_json(
+        if artifact_writer is not None:
+            self._artifact_path = artifact_writer(
+                "summaries/node-summaries.json",
+                ordered_summaries,
+            )
+        elif artifact_root is not None:
+            self._artifact_path = write_json_file(
                 Path(artifact_root) / "summaries" / "node-summaries.json",
                 ordered_summaries,
             )
@@ -302,16 +289,12 @@ class NodeSummarizer:
         return exact, estimated, exact if self._tokenizer.supports_exact_counts else None
 
     def _publish_summary_event(self, node: HierarchyNode, summary: NodeSummary) -> None:
-        if self._event_bus is None:
-            return
-        self._event_bus.publish(
-            NodeSummarized(
-                event_id=f"{node.node_id}-summary",
-                event_name="NodeSummarized",
-                document_id=node.document_id,
-                node_id=node.node_id,
-                summary_method=summary.summary_method.value,
-            )
+        log_event(
+            self._logger,
+            "NodeSummarized",
+            document_id=node.document_id,
+            node_id=node.node_id,
+            summary_method=summary.summary_method.value,
         )
 
 

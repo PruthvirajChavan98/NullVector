@@ -22,7 +22,6 @@ from nullvector.llm import (
     GatewayContextLengthError,
     GatewayFailureCategory,
     GatewayProviderRefusalError,
-    GatewayRepairEngine,
     GatewayRequest,
     GatewayService,
     LLMMessage,
@@ -30,6 +29,7 @@ from nullvector.llm import (
     OpenAIProviderConfig,
     OpenAIResponsesHTTPAdapter,
     StructuredOutputMode,
+    evaluate_repairs,
 )
 from nullvector.tree import build_tree
 from nullvector.tree import service as tree_service_module
@@ -62,6 +62,7 @@ def make_request(operation_name: str) -> GatewayRequest[EchoResponse]:
     )
 
 
+@pytest.mark.integration
 def test_openai_responses_adapter_strict_success_with_mocked_transport(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -108,6 +109,7 @@ def test_openai_responses_adapter_strict_success_with_mocked_transport(
     assert success.provider_request_id == "req-openai-1"
 
 
+@pytest.mark.integration
 def test_openai_responses_refusal_is_typed_and_not_retried(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -153,6 +155,7 @@ def test_openai_responses_refusal_is_typed_and_not_retried(
     assert exc_info.value.failure.attempt_count == 1
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("status_code", "error_message", "expected_error"),
     [
@@ -178,8 +181,9 @@ def test_openai_non_retryable_failures_do_not_backoff(
             json={"error": {"message": error_message, "code": "bad_request"}},
         )
 
+    gateway_config = openai_config(tmp_path)
     gateway = GatewayService(
-        openai_config(tmp_path),
+        gateway_config,
         provider_adapter=OpenAIResponsesHTTPAdapter(
             client=httpx.Client(
                 transport=httpx.MockTransport(handler), base_url="https://api.openai.com"
@@ -200,7 +204,8 @@ def copy_fixture(case_name: str, tmp_path: Path) -> Path:
     return convert_legacy_parse_fixture_to_acquisition(destination)
 
 
-def test_gateway_repair_engine_emits_typed_decisions_without_breaking_tree_verification(
+@pytest.mark.integration
+def test_evaluate_repairs_emits_typed_decisions_without_breaking_tree_verification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -259,15 +264,27 @@ def test_gateway_repair_engine_emits_typed_decisions_without_breaking_tree_verif
         return nodes, (repair_request,), ambiguity_count + 1
 
     monkeypatch.setattr(tree_service_any, "build_hierarchy", wrapped_build_hierarchy)
-    repair_engine = GatewayRepairEngine(
-        config=openai_config(tmp_path),
+    gateway_config = openai_config(tmp_path).model_copy(
+        update={
+            "audit": openai_config(tmp_path).audit.model_copy(
+                update={"persist_root": str(audit_root)}
+            )
+        }
+    )
+    gateway = GatewayService(
+        gateway_config,
         provider_adapter=OpenAIResponsesHTTPAdapter(
             client=httpx.Client(
                 transport=httpx.MockTransport(handler), base_url="https://api.openai.com"
             ),
         ),
-        audit_root=str(audit_root),
     )
+
+    class _GatewayBackedRepairEngine:
+        def evaluate(self, requests: tuple[RepairRequest, ...]) -> tuple[Any, ...]:
+            return evaluate_repairs(gateway, requests)
+
+    repair_engine = _GatewayBackedRepairEngine()
 
     manifest = build_tree(
         TreeBuildRequest(
@@ -292,6 +309,7 @@ def test_gateway_repair_engine_emits_typed_decisions_without_breaking_tree_verif
     assert (audit_root / "repair-request.json").exists()
 
 
+@pytest.mark.integration
 def test_progress_notebook_executes_for_phase03(tmp_path: Path) -> None:
     output_path = tmp_path / "progress.executed.ipynb"
     subprocess.run(
@@ -315,6 +333,7 @@ def test_progress_notebook_executes_for_phase03(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.integration
 def test_phase03_cookbook_notebook_executes_deterministic_sections(tmp_path: Path) -> None:
     output_path = tmp_path / "phase03-cookbook.executed.ipynb"
     subprocess.run(
@@ -358,6 +377,7 @@ def test_phase03_cookbook_notebook_executes_deterministic_sections(tmp_path: Pat
     assert summary["moonshot_live_probe_audit_excerpt"] is None
 
 
+@pytest.mark.integration
 def test_phase03_cookbook_notebook_declares_probe_honestly() -> None:
     notebook = cast(
         dict[str, Any],

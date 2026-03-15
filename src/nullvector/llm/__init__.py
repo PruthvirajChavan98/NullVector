@@ -13,20 +13,6 @@ from nullvector.llm.errors import (
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
 )
-from nullvector.llm.multimodal_gateway import (
-    LiteLLMMultimodalAdapter,
-    MultimodalFailureCategory,
-    MultimodalGatewayConfig,
-    MultimodalGatewayError,
-    MultimodalGatewayRequest,
-    MultimodalGatewayService,
-    MultimodalProviderConfig,
-    NoopMultimodalProviderAdapter,
-    NoopMultimodalResponse,
-    RegionImageInput,
-    VisualEnrichmentService,
-    VisualInsightResponse,
-)
 from nullvector.llm.protocols import RedactionHook, StructuredLLMGateway
 from nullvector.llm.providers import (
     LiteLLMSDKAdapter,
@@ -34,7 +20,7 @@ from nullvector.llm.providers import (
     NoopScriptedResponse,
     OpenAIResponsesHTTPAdapter,
 )
-from nullvector.llm.service import GatewayRepairEngine, GatewayService
+from nullvector.llm.service import GatewayService, evaluate_repairs
 from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayAttempt,
@@ -51,8 +37,11 @@ from nullvector.llm.types import (
     LLMMessage,
     LLMRole,
     OpenAIProviderConfig,
+    RegionImageInput,
     StructuredOutputMode,
+    VisualInsightResponse,
 )
+from nullvector.llm.visual import enrich_visual_region
 
 __all__ = [
     "GatewayAssuranceMode",
@@ -69,7 +58,6 @@ __all__ = [
     "GatewayNetworkError",
     "GatewayProviderRefusalError",
     "GatewayRateLimitError",
-    "GatewayRepairEngine",
     "GatewayRequest",
     "GatewayRetryPolicy",
     "GatewayService",
@@ -81,17 +69,8 @@ __all__ = [
     "GatewayValidationError",
     "LLMMessage",
     "LLMRole",
-    "LiteLLMMultimodalAdapter",
     "LiteLLMProviderConfig",
     "LiteLLMSDKAdapter",
-    "MultimodalFailureCategory",
-    "MultimodalGatewayConfig",
-    "MultimodalGatewayError",
-    "MultimodalGatewayRequest",
-    "MultimodalGatewayService",
-    "MultimodalProviderConfig",
-    "NoopMultimodalProviderAdapter",
-    "NoopMultimodalResponse",
     "NoopProviderAdapter",
     "NoopScriptedResponse",
     "OpenAIProviderConfig",
@@ -100,6 +79,7 @@ __all__ = [
     "RegionImageInput",
     "StructuredLLMGateway",
     "StructuredOutputMode",
-    "VisualEnrichmentService",
     "VisualInsightResponse",
+    "enrich_visual_region",
+    "evaluate_repairs",
 ]

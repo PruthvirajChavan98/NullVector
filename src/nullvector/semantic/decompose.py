@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from nullvector.domain.models import (
-    ContentSpan,
+from nullvector.domain.common import ContentSpan, NodeOwnedSpan, PageSpan
+from nullvector.domain.gateway import DecompositionPromptResponse
+from nullvector.domain.ledger import OutlineEntry
+from nullvector.domain.tree import (
     DecompositionBoundary,
     DecompositionMethod,
-    DecompositionPromptResponse,
     DecompositionReport,
     HierarchyNode,
     HierarchyOrigin,
     NodeAnchor,
-    NodeOwnedSpan,
-    OutlineEntry,
-    PageSpan,
     SemanticUsage,
     TreeSettings,
 )
@@ -26,6 +24,7 @@ from nullvector.llm.prompts import build_decomposition_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest, GatewayUsage
 from nullvector.semantic.tokens import Tokenizer, resolve_tokenizer
+from nullvector.storage._serialization import write_json_file
 from nullvector.tree.anchors import node_anchor_to_source_anchor
 from nullvector.tree.headings import (
     PageArtifacts,
@@ -46,27 +45,6 @@ class _DecompositionMetadata:
     assurance_mode: str
     usage: SemanticUsage | None
     audit_path: str | None
-
-
-def _json_safe(value: Any) -> Any:
-    if hasattr(value, "model_dump") and callable(value.model_dump):
-        return _json_safe(value.model_dump(mode="json"))
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _write_json(path: Path, payload: Any) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
-        encoding="utf-8",
-    )
-    return str(path)
 
 
 def _stable_node_order(node: HierarchyNode) -> tuple[int, int, int, str]:
@@ -192,6 +170,7 @@ class NodeDecomposer:
         pages: tuple[PageArtifacts, ...],
         tree_run_id: str,
         artifact_root: str | None = None,
+        artifact_writer: Callable[[str, Any], str] | None = None,
     ) -> tuple[tuple[HierarchyNode, ...], DecompositionReport]:
         del tree_run_id
         pages_by_index = {page.page_index: page for page in pages}
@@ -265,8 +244,10 @@ class NodeDecomposer:
             gateway_usage=gateway_usage,
             gateway_audit_paths=tuple(gateway_audit_paths),
         )
-        if artifact_root is not None:
-            self._artifact_path = _write_json(
+        if artifact_writer is not None:
+            self._artifact_path = artifact_writer("decomposition/report.json", report)
+        elif artifact_root is not None:
+            self._artifact_path = write_json_file(
                 Path(artifact_root) / "decomposition" / "report.json", report
             )
         return current_nodes, report

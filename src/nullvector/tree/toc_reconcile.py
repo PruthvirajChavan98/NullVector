@@ -2,25 +2,27 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from nullvector.domain.models import (
+from nullvector.domain.gateway import TocParseResponse
+from nullvector.domain.tree import (
     HeadingCandidate,
     HeadingScoreBreakdown,
     HeadingSourceKind,
     TocDetectionResult,
     TocParsedEntry,
     TocParseMethod,
-    TocParseResponse,
     TocReconciliationResult,
     TreeSettings,
 )
 from nullvector.llm.prompts import build_toc_parse_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.storage._serialization import write_json_file
 from nullvector.tree.headings import (
     PageArtifacts,
     anchor_title_on_page,
@@ -41,27 +43,6 @@ CHAPTER_WITH_PAGE_PATTERN = re.compile(
 )
 TITLE_WITH_PAGE_PATTERN = re.compile(r"^(?P<title>.+?)\s*(?:\.{2,}\s*|\s{2,})(?P<page>\d{1,4})$")
 TITLE_HEADING_PATTERN = re.compile(r"^(?P<title>[A-Za-z][^\d]{2,})$")
-
-
-def _json_safe(value: object) -> object:
-    if hasattr(value, "model_dump") and callable(value.model_dump):
-        return _json_safe(value.model_dump(mode="json"))
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _write_json(path: Path, payload: object) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
-        encoding="utf-8",
-    )
-    return str(path)
 
 
 def _clean_title(value: str) -> str:
@@ -273,12 +254,15 @@ class TocReconciler:
         pages: tuple[PageArtifacts, ...],
         toc_result: TocDetectionResult,
         artifact_root: str | None = None,
+        artifact_writer: Callable[[str, Any], str] | None = None,
     ) -> TocReconciliationResult:
         toc_text = toc_result.toc_content
         if not toc_text:
             result = TocReconciliationResult(parse_method=TocParseMethod.DETERMINISTIC)
-            if artifact_root is not None:
-                _write_json(Path(artifact_root) / "toc-reconciliation.json", result)
+            if artifact_writer is not None:
+                artifact_writer("toc-reconciliation.json", result)
+            elif artifact_root is not None:
+                write_json_file(Path(artifact_root) / "toc-reconciliation.json", result)
             return result
 
         parsed_entries = deterministic_parse_toc_text(toc_text)
@@ -316,6 +300,8 @@ class TocReconciler:
             reconciled_candidates=reconciled_candidates,
             parse_method=parse_method,
         )
-        if artifact_root is not None:
-            _write_json(Path(artifact_root) / "toc-reconciliation.json", result)
+        if artifact_writer is not None:
+            artifact_writer("toc-reconciliation.json", result)
+        elif artifact_root is not None:
+            write_json_file(Path(artifact_root) / "toc-reconciliation.json", result)
         return result

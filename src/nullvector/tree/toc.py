@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from nullvector.domain.models import (
+from nullvector.domain.gateway import TocDetectionResponse
+from nullvector.domain.tree import (
     TocDetectionMethod,
-    TocDetectionResponse,
     TocDetectionResult,
     TocPageScore,
     TreeSettings,
@@ -16,6 +17,7 @@ from nullvector.domain.models import (
 from nullvector.llm.prompts import build_toc_detection_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.storage._serialization import write_json_file
 from nullvector.tree.headings import (
     PageArtifacts,
     _line_lists_for_page,
@@ -45,27 +47,6 @@ SPACED_PAGE_PATTERN = re.compile(r"^.+\s{2,}\d{1,4}\s*$")
 TRAILING_NUMERIC_REFERENCE_PATTERN = re.compile(
     r"^(?:.+?)(?:\.{2,}\s*|\s{2,})\d{1,4}\s*$",
 )
-
-
-def _json_safe(value: object) -> object:
-    if hasattr(value, "model_dump") and callable(value.model_dump):
-        return _json_safe(value.model_dump(mode="json"))
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _write_json(path: Path, payload: object) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
-        encoding="utf-8",
-    )
-    return str(path)
 
 
 def max_toc_scan_pages(page_count: int) -> int:
@@ -236,6 +217,7 @@ class TocDetector:
         *,
         pages: tuple[PageArtifacts, ...],
         artifact_root: str | None = None,
+        artifact_writer: Callable[[str, Any], str] | None = None,
     ) -> TocDetectionResult:
         inspected_pages = pages[: max_toc_scan_pages(len(pages))]
         repeated_lines = find_repeated_header_footer_lines(inspected_pages, self._settings)
@@ -347,6 +329,8 @@ class TocDetector:
             page_scores=tuple(final_scores),
             has_page_numbers=has_page_numbers_in_toc_content(toc_content),
         )
-        if artifact_root is not None:
-            _write_json(Path(artifact_root) / "toc-detection.json", result)
+        if artifact_writer is not None:
+            artifact_writer("toc-detection.json", result)
+        elif artifact_root is not None:
+            write_json_file(Path(artifact_root) / "toc-detection.json", result)
         return result

@@ -24,11 +24,11 @@ from nullvector.domain import (
     SourceTrack,
 )
 from nullvector.domain.events import ContentAuthoritativeness
-from nullvector.ingest.acquisition_artifacts import settings_digest
 from nullvector.ingest.projection import (
     build_canonical_text_substrate,
     project_ledger_to_tree_synthesis_view,
 )
+from nullvector.storage._serialization import settings_digest
 from nullvector.tree.headings import split_text_lines_with_offsets
 
 

@@ -8,11 +8,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, cast
 
-from pydantic import BaseModel
-
-from nullvector.domain.common import PageSourceAnchor
+from nullvector.domain.common import ContentSpan, PageSourceAnchor, PageSpan
 from nullvector.domain.events import ContentAuthoritativeness, SourceTrack, TrustTier
 from nullvector.domain.ledger import (
+    AcquisitionRunManifest,
     CanonicalDocumentLedger,
     CanonicalTextPage,
     CanonicalTextSubstrate,
@@ -20,7 +19,6 @@ from nullvector.domain.ledger import (
     UnresolvedRegion,
     VisualArtifact,
 )
-from nullvector.domain.models import AcquisitionRunManifest, ContentSpan, PageSpan
 from nullvector.domain.retrieval import (
     RetrievalCorpus,
     RetrievalEvidence,
@@ -38,38 +36,15 @@ from nullvector.domain.tree import (
     VisualRegionReference,
 )
 from nullvector.runtime_validation import validate_canonical_text_substrate_contract
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _write_json(path: Path, payload: Any) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
-        encoding="utf-8",
-    )
-    return str(path)
-
-
-def _resolve_artifact_path(root: Path, stored_path: str) -> Path:
-    path = Path(stored_path)
-    if path.is_absolute():
-        return path
-    return root / path
+from nullvector.storage import StorageBackend, StorageConfig, build_document_store
+from nullvector.storage._serialization import (
+    canonical_json_text,
+    is_postgres_ref,
+    json_safe,
+    run_identity_matches,
+)
+from nullvector.storage.config import PostgresStorageConfig
+from nullvector.storage.protocol import DocumentStore
 
 
 def _unique_non_empty(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -87,7 +62,7 @@ def _unique_non_empty(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
 def _source_anchor_payloads(
     anchors: tuple[PageSourceAnchor, ...],
 ) -> tuple[dict[str, object], ...]:
-    return tuple(cast(dict[str, object], anchor.model_dump(mode="json")) for anchor in anchors)
+    return tuple(cast(dict[str, object], json_safe(anchor)) for anchor in anchors)
 
 
 def _trust_tier_for_source(
@@ -177,90 +152,111 @@ def _text_for_page_span(
 
 def _default_retrieval_root(
     *,
-    acquisition_manifest_path: Path,
+    acquisition_manifest_path: str,
     acquisition_manifest: AcquisitionRunManifest,
     tree_manifest: TreeBuildManifest | None,
-) -> Path:
+) -> str:
     retrieval_run_id = (
         tree_manifest.tree_run_id
         if tree_manifest is not None
         else acquisition_manifest.acquisition_run_id
     )
-    return acquisition_manifest_path.parent / "retrieval" / retrieval_run_id
+    if is_postgres_ref(acquisition_manifest_path):
+        return f"retrieval/{retrieval_run_id}"
+    return str(Path(acquisition_manifest_path).resolve().parent / "retrieval" / retrieval_run_id)
 
 
-def _load_acquisition_manifest(path: Path) -> AcquisitionRunManifest:
-    return AcquisitionRunManifest.model_validate_json(path.read_text(encoding="utf-8"))
+def _load_acquisition_manifest(
+    store: DocumentStore,
+    ref: str,
+) -> AcquisitionRunManifest:
+    return AcquisitionRunManifest.model_validate_json(
+        canonical_json_text(store.read_json_artifact(ref))
+    )
 
 
-def _load_tree_manifest(path: Path | None) -> TreeBuildManifest | None:
-    if path is None:
+def _load_tree_manifest(
+    store: DocumentStore,
+    ref: str | None,
+) -> TreeBuildManifest | None:
+    if ref is None:
         return None
-    return TreeBuildManifest.model_validate_json(path.read_text(encoding="utf-8"))
+    return TreeBuildManifest.model_validate_json(canonical_json_text(store.read_json_artifact(ref)))
 
 
 def _load_ledger(
-    acquisition_manifest_path: Path,
+    store: DocumentStore,
     acquisition_manifest: AcquisitionRunManifest,
 ) -> CanonicalDocumentLedger:
-    ledger_path = _resolve_artifact_path(
-        Path(acquisition_manifest.artifact_root),
-        acquisition_manifest.ledger_path,
+    return CanonicalDocumentLedger.model_validate_json(
+        canonical_json_text(store.read_json_artifact(acquisition_manifest.ledger_path))
     )
-    if not ledger_path.exists():
-        ledger_path = _resolve_artifact_path(
-            acquisition_manifest_path.parent,
-            acquisition_manifest.ledger_path,
-        )
-    return CanonicalDocumentLedger.model_validate_json(ledger_path.read_text(encoding="utf-8"))
 
 
 def _load_text_substrate(
-    acquisition_manifest_path: Path,
+    store: DocumentStore,
     acquisition_manifest: AcquisitionRunManifest,
 ) -> CanonicalTextSubstrate:
-    substrate_path = validate_canonical_text_substrate_contract(
-        acquisition_root=acquisition_manifest_path.parent,
-        manifest=acquisition_manifest,
+    substrate_ref = validate_canonical_text_substrate_contract(manifest=acquisition_manifest)
+    return CanonicalTextSubstrate.model_validate_json(
+        canonical_json_text(store.read_json_artifact(substrate_ref))
     )
-    return CanonicalTextSubstrate.model_validate_json(substrate_path.read_text(encoding="utf-8"))
 
 
-def _load_committed_nodes(tree_manifest: TreeBuildManifest | None) -> tuple[HierarchyNode, ...]:
-    if tree_manifest is None:
+def _load_committed_nodes(
+    store: DocumentStore,
+    tree_manifest: TreeBuildManifest | None,
+) -> tuple[HierarchyNode, ...]:
+    if tree_manifest is None or tree_manifest.committed_hierarchy_path is None:
         return ()
-    payload = cast(list[dict[str, Any]], _read_json(Path(tree_manifest.committed_hierarchy_path)))
+    payload = cast(
+        list[dict[str, Any]], store.read_json_artifact(tree_manifest.committed_hierarchy_path)
+    )
     return tuple(HierarchyNode.model_validate_json(json.dumps(item)) for item in payload)
 
 
-def _load_node_cards(tree_manifest: TreeBuildManifest | None) -> tuple[NodeCard, ...]:
-    if tree_manifest is None:
+def _load_node_cards(
+    store: DocumentStore,
+    tree_manifest: TreeBuildManifest | None,
+) -> tuple[NodeCard, ...]:
+    if tree_manifest is None or tree_manifest.node_cards_path is None:
         return ()
-    payload = cast(list[dict[str, Any]], _read_json(Path(tree_manifest.node_cards_path)))
+    payload = cast(list[dict[str, Any]], store.read_json_artifact(tree_manifest.node_cards_path))
     return tuple(NodeCard.model_validate_json(json.dumps(item)) for item in payload)
 
 
-def _load_node_summaries(tree_manifest: TreeBuildManifest | None) -> tuple[NodeSummary, ...]:
+def _load_node_summaries(
+    store: DocumentStore,
+    tree_manifest: TreeBuildManifest | None,
+) -> tuple[NodeSummary, ...]:
     if tree_manifest is None or tree_manifest.node_summaries_path is None:
         return ()
-    payload = cast(list[dict[str, Any]], _read_json(Path(tree_manifest.node_summaries_path)))
+    payload = cast(
+        list[dict[str, Any]], store.read_json_artifact(tree_manifest.node_summaries_path)
+    )
     return tuple(NodeSummary.model_validate_json(json.dumps(item)) for item in payload)
 
 
-def _load_verification_report(tree_manifest: TreeBuildManifest | None) -> VerificationReport | None:
-    if tree_manifest is None:
+def _load_verification_report(
+    store: DocumentStore,
+    tree_manifest: TreeBuildManifest | None,
+) -> VerificationReport | None:
+    if tree_manifest is None or tree_manifest.verification_report_path is None:
         return None
     return VerificationReport.model_validate_json(
-        Path(tree_manifest.verification_report_path).read_text(encoding="utf-8")
+        canonical_json_text(store.read_json_artifact(tree_manifest.verification_report_path))
     )
 
 
 def _load_unassigned_spans(
+    store: DocumentStore,
     tree_manifest: TreeBuildManifest | None,
 ) -> tuple[UnassignedPageSpan, ...]:
-    if tree_manifest is None:
+    if tree_manifest is None or tree_manifest.unassigned_spans_path is None:
         return ()
-    payload = cast(list[dict[str, Any]], _read_json(Path(tree_manifest.unassigned_spans_path)))
+    payload = cast(
+        list[dict[str, Any]], store.read_json_artifact(tree_manifest.unassigned_spans_path)
+    )
     return tuple(UnassignedPageSpan.model_validate_json(json.dumps(item)) for item in payload)
 
 
@@ -437,8 +433,7 @@ def _build_node_text_units(
     for node in committed_nodes:
         spans = tuple(owned_span.span for owned_span in node.owned_spans)
         text_parts = [
-            _text_for_content_span(pages_by_index=pages_by_index, span=span)
-            for span in spans
+            _text_for_content_span(pages_by_index=pages_by_index, span=span) for span in spans
         ]
         text = "\n".join(part for part in text_parts if part).strip() or None
         units.append(
@@ -541,6 +536,9 @@ def _build_unassigned_units(
 class RetrievalCorpusBuilder:
     """Build and persist a retrieval corpus from acquisition and optional tree artifacts."""
 
+    def __init__(self, *, storage: StorageConfig | None = None) -> None:
+        self._storage = storage
+
     def build(
         self,
         *,
@@ -548,18 +546,26 @@ class RetrievalCorpusBuilder:
         tree_manifest_path: str | None = None,
         artifact_root: str | None = None,
     ) -> RetrievalManifest:
-        acquisition_manifest_file = Path(acquisition_manifest_path).resolve()
-        acquisition_manifest = _load_acquisition_manifest(acquisition_manifest_file)
-        tree_manifest = _load_tree_manifest(
-            Path(tree_manifest_path).resolve() if tree_manifest_path is not None else None
+        input_store = build_document_store(self._storage, default_filesystem_root=".")
+        acquisition_manifest_ref = (
+            acquisition_manifest_path
+            if is_postgres_ref(acquisition_manifest_path)
+            else str(Path(acquisition_manifest_path).resolve())
         )
-        ledger = _load_ledger(acquisition_manifest_file, acquisition_manifest)
-        text_substrate = _load_text_substrate(acquisition_manifest_file, acquisition_manifest)
-        committed_nodes = _load_committed_nodes(tree_manifest)
-        node_cards = _load_node_cards(tree_manifest)
-        node_summaries = _load_node_summaries(tree_manifest)
-        verification_report = _load_verification_report(tree_manifest)
-        unassigned_spans = _load_unassigned_spans(tree_manifest)
+        tree_manifest_ref = (
+            tree_manifest_path
+            if tree_manifest_path is None or is_postgres_ref(tree_manifest_path)
+            else str(Path(tree_manifest_path).resolve())
+        )
+        acquisition_manifest = _load_acquisition_manifest(input_store, acquisition_manifest_ref)
+        tree_manifest = _load_tree_manifest(input_store, tree_manifest_ref)
+        ledger = _load_ledger(input_store, acquisition_manifest)
+        text_substrate = _load_text_substrate(input_store, acquisition_manifest)
+        committed_nodes = _load_committed_nodes(input_store, tree_manifest)
+        node_cards = _load_node_cards(input_store, tree_manifest)
+        node_summaries = _load_node_summaries(input_store, tree_manifest)
+        verification_report = _load_verification_report(input_store, tree_manifest)
+        unassigned_spans = _load_unassigned_spans(input_store, tree_manifest)
 
         units = (
             *_build_page_units(text_substrate),
@@ -577,22 +583,69 @@ class RetrievalCorpusBuilder:
             document_id=acquisition_manifest.document_id,
             units=tuple(units),
         )
+        retrieval_run_id = (
+            tree_manifest.tree_run_id
+            if tree_manifest is not None
+            else acquisition_manifest.acquisition_run_id
+        )
 
         retrieval_root = (
-            Path(artifact_root).resolve()
+            artifact_root
             if artifact_root is not None
             else _default_retrieval_root(
-                acquisition_manifest_path=acquisition_manifest_file,
+                acquisition_manifest_path=acquisition_manifest_ref,
                 acquisition_manifest=acquisition_manifest,
                 tree_manifest=tree_manifest,
             )
         )
-        corpus_path = _write_json(retrieval_root / "corpus.json", corpus)
+        _is_postgres = isinstance(self._storage, PostgresStorageConfig)
+        output_store = build_document_store(
+            self._storage,
+            default_filesystem_root=None if _is_postgres else str(retrieval_root),
+        )
+        expected_identity = {
+            "document_id": acquisition_manifest.document_id,
+            "acquisition_manifest_path": acquisition_manifest_ref,
+            "tree_manifest_path": tree_manifest_ref,
+        }
+        created, run_record = output_store.reserve_run(
+            run_type="retrieval",
+            run_id=retrieval_run_id,
+            document_id=acquisition_manifest.document_id,
+            artifact_root=None if _is_postgres else str(retrieval_root),
+            identity=expected_identity,
+        )
+        run_store = output_store.for_run(
+            run_type="retrieval",
+            run_id=retrieval_run_id,
+            document_id=acquisition_manifest.document_id,
+        )
+        if not created:
+            if run_identity_matches(run_record, expected_identity):
+                manifest_ref = cast(
+                    str | None,
+                    run_record.get("manifest_ref") or run_record.get("manifest_path"),
+                )
+                if manifest_ref is None:
+                    msg = "retrieval_run_id index points to a missing manifest"
+                    raise RuntimeError(msg)
+                return RetrievalManifest.model_validate_json(
+                    canonical_json_text(output_store.read_json_artifact(manifest_ref))
+                )
+            msg = "retrieval run already exists with a different source manifest set"
+            raise RuntimeError(msg)
+
+        corpus_path = run_store.put_json(
+            artifact_kind="corpus",
+            artifact_path="corpus.json",
+            payload=corpus,
+        )
         counts_by_type = Counter(unit.unit_type.value for unit in corpus.units)
         counts_by_modality = Counter(unit.modality.value for unit in corpus.units)
-        stats_path = _write_json(
-            retrieval_root / "stats.json",
-            {
+        stats_path = run_store.put_json(
+            artifact_kind="stats",
+            artifact_path="stats.json",
+            payload={
                 "document_id": corpus.document_id,
                 "unit_count": len(corpus.units),
                 "counts_by_type": dict(sorted(counts_by_type.items())),
@@ -605,21 +658,31 @@ class RetrievalCorpusBuilder:
                 "has_unassigned_spans": bool(unassigned_spans),
                 "corpus_sha256": hashlib.sha256(
                     json.dumps(
-                        _json_safe(corpus),
+                        json_safe(corpus),
                         sort_keys=True,
                         ensure_ascii=True,
                     ).encode("utf-8")
                 ).hexdigest(),
             },
         )
+        if output_store.backend is StorageBackend.POSTGRES:
+            output_store.put_retrieval_units(corpus.document_id, corpus.units)
         manifest = RetrievalManifest(
             document_id=corpus.document_id,
-            artifact_root=str(retrieval_root),
+            artifact_root=None if _is_postgres else str(retrieval_root),
             corpus_path=corpus_path,
             stats_path=stats_path,
             unit_count=len(corpus.units),
         )
-        _write_json(retrieval_root / "manifest.json", manifest)
+        manifest_ref = run_store.put_json(
+            artifact_kind="manifest",
+            artifact_path="manifest.json",
+            payload=manifest,
+        )
+        run_store.complete(
+            manifest_ref=manifest_ref,
+            manifest=manifest,
+        )
         return manifest
 
 

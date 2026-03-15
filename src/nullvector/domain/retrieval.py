@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import Field, NonNegativeInt, model_validator
 
-from nullvector.domain.common import ContentSpan, NonEmptyStr, PageSpan, StrataModel
+from nullvector.domain.common import ContentSpan, NonEmptyStr, NullVectorModel, PageSpan
 from nullvector.domain.events import TrustTier
 from nullvector.domain.tree import VisualRegionReference
 
@@ -33,7 +33,7 @@ class RetrievalModality(StrEnum):
     MIXED = "mixed"
 
 
-class RetrievalEvidence(StrataModel):
+class RetrievalEvidence(NullVectorModel):
     """Single typed evidence unit available to retrieval and QA."""
 
     unit_id: NonEmptyStr
@@ -56,24 +56,24 @@ class RetrievalEvidence(StrataModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class RetrievalCorpus(StrataModel):
+class RetrievalCorpus(NullVectorModel):
     """Document-scoped retrieval corpus persisted as an artifact."""
 
     document_id: NonEmptyStr
     units: tuple[RetrievalEvidence, ...] = Field(default_factory=tuple)
 
 
-class RetrievalManifest(StrataModel):
+class RetrievalManifest(NullVectorModel):
     """Manifest for a persisted retrieval corpus artifact set."""
 
     document_id: NonEmptyStr
-    artifact_root: NonEmptyStr
+    artifact_root: NonEmptyStr | None = None
     corpus_path: NonEmptyStr
     stats_path: NonEmptyStr
     unit_count: NonNegativeInt
 
 
-class QueryPlan(StrataModel):
+class QueryPlan(NullVectorModel):
     """Deterministic retrieval plan derived from one raw query."""
 
     raw_query: NonEmptyStr
@@ -89,7 +89,7 @@ class QueryPlan(StrataModel):
     requires_multimodal: bool = False
 
 
-class RetrievalHit(StrataModel):
+class RetrievalHit(NullVectorModel):
     """Scored retrieval match with deterministic scoring details."""
 
     unit: RetrievalEvidence
@@ -98,7 +98,7 @@ class RetrievalHit(StrataModel):
     matched_terms: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
 
 
-class AnswerCitation(StrataModel):
+class AnswerCitation(NullVectorModel):
     """Grounded citation returned alongside QA answers."""
 
     document_id: NonEmptyStr

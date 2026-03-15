@@ -2,26 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
+from logging import Logger
+from pathlib import Path
+from typing import Any, cast
 
-import fitz
 from pypdf import PdfReader
-from pypdf import __version__ as pypdf_version
 
-from nullvector.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
-from nullvector.domain.models import (
+from nullvector.constants import DEFAULT_ACQUISITION_ARTIFACT_ROOT
+from nullvector.domain.ledger import (
     AcquisitionRequest,
-    AcquisitionRunIndex,
     AcquisitionRunManifest,
-    AcquisitionSettings,
     OutlineEntry,
     OutlineQualityReport,
     OutlineSource,
     UnresolvedRegion,
-)
-from nullvector.ingest.acquisition_artifacts import (
-    AcquisitionArtifactStore,
-    settings_digest,
 )
 from nullvector.ingest.errors import (
     ExtractionFailureError,
@@ -34,6 +28,7 @@ from nullvector.ingest.outline import (
     extract_pypdf_outlines,
     select_outline,
 )
+from nullvector.ingest.pdf_backend import open_document
 from nullvector.ingest.projection import (
     build_canonical_text_substrate,
     project_ledger_to_tree_synthesis_view,
@@ -41,17 +36,15 @@ from nullvector.ingest.projection import (
 from nullvector.ingest.protocols import AcquisitionProvider
 from nullvector.ingest.providers.native_pymupdf import NativePyMuPDFAcquisitionProvider
 from nullvector.ingest.visual_assets import materialize_visual_assets
-from nullvector.observability import (
-    AcquisitionStarted,
-    EventBus,
-    PageNativeParsed,
-    PageProfiled,
-    ProjectionCreated,
-    SourceFingerprintComputed,
-    UnresolvedRegionEmitted,
+from nullvector.observability.logging import log_event
+from nullvector.runtime_validation import validate_pdf_runtime_versions
+from nullvector.storage import StorageConfig, build_document_store
+from nullvector.storage._serialization import (
+    canonical_json_text,
+    run_identity_matches,
+    settings_digest,
 )
-
-fitz_module: Any = fitz
+from nullvector.storage.config import PostgresStorageConfig
 
 
 def _default_provider(request: AcquisitionRequest) -> AcquisitionProvider:
@@ -62,57 +55,80 @@ def _default_provider(request: AcquisitionRequest) -> AcquisitionProvider:
 
 
 class AcquisitionService:
-    """Filesystem-backed deterministic acquisition + projection runtime."""
+    """Storage-backed deterministic acquisition + projection runtime."""
 
     def __init__(
         self,
         provider: AcquisitionProvider | None = None,
         *,
-        event_bus: EventBus | None = None,
+        logger: Logger | None = None,
+        storage: StorageConfig | None = None,
     ) -> None:
         self._provider = provider
-        self._event_bus = event_bus
+        self._logger = logger
+        self._storage = storage
 
     def acquire(self, request: AcquisitionRequest) -> AcquisitionRunManifest:
-        self._validate_provider_versions(request.settings)
+        validate_pdf_runtime_versions(
+            configured_pymupdf_version=request.settings.pymupdf_version,
+            configured_pypdf_version=request.settings.pypdf_version,
+        )
         fingerprint = fingerprint_document(request.source_path)
-        if self._event_bus is not None:
-            self._event_bus.publish(
-                SourceFingerprintComputed(
-                    event_id=f"{fingerprint.document_id}-fingerprint",
-                    event_name="SourceFingerprintComputed",
-                    document_id=fingerprint.document_id,
-                    source_path=fingerprint.source_path,
-                    sha256=fingerprint.sha256,
-                )
-            )
-            self._event_bus.publish(
-                AcquisitionStarted(
-                    event_id=f"{request.acquisition_run_id}-started",
-                    event_name="AcquisitionStarted",
-                    document_id=fingerprint.document_id,
-                    acquisition_run_id=request.acquisition_run_id,
-                    provider_identity=request.provider_identity,
-                )
-            )
-        store = AcquisitionArtifactStore(
-            request.artifact_root,
-            request.acquisition_run_id,
-            fingerprint.document_id,
+        log_event(
+            self._logger,
+            "SourceFingerprintComputed",
+            document_id=fingerprint.document_id,
+            source_path=fingerprint.source_path,
+            sha256=fingerprint.sha256,
+        )
+        log_event(
+            self._logger,
+            "AcquisitionStarted",
+            document_id=fingerprint.document_id,
+            acquisition_run_id=request.acquisition_run_id,
+            provider_identity=request.provider_identity,
         )
         digest = settings_digest(request.settings)
-        run_index = store.load_run_index()
-        if run_index is not None:
-            if (
-                run_index.document_id == fingerprint.document_id
-                and run_index.source_fingerprint_sha256 == fingerprint.sha256
-                and run_index.settings_digest == digest
-            ):
-                manifest = store.load_manifest_at(run_index.manifest_path)
-                if manifest is None:
+        _is_postgres = isinstance(self._storage, PostgresStorageConfig)
+        if _is_postgres:
+            artifact_root: str | None = None
+        else:
+            _base = request.artifact_root or DEFAULT_ACQUISITION_ARTIFACT_ROOT
+            artifact_root = str(Path(_base) / request.acquisition_run_id / fingerprint.document_id)
+        store = build_document_store(
+            self._storage,
+            default_filesystem_root=artifact_root,
+        )
+        store.register_document(fingerprint)
+        expected_identity = {
+            "document_id": fingerprint.document_id,
+            "fingerprint_sha256": fingerprint.sha256,
+            "settings_digest": digest,
+        }
+        created, run_record = store.reserve_run(
+            run_type="acquisition",
+            run_id=request.acquisition_run_id,
+            document_id=fingerprint.document_id,
+            artifact_root=artifact_root,
+            identity=expected_identity,
+        )
+        run_store = store.for_run(
+            run_type="acquisition",
+            run_id=request.acquisition_run_id,
+            document_id=fingerprint.document_id,
+        )
+        if not created:
+            if run_identity_matches(run_record, expected_identity):
+                manifest_ref = cast(
+                    str | None,
+                    run_record.get("manifest_ref") or run_record.get("manifest_path"),
+                )
+                if manifest_ref is None:
                     msg = "acquisition_run_id index points to a missing manifest"
                     raise ExtractionFailureError(msg, document_id=fingerprint.document_id)
-                return manifest
+                return AcquisitionRunManifest.model_validate_json(
+                    canonical_json_text(store.read_json_artifact(manifest_ref))
+                )
             raise ParseConflictError(
                 (
                     "acquisition_run_id already exists with different document, "
@@ -122,9 +138,16 @@ class AcquisitionService:
                 document_id=fingerprint.document_id,
             )
 
-        store.ensure()
-        source_copy_path = store.copy_source(request.source_path)
-        source_fingerprint_path = store.write_json("source/fingerprint.json", fingerprint)
+        source_copy_path = run_store.put_binary(
+            asset_path="source/original.pdf",
+            content_type="application/pdf",
+            data=Path(request.source_path).read_bytes(),
+        )
+        source_fingerprint_path = run_store.put_json(
+            artifact_kind="fingerprint",
+            artifact_path="source/fingerprint.json",
+            payload=fingerprint,
+        )
 
         try:
             provider = self._provider or _default_provider(request)
@@ -132,7 +155,7 @@ class AcquisitionService:
             ledger = materialize_visual_assets(
                 source_path=request.source_path,
                 ledger=ledger,
-                store=store,
+                store=run_store,
                 settings=request.settings,
             )
             (
@@ -151,24 +174,37 @@ class AcquisitionService:
                 document_id=fingerprint.document_id,
             ) from exc
 
-        pymupdf_outline_path = store.write_json("outline/pymupdf.normalized.json", pymupdf_entries)
-        pymupdf_rich_outline_path = store.write_json(
-            "outline/pymupdf.rich.json", pymupdf_rich_outline
+        pymupdf_outline_path = run_store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/pymupdf.normalized.json",
+            payload=pymupdf_entries,
         )
-        pypdf_outline_path = store.write_json("outline/pypdf.normalized.json", pypdf_entries)
-        selected_outline_path = store.write_json(
-            "outline/selected.json",
-            {
+        pymupdf_rich_outline_path = run_store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/pymupdf.rich.json",
+            payload=pymupdf_rich_outline,
+        )
+        pypdf_outline_path = run_store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/pypdf.normalized.json",
+            payload=pypdf_entries,
+        )
+        selected_outline_path = run_store.put_json(
+            artifact_kind="outline",
+            artifact_path="outline/selected.json",
+            payload={
                 "selected_source": selected_source,
                 "entries": selected_outline_entries,
             },
         )
 
         page_events = [event for page in ledger.pages for event in page.events]
-        event_stream_path = store.write_jsonl(
-            "events/document-events.jsonl",
-            (*ledger.document_events, *page_events),
+        event_stream_path = run_store.put_jsonl(
+            artifact_kind="events",
+            artifact_path="events/document-events.jsonl",
+            payloads=(*ledger.document_events, *page_events),
         )
+        ledger_path = run_store.artifact_ref("ledger/canonical-document-ledger.json")
 
         embedded_manifest = ledger.acquisition_manifest.model_copy(
             update={
@@ -178,9 +214,7 @@ class AcquisitionService:
                 "selected_outline_source": selected_source,
                 "outline_quality_reports": tuple(outline_reports),
                 "selected_outline_entries": tuple(selected_outline_entries),
-                "ledger_artifact_path": str(
-                    store.absolute("ledger", "canonical-document-ledger.json")
-                ),
+                "ledger_artifact_path": ledger_path,
                 "outline_artifact_paths": (
                     pymupdf_outline_path,
                     pymupdf_rich_outline_path,
@@ -192,61 +226,60 @@ class AcquisitionService:
             }
         )
         persisted_ledger = ledger.model_copy(update={"acquisition_manifest": embedded_manifest})
-        ledger_path = store.write_json("ledger/canonical-document-ledger.json", persisted_ledger)
-        if self._event_bus is not None:
-            for page in persisted_ledger.pages:
-                self._event_bus.publish(
-                    PageNativeParsed(
-                        event_id=f"{fingerprint.document_id}-native-{page.page_index}",
-                        event_name="PageNativeParsed",
-                        document_id=fingerprint.document_id,
-                        page_index=page.page_index,
-                        block_count=len(page.blocks),
-                    )
+        ledger_path = run_store.put_json(
+            artifact_kind="ledger",
+            artifact_path="ledger/canonical-document-ledger.json",
+            payload=persisted_ledger,
+        )
+        for page in persisted_ledger.pages:
+            log_event(
+                self._logger,
+                "PageNativeParsed",
+                document_id=fingerprint.document_id,
+                page_index=page.page_index,
+                block_count=len(page.blocks),
+            )
+            unresolved = [block for block in page.blocks if isinstance(block, UnresolvedRegion)]
+            log_event(
+                self._logger,
+                "PageProfiled",
+                document_id=fingerprint.document_id,
+                page_index=page.page_index,
+                unresolved_region_count=len(unresolved),
+            )
+            for unresolved_region in unresolved:
+                log_event(
+                    self._logger,
+                    "UnresolvedRegionEmitted",
+                    document_id=fingerprint.document_id,
+                    page_index=page.page_index,
+                    region_id=unresolved_region.region_id,
+                    reason_code=unresolved_region.reason_code,
                 )
-                unresolved = [block for block in page.blocks if isinstance(block, UnresolvedRegion)]
-                self._event_bus.publish(
-                    PageProfiled(
-                        event_id=f"{fingerprint.document_id}-profiled-{page.page_index}",
-                        event_name="PageProfiled",
-                        document_id=fingerprint.document_id,
-                        page_index=page.page_index,
-                        unresolved_region_count=len(unresolved),
-                    )
-                )
-                for unresolved_region in unresolved:
-                    self._event_bus.publish(
-                        UnresolvedRegionEmitted(
-                            event_id=unresolved_region.region_id,
-                            event_name="UnresolvedRegionEmitted",
-                            document_id=fingerprint.document_id,
-                            page_index=page.page_index,
-                            region_id=unresolved_region.region_id,
-                            reason_code=unresolved_region.reason_code,
-                        )
-                    )
         canonical_text_substrate = build_canonical_text_substrate(persisted_ledger)
-        canonical_text_substrate_path = store.write_json(
-            "projection/canonical-text-substrate.json",
-            canonical_text_substrate,
+        canonical_text_substrate_path = run_store.put_json(
+            artifact_kind="projection",
+            artifact_path="projection/canonical-text-substrate.json",
+            payload=canonical_text_substrate,
         )
         projection = project_ledger_to_tree_synthesis_view(persisted_ledger)
-        projection_view_path = store.write_json("projection/tree-synthesis-view.json", projection)
-        if self._event_bus is not None:
-            self._event_bus.publish(
-                ProjectionCreated(
-                    event_id=f"{fingerprint.document_id}-projection",
-                    event_name="ProjectionCreated",
-                    document_id=fingerprint.document_id,
-                    page_count=fingerprint.page_count,
-                    projection_path=projection_view_path,
-                )
-            )
+        projection_view_path = run_store.put_json(
+            artifact_kind="projection",
+            artifact_path="projection/tree-synthesis-view.json",
+            payload=projection,
+        )
+        log_event(
+            self._logger,
+            "ProjectionCreated",
+            document_id=fingerprint.document_id,
+            page_count=fingerprint.page_count,
+            projection_path=projection_view_path,
+        )
 
         manifest = AcquisitionRunManifest(
             acquisition_run_id=request.acquisition_run_id,
             document_id=fingerprint.document_id,
-            artifact_root=str(store.base_path),
+            artifact_root=artifact_root,
             source_fingerprint=fingerprint,
             settings=request.settings,
             settings_digest=digest,
@@ -264,15 +297,14 @@ class AcquisitionService:
             projection_view_path=projection_view_path,
             canonical_text_substrate_path=canonical_text_substrate_path,
         )
-        manifest_path = store.write_manifest(manifest)
-        store.write_run_index(
-            AcquisitionRunIndex(
-                acquisition_run_id=request.acquisition_run_id,
-                document_id=fingerprint.document_id,
-                source_fingerprint_sha256=fingerprint.sha256,
-                settings_digest=digest,
-                manifest_path=manifest_path,
-            )
+        manifest_path = run_store.put_json(
+            artifact_kind="manifest",
+            artifact_path="manifest.json",
+            payload=manifest,
+        )
+        run_store.complete(
+            manifest_ref=manifest_path,
+            manifest=manifest,
         )
         return manifest
 
@@ -287,7 +319,7 @@ class AcquisitionService:
         list[Any],
         list[OutlineEntry],
     ]:
-        with fitz_module.open(source_path) as document:
+        with open_document(source_path) as document:
             reader = PdfReader(source_path)
             pymupdf_rich, pymupdf_entries = extract_pymupdf_outlines(document)
             _, pypdf_entries = extract_pypdf_outlines(reader)
@@ -304,50 +336,13 @@ class AcquisitionService:
             pypdf_entries,
         )
 
-    def _validate_provider_versions(self, settings: AcquisitionSettings) -> None:
-        if settings.pymupdf_version not in CERTIFIED_PYMUPDF_VERSIONS:
-            msg = (
-                f"configured PyMuPDF version {settings.pymupdf_version} is not in the certified "
-                f"set {CERTIFIED_PYMUPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if settings.pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
-            msg = (
-                f"configured pypdf version {settings.pypdf_version} is not in the certified set "
-                f"{CERTIFIED_PYPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if fitz.VersionBind not in CERTIFIED_PYMUPDF_VERSIONS:
-            msg = (
-                f"installed PyMuPDF version {fitz.VersionBind} is outside the certified set "
-                f"{CERTIFIED_PYMUPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
-            msg = (
-                f"installed pypdf version {pypdf_version} is outside the certified set "
-                f"{CERTIFIED_PYPDF_VERSIONS}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if fitz.VersionBind != settings.pymupdf_version:
-            msg = (
-                f"configured PyMuPDF version {settings.pymupdf_version} "
-                f"does not match installed {fitz.VersionBind}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-        if pypdf_version != settings.pypdf_version:
-            msg = (
-                f"configured pypdf version {settings.pypdf_version} "
-                f"does not match installed {pypdf_version}"
-            )
-            raise ExtractionFailureError(msg, document_id="unknown")
-
 
 def acquire_document(
     request: AcquisitionRequest,
     *,
-    event_bus: EventBus | None = None,
+    logger: Logger | None = None,
+    storage: StorageConfig | None = None,
 ) -> AcquisitionRunManifest:
     """Acquire a document through the deterministic v2 runtime."""
 
-    return AcquisitionService(event_bus=event_bus).acquire(request)
+    return AcquisitionService(logger=logger, storage=storage).acquire(request)

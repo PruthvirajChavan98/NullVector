@@ -6,7 +6,8 @@ import json
 
 from pydantic import PositiveInt, model_validator
 
-from nullvector.domain.models import NonEmptyStr, RepairRequest, RepairStatus, StrataModel
+from nullvector.domain.common import NonEmptyStr, NullVectorModel
+from nullvector.domain.tree import RepairRequest, RepairStatus
 from nullvector.llm.audit import json_safe
 from nullvector.llm.types import LLMMessage, LLMRole
 
@@ -17,7 +18,7 @@ ALLOWED_REPAIR_STATUSES = {
 }
 
 
-class RepairPromptResponse(StrataModel):
+class RepairPromptResponse(NullVectorModel):
     """Typed structured response expected from a repair prompt."""
 
     request_id: NonEmptyStr

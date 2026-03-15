@@ -5,7 +5,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from nullvector.domain.models import AcquisitionRunManifest
+from nullvector.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
+from nullvector.domain.ledger import AcquisitionRunManifest
+from nullvector.ingest.errors import ExtractionFailureError
+from nullvector.ingest.pdf_backend import (
+    installed_pymupdf_version,
+    installed_pypdf_version,
+)
 
 
 def validate_writable_root(root: str | None, *, label: str) -> None:
@@ -38,20 +44,63 @@ def validate_attachment_path(path: str) -> None:
         raise ValueError(msg)
 
 
+def validate_pdf_runtime_versions(
+    *,
+    configured_pymupdf_version: str,
+    configured_pypdf_version: str,
+    document_id: str = "unknown",
+) -> None:
+    """Require configured and installed PDF runtimes to match the certified set."""
+
+    if configured_pymupdf_version not in CERTIFIED_PYMUPDF_VERSIONS:
+        msg = (
+            f"configured PyMuPDF version {configured_pymupdf_version} is not in the certified "
+            f"set {CERTIFIED_PYMUPDF_VERSIONS}"
+        )
+        raise ExtractionFailureError(msg, document_id=document_id)
+    if configured_pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
+        msg = (
+            f"configured pypdf version {configured_pypdf_version} is not in the certified set "
+            f"{CERTIFIED_PYPDF_VERSIONS}"
+        )
+        raise ExtractionFailureError(msg, document_id=document_id)
+
+    pymupdf_version = installed_pymupdf_version()
+    pypdf_version = installed_pypdf_version()
+    if pymupdf_version not in CERTIFIED_PYMUPDF_VERSIONS:
+        msg = (
+            f"installed PyMuPDF version {pymupdf_version} is outside the certified set "
+            f"{CERTIFIED_PYMUPDF_VERSIONS}"
+        )
+        raise ExtractionFailureError(msg, document_id=document_id)
+    if pypdf_version not in CERTIFIED_PYPDF_VERSIONS:
+        msg = (
+            f"installed pypdf version {pypdf_version} is outside the certified set "
+            f"{CERTIFIED_PYPDF_VERSIONS}"
+        )
+        raise ExtractionFailureError(msg, document_id=document_id)
+    if pymupdf_version != configured_pymupdf_version:
+        msg = (
+            f"configured PyMuPDF version {configured_pymupdf_version} "
+            f"does not match installed {pymupdf_version}"
+        )
+        raise ExtractionFailureError(msg, document_id=document_id)
+    if pypdf_version != configured_pypdf_version:
+        msg = (
+            f"configured pypdf version {configured_pypdf_version} "
+            f"does not match installed {pypdf_version}"
+        )
+        raise ExtractionFailureError(msg, document_id=document_id)
+
+
 def validate_canonical_text_substrate_contract(
     *,
-    acquisition_root: Path,
     manifest: AcquisitionRunManifest,
-) -> Path:
-    """Require the acquisition manifest to point at a persisted canonical text substrate."""
+) -> str:
+    """Require the acquisition manifest to point at a persisted canonical text substrate ref."""
 
     substrate_path = manifest.canonical_text_substrate_path
     if substrate_path is None:
         msg = "acquisition manifest is missing canonical_text_substrate_path"
         raise ValueError(msg)
-    candidate = Path(substrate_path)
-    resolved = candidate if candidate.is_absolute() else acquisition_root / candidate
-    if not resolved.exists():
-        msg = f"canonical text substrate does not exist: {resolved}"
-        raise ValueError(msg)
-    return resolved
+    return substrate_path

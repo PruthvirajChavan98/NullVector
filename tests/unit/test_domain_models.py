@@ -6,72 +6,76 @@ import pytest
 from pydantic import ValidationError
 
 from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
-from nullvector.domain import (
+from nullvector.domain.common import (
+    BoundingBox,
+    ContentSpan,
+    NodeOwnedSpan,
+    PageSourceAnchor,
+    PageSpan,
+)
+from nullvector.domain.events import (
+    ContentAuthoritativeness,
+    DocumentEvent,
+    EventSeverity,
+    ExtractionProvenance,
+    GroundingEvidence,
+    SourceTrack,
+    TrustTier,
+)
+from nullvector.domain.ledger import (
     AcquisitionManifest,
     AcquisitionRequest,
     AcquisitionRunIndex,
     AcquisitionRunManifest,
     AcquisitionSettings,
-    AnchorSource,
-    BoundingBox,
     CanonicalDocumentLedger,
     CanonicalPage,
-    ContentAuthoritativeness,
-    ContentSpan,
+    DocumentFingerprint,
+    LineBlock,
+    OcrMode,
+    OutlineEntry,
+    OutlineSource,
+    PageEvent,
+    PageExtractionMethod,
+    PageLedgerRow,
+    ParseJobLifecycle,
+    ParseJobState,
+    ParseRequest,
+    ParserSettings,
+    SourceMetadata,
+    TableArtifact,
+    TextBlock,
+    UnresolvedRegion,
+    VisualArtifact,
+)
+from nullvector.domain.tree import (
+    AnchorSource,
     DecompositionMethod,
     DecompositionReport,
-    DocumentEvent,
-    DocumentFingerprint,
-    EventSeverity,
-    ExtractionProvenance,
-    GroundingEvidence,
     HeadingCandidate,
     HeadingScoreBreakdown,
     HeadingSourceKind,
     HierarchyNode,
     HierarchyOrigin,
-    LineBlock,
     NodeAnchor,
     NodeCard,
-    NodeOwnedSpan,
-    OcrMode,
-    OutlineEntry,
-    PageEvent,
-    PageLedgerRow,
-    PageSourceAnchor,
-    PageSpan,
-    ParseJobLifecycle,
-    ParseJobState,
-    ParseRequest,
-    ParserSettings,
     RepairDecision,
     RepairStatus,
-    SourceMetadata,
-    SourceTrack,
     SynthesisLine,
     SynthesisPage,
     SynthesisTextProjection,
     SynthesisTrustSummary,
     SynthesisUnresolvedRegion,
-    TableArtifact,
-    TextBlock,
     TreeBuildManifest,
     TreeBuildRequest,
     TreeNodeVerificationResult,
     TreeRunIndex,
     TreeSettings,
     TreeSynthesisView,
-    TrustTier,
     UnassignedPageSpan,
-    UnresolvedRegion,
     VerificationIssue,
     VerificationReport,
     VerificationResult,
-    VisualArtifact,
-)
-from nullvector.domain.models import (
-    OutlineSource,
-    PageExtractionMethod,
     VerificationSeverity,
     VerificationStatus,
 )
@@ -324,7 +328,7 @@ def test_acquisition_request_requires_exactly_valid_payloads() -> None:
     )
 
     assert request.provider_identity == "native_pymupdf"
-    assert request.artifact_root == "artifacts/acquisition_runs"
+    assert request.artifact_root is None
 
 
 def test_canonical_document_ledger_accepts_v2_payloads() -> None:

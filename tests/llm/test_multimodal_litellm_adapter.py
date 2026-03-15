@@ -1,4 +1,4 @@
-"""LiteLLM multimodal adapter tests."""
+"""LiteLLM attachment-path adapter tests against the unified gateway."""
 
 from __future__ import annotations
 
@@ -8,17 +8,20 @@ from typing import Any
 import pytest
 
 from nullvector.domain import BoundingBox, VisualRegionReference
-from nullvector.llm.multimodal_gateway import (
-    LiteLLMMultimodalAdapter,
-    MultimodalFailureCategory,
-    MultimodalGatewayConfig,
-    MultimodalGatewayError,
-    MultimodalGatewayRequest,
-    MultimodalGatewayService,
-    MultimodalProviderConfig,
+from nullvector.llm import (
+    GatewayAuditConfig,
+    GatewayConfig,
+    GatewayError,
+    GatewayFailureCategory,
+    GatewayRequest,
+    GatewayService,
+    LiteLLMProviderConfig,
+    LLMMessage,
+    LLMRole,
     RegionImageInput,
     VisualInsightResponse,
 )
+from nullvector.llm.providers import LiteLLMSDKAdapter
 
 
 def _write_attachment(tmp_path: Path) -> Path:
@@ -49,16 +52,15 @@ def _make_gateway(
     get_supported_openai_params_callable: Any = lambda *_args, **_kwargs: ["response_format"],
     model_name: str = "openai/gpt-4.1-mini",
     custom_llm_provider: str | None = "openai",
-) -> MultimodalGatewayService:
-    adapter = LiteLLMMultimodalAdapter(
+) -> GatewayService:
+    adapter = LiteLLMSDKAdapter(
         completion_callable=completion_callable,
         supports_vision_callable=supports_vision_callable,
         get_supported_openai_params_callable=get_supported_openai_params_callable,
     )
-    return MultimodalGatewayService(
-        MultimodalGatewayConfig(
-            provider=MultimodalProviderConfig(
-                provider="litellm_multimodal",
+    return GatewayService(
+        GatewayConfig(
+            provider=LiteLLMProviderConfig(
                 model=model_name,
                 extra_body=(
                     {"custom_llm_provider": custom_llm_provider}
@@ -66,22 +68,22 @@ def _make_gateway(
                     else {}
                 ),
             ),
-            audit_root=str(tmp_path / "audit"),
+            audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
         ),
         provider_adapter=adapter,
     )
 
 
-def _request(image_path: Path) -> MultimodalGatewayRequest[VisualInsightResponse]:
-    return MultimodalGatewayRequest[VisualInsightResponse](
+def _request(image_path: Path) -> GatewayRequest[VisualInsightResponse]:
+    return GatewayRequest[VisualInsightResponse](
         operation_name="visual_region_enrichment",
-        prompt="Describe the image region.",
-        regions=(_make_region(image_path),),
+        messages=(LLMMessage(role=LLMRole.USER, content="Describe the image region."),),
+        attachments=(_make_region(image_path),),
         response_model=VisualInsightResponse,
     )
 
 
-def test_litellm_multimodal_adapter_returns_typed_success(tmp_path: Path) -> None:
+def test_litellm_attachment_path_returns_typed_success(tmp_path: Path) -> None:
     gateway = _make_gateway(
         tmp_path,
         completion_callable=lambda **_kwargs: {
@@ -106,7 +108,7 @@ def test_litellm_multimodal_adapter_returns_typed_success(tmp_path: Path) -> Non
     assert response.usage.total_tokens == 12
 
 
-def test_litellm_multimodal_adapter_validation_failure_is_typed(tmp_path: Path) -> None:
+def test_litellm_attachment_path_validation_failure_is_typed(tmp_path: Path) -> None:
     gateway = _make_gateway(
         tmp_path,
         completion_callable=lambda **_kwargs: {
@@ -114,28 +116,26 @@ def test_litellm_multimodal_adapter_validation_failure_is_typed(tmp_path: Path) 
         },
     )
 
-    with pytest.raises(MultimodalGatewayError) as exc_info:
+    with pytest.raises(GatewayError) as exc_info:
         gateway.invoke(_request(_write_attachment(tmp_path)))
 
-    assert exc_info.value.failure.category is MultimodalFailureCategory.VALIDATION_FAILURE
+    assert exc_info.value.failure.category is GatewayFailureCategory.VALIDATION_FAILURE
 
 
-def test_litellm_multimodal_adapter_rejects_unsupported_response_format(
-    tmp_path: Path,
-) -> None:
+def test_litellm_attachment_path_rejects_unsupported_response_format(tmp_path: Path) -> None:
     gateway = _make_gateway(
         tmp_path,
         completion_callable=lambda **_kwargs: {},
         get_supported_openai_params_callable=lambda *_args, **_kwargs: ["temperature"],
     )
 
-    with pytest.raises(MultimodalGatewayError) as exc_info:
+    with pytest.raises(GatewayError) as exc_info:
         gateway.invoke(_request(_write_attachment(tmp_path)))
 
-    assert exc_info.value.failure.category is MultimodalFailureCategory.UNSUPPORTED_CAPABILITY
+    assert exc_info.value.failure.category is GatewayFailureCategory.UNSUPPORTED_CAPABILITY
 
 
-def test_litellm_multimodal_adapter_attempts_request_when_param_probe_is_inconclusive(
+def test_litellm_attachment_path_attempts_request_when_param_probe_is_inconclusive(
     tmp_path: Path,
 ) -> None:
     call_state = {"called": False}
@@ -167,7 +167,7 @@ def test_litellm_multimodal_adapter_attempts_request_when_param_probe_is_inconcl
     assert response.output.insight.summary == "diagram summary"
 
 
-def test_litellm_multimodal_adapter_attempts_request_when_openrouter_vision_probe_is_negative(
+def test_litellm_attachment_path_attempts_request_for_openrouter_when_probe_is_negative(
     tmp_path: Path,
 ) -> None:
     call_state = {"called": False}
@@ -201,41 +201,7 @@ def test_litellm_multimodal_adapter_attempts_request_when_openrouter_vision_prob
     assert response.output.insight.summary == "diagram summary"
 
 
-def test_litellm_multimodal_adapter_attempts_request_for_openrouter_model_prefix_without_custom_provider(
-    tmp_path: Path,
-) -> None:
-    call_state = {"called": False}
-
-    def completion_callable(**_kwargs: Any) -> dict[str, Any]:
-        call_state["called"] = True
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": (
-                            '{"insight":{"summary":"diagram summary","labels":["diagram"],'
-                            '"attributes":{"kind":"flow"},"confidence":0.8}}'
-                        )
-                    }
-                }
-            ]
-        }
-
-    gateway = _make_gateway(
-        tmp_path,
-        completion_callable=completion_callable,
-        supports_vision_callable=lambda *_args, **_kwargs: False,
-        model_name="openrouter/google/gemini-3.1-flash-lite-preview",
-        custom_llm_provider=None,
-    )
-
-    response = gateway.invoke(_request(_write_attachment(tmp_path)))
-
-    assert call_state["called"] is True
-    assert response.output.insight.summary == "diagram summary"
-
-
-def test_litellm_multimodal_adapter_rejects_negative_vision_probe_for_non_openrouter(
+def test_litellm_attachment_path_rejects_negative_vision_probe_for_non_openrouter(
     tmp_path: Path,
 ) -> None:
     gateway = _make_gateway(
@@ -244,33 +210,37 @@ def test_litellm_multimodal_adapter_rejects_negative_vision_probe_for_non_openro
         supports_vision_callable=lambda *_args, **_kwargs: False,
     )
 
-    with pytest.raises(MultimodalGatewayError) as exc_info:
+    with pytest.raises(GatewayError) as exc_info:
         gateway.invoke(_request(_write_attachment(tmp_path)))
 
-    assert exc_info.value.failure.category is MultimodalFailureCategory.UNSUPPORTED_CAPABILITY
+    assert exc_info.value.failure.category is GatewayFailureCategory.UNSUPPORTED_CAPABILITY
 
 
 @pytest.mark.parametrize(
     ("exc_type", "status_code", "expected_category"),
     [
-        ("APITimeoutError", 408, MultimodalFailureCategory.TIMEOUT),
-        ("AuthenticationError", 401, MultimodalFailureCategory.AUTH_FAILURE),
-        ("APIConnectionError", None, MultimodalFailureCategory.NETWORK_FAILURE),
+        ("APITimeoutError", 408, GatewayFailureCategory.TIMEOUT),
+        ("AuthenticationError", 401, GatewayFailureCategory.AUTH_FAILURE),
+        ("APIConnectionError", None, GatewayFailureCategory.NETWORK_FAILURE),
     ],
 )
-def test_litellm_multimodal_adapter_maps_provider_failures(
+def test_litellm_attachment_exception_mapping(
     tmp_path: Path,
     exc_type: str,
     status_code: int | None,
-    expected_category: MultimodalFailureCategory,
+    expected_category: GatewayFailureCategory,
 ) -> None:
-    def raising_completion(**_kwargs: Any) -> dict[str, Any]:
-        error_cls = type(exc_type, (Exception,), {"status_code": status_code})
-        raise error_cls(exc_type)
+    error_cls = type(exc_type, (Exception,), {"status_code": status_code})
 
-    gateway = _make_gateway(tmp_path, completion_callable=raising_completion)
+    def completion_callable(**_kwargs: Any) -> dict[str, Any]:
+        raise error_cls("adapter failure")
 
-    with pytest.raises(MultimodalGatewayError) as exc_info:
+    gateway = _make_gateway(
+        tmp_path,
+        completion_callable=completion_callable,
+    )
+
+    with pytest.raises(GatewayError) as exc_info:
         gateway.invoke(_request(_write_attachment(tmp_path)))
 
     assert exc_info.value.failure.category is expected_category

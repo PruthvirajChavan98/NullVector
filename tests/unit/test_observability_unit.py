@@ -1,61 +1,32 @@
-"""Unit tests for the observability event bus and subscribers."""
+"""Unit tests for structured logging helpers and formatters."""
 
 from __future__ import annotations
 
 import io
 import json
+import logging
 from pathlib import Path
 
 from nullvector.observability import (
-    EventBus,
-    FrameworkEvent,
-    JsonLoggerSubscriber,
-    RichProgressSubscriber,
-    SourceFingerprintComputed,
+    configure_jsonl_logger,
+    configure_progress_logger,
+    log_event,
 )
 
 
-class CaptureSubscriber:
-    """Subscriber that records handled events in order."""
+def test_jsonl_logger_writes_structured_events(tmp_path: Path) -> None:
+    logger = logging.getLogger("nullvector.test.jsonl")
+    logger.handlers.clear()
+    destination = tmp_path / "events.jsonl"
+    configure_jsonl_logger(str(destination), logger=logger)
 
-    def __init__(self) -> None:
-        self.events: list[str] = []
-
-    def handle(self, event: FrameworkEvent) -> None:
-        self.events.append(event.event_name)
-
-
-def make_event(name: str) -> SourceFingerprintComputed:
-    return SourceFingerprintComputed(
-        event_id=f"{name}-001",
-        event_name=name,
+    log_event(
+        logger,
+        "SourceFingerprintComputed",
         document_id="d" * 64,
         source_path="/tmp/spec.pdf",
         sha256="a" * 64,
     )
-
-
-def test_event_bus_preserves_publish_order() -> None:
-    subscriber = CaptureSubscriber()
-    bus = EventBus(subscribers=(subscriber,))
-
-    bus.publish(make_event("SourceFingerprintComputed"))
-    bus.publish(make_event("SourceFingerprintComputedAgain"))
-
-    assert [event.event_name for event in bus.published_events] == [
-        "SourceFingerprintComputed",
-        "SourceFingerprintComputedAgain",
-    ]
-    assert subscriber.events == [
-        "SourceFingerprintComputed",
-        "SourceFingerprintComputedAgain",
-    ]
-
-
-def test_json_logger_subscriber_writes_jsonl(tmp_path: Path) -> None:
-    destination = tmp_path / "events.jsonl"
-    subscriber = JsonLoggerSubscriber(str(destination))
-    subscriber.handle(make_event("SourceFingerprintComputed"))
 
     lines = destination.read_text(encoding="utf-8").splitlines()
 
@@ -65,10 +36,18 @@ def test_json_logger_subscriber_writes_jsonl(tmp_path: Path) -> None:
     assert payload["document_id"] == "d" * 64
 
 
-def test_rich_progress_subscriber_writes_human_readable_output() -> None:
+def test_progress_logger_writes_human_readable_output() -> None:
+    logger = logging.getLogger("nullvector.test.progress")
+    logger.handlers.clear()
     stream = io.StringIO()
-    subscriber = RichProgressSubscriber(stream=stream)
+    configure_progress_logger(logger=logger, stream=stream)
 
-    subscriber.handle(make_event("SourceFingerprintComputed"))
+    log_event(
+        logger,
+        "SourceFingerprintComputed",
+        document_id="d" * 64,
+        source_path="/tmp/spec.pdf",
+        sha256="a" * 64,
+    )
 
     assert stream.getvalue() == f"[SourceFingerprintComputed] document={'d' * 64}\n"

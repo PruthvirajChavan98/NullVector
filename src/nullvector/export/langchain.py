@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import importlib
+from logging import Logger
 from typing import Any
 
-from nullvector.domain.models import NodeCard, NodeSummary, VisualEnrichmentAttachment
-from nullvector.observability import EventBus, ExportCompleted
+from nullvector.domain.tree import NodeCard, NodeSummary, VisualEnrichmentAttachment
+from nullvector.observability.logging import log_event
 
 
 class ExporterDependencyError(RuntimeError):
@@ -119,7 +120,7 @@ def to_langchain_documents(
     *,
     summaries_by_id: dict[str, NodeSummary] | None = None,
     attachments_by_node_id: dict[str, tuple[VisualEnrichmentAttachment, ...]] | None = None,
-    event_bus: EventBus | None = None,
+    logger: Logger | None = None,
 ) -> list[Any]:
     """Project many node cards into LangChain Documents."""
 
@@ -133,15 +134,13 @@ def to_langchain_documents(
         )
         for node_card in node_cards
     ]
-    if event_bus is not None and node_cards:
-        event_bus.publish(
-            ExportCompleted(
-                event_id=f"{node_cards[0].document_id}-langchain-export",
-                event_name="ExportCompleted",
-                document_id=node_cards[0].document_id,
-                exporter_name="langchain",
-                item_count=len(documents),
-            )
+    if node_cards:
+        log_event(
+            logger,
+            "ExportCompleted",
+            document_id=node_cards[0].document_id,
+            exporter_name="langchain",
+            item_count=len(documents),
         )
     return documents
 

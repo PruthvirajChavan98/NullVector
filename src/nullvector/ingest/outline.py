@@ -7,27 +7,18 @@ from typing import Any
 
 from pypdf import PdfReader
 
-from nullvector.domain.models import OutlineEntry, OutlineQualityReport, OutlineSource
+from nullvector.domain.ledger import OutlineEntry, OutlineQualityReport, OutlineSource
+from nullvector.storage._serialization import json_safe
 
 
 def _normalize_title(title: str | None) -> str:
     return (title or "").strip()
 
 
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
 def extract_pymupdf_outlines(document: Any) -> tuple[list[Any], list[OutlineEntry]]:
     """Return rich and normalized outline representations from PyMuPDF."""
 
-    rich_outline = _json_safe(document.get_toc(False))
+    rich_outline = json_safe(document.get_toc(False))
     normalized: list[OutlineEntry] = []
     for level, title, page_number in document.get_toc():
         page_index = page_number - 1 if page_number > 0 else None

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-import fitz
-
-from nullvector.domain.models import (
+from nullvector.domain.ledger import (
     AcquisitionSettings,
     CanonicalDocumentLedger,
     CanonicalPage,
@@ -14,9 +12,8 @@ from nullvector.domain.models import (
     UnresolvedRegion,
     VisualArtifact,
 )
-from nullvector.ingest.acquisition_artifacts import AcquisitionArtifactStore
-
-fitz_module: Any = fitz
+from nullvector.ingest.pdf_backend import make_rect, open_document
+from nullvector.storage.protocol import RunScopedStore
 
 
 def _page_render_relative_path(*, page_index: int, dpi: int) -> str:
@@ -27,10 +24,10 @@ def _region_asset_relative_path(*, page_index: int, region_id: str) -> str:
     return f"assets/pages/{page_index:06d}/{region_id}.png"
 
 
-def _clip_rect_for_region(region: VisualArtifact | UnresolvedRegion) -> fitz.Rect:
+def _clip_rect_for_region(region: VisualArtifact | UnresolvedRegion) -> Any:
     return cast(
-        fitz.Rect,
-        fitz_module.Rect(
+        Any,
+        make_rect(
             region.bbox.x0,
             region.bbox.y0,
             region.bbox.x1,
@@ -67,7 +64,7 @@ def _materialize_page_blocks(
     *,
     page: Any,
     canonical_page: CanonicalPage,
-    store: AcquisitionArtifactStore,
+    store: RunScopedStore,
     settings: AcquisitionSettings,
 ) -> CanonicalPage:
     relevant_blocks = tuple(
@@ -76,20 +73,25 @@ def _materialize_page_blocks(
     if not relevant_blocks:
         return canonical_page
 
-    page_render_path = store.write_bytes(
-        _page_render_relative_path(page_index=canonical_page.page_index, dpi=settings.render_dpi),
-        _page_render_bytes(page, dpi=settings.render_dpi),
+    page_render_path = store.put_binary(
+        asset_path=_page_render_relative_path(
+            page_index=canonical_page.page_index,
+            dpi=settings.render_dpi,
+        ),
+        content_type="image/png",
+        data=_page_render_bytes(page, dpi=settings.render_dpi),
     )
 
     updated_blocks: list[PageBlock] = []
     for block in canonical_page.blocks:
         if isinstance(block, VisualArtifact) and block.needs_enrichment:
-            asset_path = store.write_bytes(
-                _region_asset_relative_path(
+            asset_path = store.put_binary(
+                asset_path=_region_asset_relative_path(
                     page_index=canonical_page.page_index,
                     region_id=block.visual_id,
                 ),
-                _region_crop_bytes(page, region=block, dpi=settings.render_dpi),
+                content_type="image/png",
+                data=_region_crop_bytes(page, region=block, dpi=settings.render_dpi),
             )
             updated_blocks.append(
                 block.model_copy(
@@ -102,12 +104,13 @@ def _materialize_page_blocks(
             )
             continue
         if isinstance(block, UnresolvedRegion):
-            asset_path = store.write_bytes(
-                _region_asset_relative_path(
+            asset_path = store.put_binary(
+                asset_path=_region_asset_relative_path(
                     page_index=canonical_page.page_index,
                     region_id=block.region_id,
                 ),
-                _region_crop_bytes(page, region=block, dpi=settings.render_dpi),
+                content_type="image/png",
+                data=_region_crop_bytes(page, region=block, dpi=settings.render_dpi),
             )
             updated_blocks.append(
                 block.model_copy(
@@ -127,13 +130,13 @@ def materialize_visual_assets(
     *,
     source_path: str,
     ledger: CanonicalDocumentLedger,
-    store: AcquisitionArtifactStore,
+    store: RunScopedStore,
     settings: AcquisitionSettings,
 ) -> CanonicalDocumentLedger:
     """Persist stable page renders and region crops for enrichable visual inputs."""
 
     updated_pages: list[CanonicalPage] = []
-    with fitz_module.open(source_path) as document:
+    with open_document(source_path) as document:
         for canonical_page in ledger.pages:
             page = document.load_page(canonical_page.page_index)
             updated_pages.append(

@@ -1,11 +1,11 @@
-"""Unit tests for the attachment-only multimodal gateway."""
+"""Unit tests for attachment-backed requests on the unified gateway."""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from nullvector.domain import (
     BoundingBox,
@@ -13,20 +13,22 @@ from nullvector.domain import (
     VisualEnrichmentRequest,
     VisualRegionReference,
 )
-from nullvector.llm.multimodal_gateway import (
-    MultimodalFailureCategory,
-    MultimodalGatewayConfig,
-    MultimodalGatewayError,
-    MultimodalGatewayRequest,
-    MultimodalGatewayService,
-    MultimodalProviderConfig,
-    NoopMultimodalProviderAdapter,
-    NoopMultimodalResponse,
+from nullvector.llm import (
+    GatewayAuditConfig,
+    GatewayConfig,
+    GatewayError,
+    GatewayFailureCategory,
+    GatewayRequest,
+    GatewayService,
+    LiteLLMProviderConfig,
+    LLMMessage,
+    LLMRole,
+    NoopProviderAdapter,
+    NoopScriptedResponse,
     RegionImageInput,
-    VisualEnrichmentService,
     VisualInsightResponse,
+    enrich_visual_region,
 )
-from nullvector.observability import EventBus
 
 
 def write_attachment(tmp_path: Path, name: str = "region.png") -> Path:
@@ -47,35 +49,34 @@ def make_region(*, asset_path: Path | None = None) -> VisualRegionReference:
     )
 
 
-def make_gateway(
-    tmp_path: Path, adapter: NoopMultimodalProviderAdapter
-) -> MultimodalGatewayService:
-    return MultimodalGatewayService(
-        MultimodalGatewayConfig(
-            provider=MultimodalProviderConfig(model="test-multimodal"),
-            audit_root=str(tmp_path / "audit"),
+def make_gateway(tmp_path: Path, adapter: NoopProviderAdapter) -> GatewayService:
+    return GatewayService(
+        GatewayConfig(
+            provider=LiteLLMProviderConfig(model="test-model"),
+            audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
         ),
         provider_adapter=adapter,
     )
 
 
-def test_multimodal_request_requires_at_least_one_region() -> None:
-    with pytest.raises(ValidationError):
-        MultimodalGatewayRequest[VisualInsightResponse](
-            operation_name="visual_region_enrichment",
-            prompt="Describe the region",
-            regions=(),
-            response_model=VisualInsightResponse,
-        )
+class _CaptureHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[dict[str, object]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        payload = getattr(record, "nullvector_event", None)
+        if isinstance(payload, dict):
+            self.events.append(payload)
 
 
-def test_multimodal_gateway_persists_audit_and_validates_success(tmp_path: Path) -> None:
+def test_attachment_request_persists_audit_and_validates_success(tmp_path: Path) -> None:
     attachment = write_attachment(tmp_path)
     gateway = make_gateway(
         tmp_path,
-        NoopMultimodalProviderAdapter(
+        NoopProviderAdapter(
             {
-                "visual_region_enrichment": NoopMultimodalResponse(
+                "visual_region_enrichment": NoopScriptedResponse(
                     output_json={
                         "insight": {
                             "summary": "diagram summary",
@@ -90,10 +91,10 @@ def test_multimodal_gateway_persists_audit_and_validates_success(tmp_path: Path)
     )
 
     success = gateway.invoke(
-        MultimodalGatewayRequest[VisualInsightResponse](
+        GatewayRequest[VisualInsightResponse](
             operation_name="visual_region_enrichment",
-            prompt="Describe the region",
-            regions=(
+            messages=(LLMMessage(role=LLMRole.USER, content="Describe the region"),),
+            attachments=(
                 RegionImageInput(
                     region=make_region(asset_path=attachment),
                     image_path=str(attachment),
@@ -103,32 +104,31 @@ def test_multimodal_gateway_persists_audit_and_validates_success(tmp_path: Path)
         )
     )
 
-    assert success.assurance_mode.value == "attachment_only"
     assert success.output.insight.summary == "diagram summary"
     assert success.audit_path is not None
     assert Path(success.audit_path).exists()
 
 
-def test_multimodal_gateway_failure_is_typed_and_audited(tmp_path: Path) -> None:
+def test_attachment_request_failure_is_typed_and_audited(tmp_path: Path) -> None:
     attachment = write_attachment(tmp_path)
     gateway = make_gateway(
         tmp_path,
-        NoopMultimodalProviderAdapter(
+        NoopProviderAdapter(
             {
-                "visual_region_enrichment": NoopMultimodalResponse(
-                    failure_category=MultimodalFailureCategory.NETWORK_FAILURE,
+                "visual_region_enrichment": NoopScriptedResponse(
+                    failure_category=GatewayFailureCategory.NETWORK_FAILURE,
                     failure_message="network down",
                 )
             }
         ),
     )
 
-    with pytest.raises(MultimodalGatewayError) as exc_info:
+    with pytest.raises(GatewayError) as exc_info:
         gateway.invoke(
-            MultimodalGatewayRequest[VisualInsightResponse](
+            GatewayRequest[VisualInsightResponse](
                 operation_name="visual_region_enrichment",
-                prompt="Describe the region",
-                regions=(
+                messages=(LLMMessage(role=LLMRole.USER, content="Describe the region"),),
+                attachments=(
                     RegionImageInput(
                         region=make_region(asset_path=attachment),
                         image_path=str(attachment),
@@ -138,18 +138,18 @@ def test_multimodal_gateway_failure_is_typed_and_audited(tmp_path: Path) -> None
             )
         )
 
-    assert exc_info.value.failure.category is MultimodalFailureCategory.NETWORK_FAILURE
+    assert exc_info.value.failure.category is GatewayFailureCategory.NETWORK_FAILURE
     assert exc_info.value.audit_path is not None
     assert Path(exc_info.value.audit_path or "").exists()
 
 
-def test_visual_enrichment_service_returns_attachment_only_payload(tmp_path: Path) -> None:
+def test_enrich_visual_region_returns_attachment_payload_and_logs_events(tmp_path: Path) -> None:
     attachment_path = write_attachment(tmp_path)
     gateway = make_gateway(
         tmp_path,
-        NoopMultimodalProviderAdapter(
+        NoopProviderAdapter(
             {
-                "visual_region_enrichment": NoopMultimodalResponse(
+                "visual_region_enrichment": NoopScriptedResponse(
                     output_json={
                         "insight": {
                             "summary": "attachment summary",
@@ -162,15 +162,21 @@ def test_visual_enrichment_service_returns_attachment_only_payload(tmp_path: Pat
             }
         ),
     )
-    event_bus = EventBus()
-    service = VisualEnrichmentService(gateway, event_bus=event_bus)
+    logger = logging.getLogger("nullvector.test.visual")
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    capture = _CaptureHandler()
+    logger.addHandler(capture)
 
-    attachment = service.enrich(
+    attachment = enrich_visual_region(
+        gateway,
         VisualEnrichmentRequest(
             request_id="attach-001",
             region=make_region(asset_path=attachment_path),
             prompt="Describe the region",
-        )
+        ),
+        logger=logger,
     )
 
     assert attachment.authoritative is False
@@ -180,21 +186,19 @@ def test_visual_enrichment_service_returns_attachment_only_payload(tmp_path: Pat
         attributes={"rows": 3},
         confidence=0.75,
     )
-    assert [event.event_name for event in event_bus.published_events] == [
+    assert [str(event["event_name"]) for event in capture.events] == [
         "ExternalEnrichmentRequested",
         "ExternalEnrichmentMerged",
         "VisualEnrichmentAttached",
     ]
 
 
-def test_multimodal_gateway_rejects_missing_attachment_before_invocation(
-    tmp_path: Path,
-) -> None:
+def test_attachment_request_rejects_missing_attachment_before_invocation(tmp_path: Path) -> None:
     gateway = make_gateway(
         tmp_path,
-        NoopMultimodalProviderAdapter(
+        NoopProviderAdapter(
             {
-                "visual_region_enrichment": NoopMultimodalResponse(
+                "visual_region_enrichment": NoopScriptedResponse(
                     output_json={
                         "insight": {
                             "summary": "should never be used",
@@ -206,12 +210,12 @@ def test_multimodal_gateway_rejects_missing_attachment_before_invocation(
         ),
     )
 
-    with pytest.raises(MultimodalGatewayError) as exc_info:
+    with pytest.raises(GatewayError) as exc_info:
         gateway.invoke(
-            MultimodalGatewayRequest[VisualInsightResponse](
+            GatewayRequest[VisualInsightResponse](
                 operation_name="visual_region_enrichment",
-                prompt="Describe the region",
-                regions=(
+                messages=(LLMMessage(role=LLMRole.USER, content="Describe the region"),),
+                attachments=(
                     RegionImageInput(
                         region=make_region(),
                         image_path=str(tmp_path / "missing-region.png"),
@@ -221,4 +225,4 @@ def test_multimodal_gateway_rejects_missing_attachment_before_invocation(
             )
         )
 
-    assert exc_info.value.failure.category is MultimodalFailureCategory.INVALID_ATTACHMENT
+    assert exc_info.value.failure.category is GatewayFailureCategory.VALIDATION_FAILURE

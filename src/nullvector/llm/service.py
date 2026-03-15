@@ -1,4 +1,4 @@
-"""Gateway orchestration and Phase 02 repair integration for Phase 03."""
+"""Gateway orchestration and prompt-specific helpers for Phase 03."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
-from nullvector.domain.models import RepairDecision, RepairRequest
+from nullvector.domain.tree import RepairDecision, RepairRequest
 from nullvector.llm.audit import apply_redaction_hooks, json_safe, persist_audit_record
 from nullvector.llm.config_validation import (
     provider_supported_modes,
@@ -24,12 +24,12 @@ from nullvector.llm.providers.litellm_sdk import LiteLLMSDKAdapter
 from nullvector.llm.providers.openai_http import OpenAIResponsesHTTPAdapter
 from nullvector.llm.retry import backoff_delay_seconds, should_retry
 from nullvector.llm.types import (
+    GatewayAssuranceMode,
     GatewayAttempt,
     GatewayAuditRecord,
     GatewayConfig,
     GatewayFailure,
     GatewayFailureCategory,
-    GatewayOutcome,
     GatewayRequest,
     GatewaySuccess,
     JSONValue,
@@ -40,7 +40,12 @@ from nullvector.llm.types import (
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
-from nullvector.runtime_validation import validate_writable_root
+from nullvector.runtime_validation import (
+    validate_attachment_path,
+    validate_writable_root,
+)
+from nullvector.storage import StorageConfig, build_document_store
+from nullvector.storage.protocol import DocumentStore
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -99,6 +104,7 @@ def _provider_request(
         request_id=request_id,
         operation_name=request.operation_name,
         messages=request.messages,
+        attachments=request.attachments,
         model_name=_model_name(config, request),
         structured_output_mode=_effective_structured_output_mode(config, request),
         response_model_name=model.__name__,
@@ -233,6 +239,118 @@ def _provider_failure_to_gateway_failure(
     )
 
 
+def _audit_record(
+    *,
+    request: GatewayRequest[T],
+    request_id: str,
+    provider_name: str,
+    model_name: str,
+    assurance_mode: GatewayAssuranceMode,
+    structured_output_mode: StructuredOutputMode,
+    attempts: tuple[GatewayAttempt, ...],
+    request_payload: JSONValue | None = None,
+    response_payload: JSONValue | None = None,
+    parsed_output: JSONValue | None = None,
+    failure: GatewayFailure | None = None,
+) -> GatewayAuditRecord:
+    return GatewayAuditRecord(
+        audit_id=uuid.uuid4().hex,
+        request_id=request_id,
+        operation_name=request.operation_name,
+        provider_name=provider_name,
+        model_name=model_name,
+        assurance_mode=assurance_mode,
+        structured_output_mode=structured_output_mode,
+        messages=request.messages,
+        attachments=request.attachments,
+        request_payload=request_payload,
+        response_payload=response_payload,
+        parsed_output=parsed_output,
+        failure=failure,
+        attempts=attempts,
+        metadata=request.metadata,
+    )
+
+
+def _persist_audit(
+    *,
+    store: DocumentStore | None,
+    config: GatewayConfig,
+    hooks: tuple[RedactionHook, ...],
+    audit_record: GatewayAuditRecord,
+) -> tuple[GatewayAuditRecord, str | None]:
+    redacted = apply_redaction_hooks(audit_record, hooks)
+    if store is None:
+        audit_path = persist_audit_record(redacted, root=config.audit.persist_root)
+    else:
+        audit_path = store.append_audit(redacted)
+    return redacted, audit_path
+
+
+def _raise_failure(
+    failure: GatewayFailure,
+    *,
+    store: DocumentStore | None,
+    config: GatewayConfig,
+    hooks: tuple[RedactionHook, ...],
+    audit_record: GatewayAuditRecord,
+) -> None:
+    redacted, audit_path = _persist_audit(
+        store=store,
+        config=config,
+        hooks=hooks,
+        audit_record=audit_record,
+    )
+    raise error_from_failure(
+        failure,
+        audit_record=redacted,
+        audit_path=audit_path,
+    )
+
+
+def _validate_attachments(
+    request_id: str,
+    request: GatewayRequest[T],
+    *,
+    provider_name: str,
+    model_name: str,
+    structured_output_mode: StructuredOutputMode,
+) -> tuple[GatewayFailure, GatewayAuditRecord] | None:
+    try:
+        for attachment in request.attachments:
+            validate_attachment_path(attachment.image_path)
+    except ValueError as exc:
+        failure = GatewayFailure(
+            request_id=request_id,
+            operation_name=request.operation_name,
+            category=GatewayFailureCategory.VALIDATION_FAILURE,
+            message=str(exc),
+            provider_name=provider_name,
+            model_name=model_name,
+            assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+            structured_output_mode=structured_output_mode,
+            retryable=False,
+            attempt_count=0,
+            details={"attachment_count": len(request.attachments)},
+        )
+        audit_record = GatewayAuditRecord(
+            audit_id=uuid.uuid4().hex,
+            request_id=request_id,
+            operation_name=request.operation_name,
+            provider_name=provider_name,
+            model_name=model_name,
+            assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+            structured_output_mode=structured_output_mode,
+            messages=request.messages,
+            attachments=request.attachments,
+            failure=failure,
+            attempts=(),
+            metadata=request.metadata,
+        )
+        return failure, audit_record
+    return None
+
+
 class GatewayService(StructuredLLMGateway):
     """Sync-first typed gateway with NullVector-owned retries and auditing."""
 
@@ -243,21 +361,46 @@ class GatewayService(StructuredLLMGateway):
         provider_adapter: ProviderAdapter | None = None,
         redaction_hooks: tuple[RedactionHook, ...] = (),
         sleep_fn: Callable[[float], None] = time.sleep,
+        storage: StorageConfig | None = None,
     ) -> None:
         validate_gateway_mode_configuration(config)
-        validate_writable_root(config.audit.persist_root, label="gateway audit root")
+        if storage is None:
+            validate_writable_root(config.audit.persist_root, label="gateway audit root")
         self._config = config
         self._provider_adapter = provider_adapter or _default_provider_adapter(config)
         self._redaction_hooks = redaction_hooks
         self._sleep_fn = sleep_fn
+        self._audit_store: DocumentStore | None = None
+        if storage is not None or config.audit.persist_root is not None:
+            self._audit_store = build_document_store(
+                storage,
+                default_filesystem_root=config.audit.persist_root or "artifacts/gateway_audit",
+            )
 
     def close(self) -> None:
         close_method = getattr(self._provider_adapter, "close", None)
         if callable(close_method):
             close_method()
 
-    def execute(self, request: GatewayRequest[T]) -> GatewayOutcome[T]:
+    def invoke(self, request: GatewayRequest[T]) -> GatewaySuccess[T]:
         request_id = _request_id(request)
+        structured_output_mode = _effective_structured_output_mode(self._config, request)
+        attachment_failure = _validate_attachments(
+            request_id,
+            request,
+            provider_name=self._provider_adapter.provider_name,
+            model_name=_model_name(self._config, request),
+            structured_output_mode=structured_output_mode,
+        )
+        if attachment_failure is not None:
+            failure, audit_record = attachment_failure
+            _raise_failure(
+                failure,
+                store=self._audit_store,
+                config=self._config,
+                hooks=self._redaction_hooks,
+                audit_record=audit_record,
+            )
         provider_request = _provider_request(self._config, request_id, request)
         attempts: list[GatewayAttempt] = []
         delay = 0.0
@@ -291,15 +434,14 @@ class GatewayService(StructuredLLMGateway):
                         exc=exc,
                         parsed_output=locals().get("parsed_output"),
                     )
-                    audit_record = GatewayAuditRecord(
-                        audit_id=uuid.uuid4().hex,
+                    audit_record = _audit_record(
+                        request=request,
                         request_id=request_id,
-                        operation_name=request.operation_name,
                         provider_name=success.provider_name,
                         model_name=success.model_name,
                         assurance_mode=success.assurance_mode,
                         structured_output_mode=success.structured_output_mode,
-                        messages=request.messages,
+                        attempts=tuple(attempts),
                         request_payload=(
                             success.raw_request_payload
                             if self._config.audit.capture_raw_request
@@ -312,18 +454,13 @@ class GatewayService(StructuredLLMGateway):
                         ),
                         parsed_output=locals().get("parsed_output"),
                         failure=failure,
-                        attempts=tuple(attempts),
-                        metadata=request.metadata,
                     )
-                    redacted = apply_redaction_hooks(audit_record, self._redaction_hooks)
-                    audit_path = persist_audit_record(
-                        redacted,
-                        root=self._config.audit.persist_root,
-                    )
-                    return GatewayOutcome[T](
-                        failure=failure,
-                        audit_record=redacted,
-                        audit_path=audit_path,
+                    _raise_failure(
+                        failure,
+                        store=self._audit_store,
+                        config=self._config,
+                        hooks=self._redaction_hooks,
+                        audit_record=audit_record,
                     )
 
                 gateway_success = GatewaySuccess(
@@ -339,15 +476,14 @@ class GatewayService(StructuredLLMGateway):
                     provider_request_id=success.provider_request_id,
                     provider_response_id=success.provider_response_id,
                 )
-                audit_record = GatewayAuditRecord(
-                    audit_id=uuid.uuid4().hex,
+                audit_record = _audit_record(
+                    request=request,
                     request_id=request_id,
-                    operation_name=request.operation_name,
                     provider_name=success.provider_name,
                     model_name=success.model_name,
                     assurance_mode=success.assurance_mode,
                     structured_output_mode=success.structured_output_mode,
-                    messages=request.messages,
+                    attempts=tuple(attempts),
                     request_payload=(
                         success.raw_request_payload
                         if self._config.audit.capture_raw_request
@@ -359,19 +495,15 @@ class GatewayService(StructuredLLMGateway):
                         else None
                     ),
                     parsed_output=json_safe(validated_output),
-                    attempts=tuple(attempts),
-                    metadata=request.metadata,
                 )
-                redacted = apply_redaction_hooks(audit_record, self._redaction_hooks)
-                audit_path = persist_audit_record(
-                    redacted,
-                    root=self._config.audit.persist_root,
+                redacted, audit_path = _persist_audit(
+                    store=self._audit_store,
+                    config=self._config,
+                    hooks=self._redaction_hooks,
+                    audit_record=audit_record,
                 )
-                return GatewayOutcome[T](
-                    success=gateway_success.model_copy(update={"audit_path": audit_path}),
-                    audit_record=redacted,
-                    audit_path=audit_path,
-                )
+                del redacted
+                return gateway_success.model_copy(update={"audit_path": audit_path})
 
             assert result.failure is not None
             provider_failure = result.failure
@@ -393,15 +525,14 @@ class GatewayService(StructuredLLMGateway):
                 attempts=tuple(attempts),
                 failure=provider_failure,
             )
-            audit_record = GatewayAuditRecord(
-                audit_id=uuid.uuid4().hex,
+            audit_record = _audit_record(
+                request=request,
                 request_id=request_id,
-                operation_name=request.operation_name,
                 provider_name=provider_failure.provider_name,
                 model_name=provider_failure.model_name,
                 assurance_mode=provider_failure.assurance_mode,
                 structured_output_mode=provider_failure.structured_output_mode,
-                messages=request.messages,
+                attempts=tuple(attempts),
                 request_payload=(
                     provider_failure.raw_request_payload
                     if self._config.audit.capture_raw_request
@@ -413,93 +544,56 @@ class GatewayService(StructuredLLMGateway):
                     else None
                 ),
                 failure=gateway_failure,
-                attempts=tuple(attempts),
-                metadata=request.metadata,
             )
-            redacted = apply_redaction_hooks(audit_record, self._redaction_hooks)
-            audit_path = persist_audit_record(
-                redacted,
-                root=self._config.audit.persist_root,
-            )
-            return GatewayOutcome[T](
-                failure=gateway_failure,
-                audit_record=redacted,
-                audit_path=audit_path,
+            _raise_failure(
+                gateway_failure,
+                store=self._audit_store,
+                config=self._config,
+                hooks=self._redaction_hooks,
+                audit_record=audit_record,
             )
 
         msg = "gateway retry loop exhausted without producing a result"
         raise RuntimeError(msg)
 
-    def invoke(self, request: GatewayRequest[T]) -> GatewaySuccess[T]:
-        outcome = self.execute(request)
-        if outcome.success is not None:
-            return outcome.success
-        assert outcome.failure is not None
-        raise error_from_failure(
-            outcome.failure,
-            audit_record=outcome.audit_record,
-            audit_path=outcome.audit_path,
+
+def evaluate_repairs(
+    gateway: StructuredLLMGateway,
+    requests: tuple[RepairRequest, ...],
+) -> tuple[RepairDecision, ...]:
+    """Evaluate bounded repair requests through a structured gateway."""
+
+    decisions: list[RepairDecision] = []
+    for request in requests:
+        success = cast(
+            GatewaySuccess[RepairPromptResponse],
+            gateway.invoke(
+                GatewayRequest[RepairPromptResponse](
+                    operation_name=f"repair:{request.repair_kind.value}",
+                    messages=build_repair_messages(request),
+                    response_model=RepairPromptResponse,
+                    idempotency_key=request.request_id,
+                    metadata={
+                        "repair_kind": request.repair_kind.value,
+                        "subject_id": request.subject_id,
+                    },
+                )
+            ),
         )
-
-
-class GatewayRepairEngine:
-    """Gateway-backed repair engine that preserves the Phase 02 protocol."""
-
-    def __init__(
-        self,
-        *,
-        config: GatewayConfig,
-        provider_adapter: ProviderAdapter | None = None,
-        redaction_hooks: tuple[RedactionHook, ...] = (),
-        sleep_fn: Callable[[float], None] = time.sleep,
-        audit_root: str | None = None,
-    ) -> None:
-        gateway_config = config
-        if audit_root is not None:
-            gateway_config = config.model_copy(
-                update={
-                    "audit": config.audit.model_copy(update={"persist_root": audit_root}),
-                },
+        proposal = success.output
+        decisions.append(
+            RepairDecision(
+                subject_id=request.subject_id,
+                status=proposal.status,
+                repair_kind=request.repair_kind,
+                request_id=request.request_id,
+                message=proposal.message,
+                proposed_title=proposal.proposed_title,
+                resolved_level=proposal.resolved_level,
+                details=request.details,
             )
-        self._gateway = GatewayService(
-            gateway_config,
-            provider_adapter=provider_adapter,
-            redaction_hooks=redaction_hooks,
-            sleep_fn=sleep_fn,
         )
+    return tuple(decisions)
 
-    def evaluate(
-        self,
-        requests: tuple[RepairRequest, ...],
-    ) -> tuple[RepairDecision, ...]:
-        decisions: list[RepairDecision] = []
-        for request in requests:
-            success = cast(
-                GatewaySuccess[RepairPromptResponse],
-                self._gateway.invoke(
-                    GatewayRequest[RepairPromptResponse](
-                        operation_name=f"repair:{request.repair_kind.value}",
-                        messages=build_repair_messages(request),
-                        response_model=RepairPromptResponse,
-                        idempotency_key=request.request_id,
-                        metadata={
-                            "repair_kind": request.repair_kind.value,
-                            "subject_id": request.subject_id,
-                        },
-                    ),
-                ),
-            )
-            proposal = success.output
-            decisions.append(
-                RepairDecision(
-                    subject_id=request.subject_id,
-                    status=proposal.status,
-                    repair_kind=request.repair_kind,
-                    request_id=request.request_id,
-                    message=proposal.message,
-                    proposed_title=proposal.proposed_title,
-                    resolved_level=proposal.resolved_level,
-                    details=request.details,
-                ),
-            )
-        return tuple(decisions)
+
+__all__ = ["GatewayService", "evaluate_repairs"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from nullvector.domain.models import AcquisitionRequest, CanonicalDocumentLedger
+from nullvector.domain.ledger import AcquisitionRequest, CanonicalDocumentLedger
 
 
 class AcquisitionProvider(Protocol):
@@ -14,17 +14,3 @@ class AcquisitionProvider(Protocol):
 
     def acquire(self, request: AcquisitionRequest) -> CanonicalDocumentLedger:
         """Acquire one source document into the canonical v2 ledger."""
-
-
-class TranslationAdapter(Protocol):
-    """User-owned adapter that translates external provider payloads into the ledger."""
-
-    adapter_name: str
-
-    def translate(
-        self,
-        payload: object,
-        *,
-        request: AcquisitionRequest,
-    ) -> CanonicalDocumentLedger:
-        """Translate an external provider payload into the canonical v2 ledger."""

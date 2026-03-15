@@ -1,22 +1,38 @@
-"""Human-readable progress subscriber for local CLI and notebook runs."""
+"""Human-readable progress logging configuration for local runs."""
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import TextIO
 
-from nullvector.observability.events import FrameworkEvent
+
+class ProgressEventFormatter(logging.Formatter):
+    """Render structured events as lightweight progress lines."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = getattr(record, "nullvector_event", None)
+        if payload is None:
+            return record.getMessage()
+        return f"[{payload['event_name']}] document={payload['document_id']}"
 
 
-class RichProgressSubscriber:
-    """Lightweight progress subscriber with stable text output."""
+def configure_progress_logger(
+    *,
+    logger: logging.Logger | None = None,
+    stream: TextIO | None = None,
+    level: int = logging.INFO,
+) -> logging.Logger:
+    """Attach a progress-stream handler to the provided logger."""
 
-    def __init__(self, stream: TextIO | None = None) -> None:
-        self._stream = stream or sys.stderr
+    configured_logger = logger or logging.getLogger("nullvector")
+    handler = logging.StreamHandler(stream or sys.stderr)
+    handler.setLevel(level)
+    handler.setFormatter(ProgressEventFormatter())
+    configured_logger.addHandler(handler)
+    configured_logger.setLevel(level)
+    configured_logger.propagate = False
+    return configured_logger
 
-    def handle(self, event: FrameworkEvent) -> None:
-        self._stream.write(f"[{event.event_name}] document={event.document_id}\n")
-        self._stream.flush()
 
-
-__all__ = ["RichProgressSubscriber"]
+__all__ = ["ProgressEventFormatter", "configure_progress_logger"]

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from nullvector.domain.models import (
-    ContentSpan,
+from nullvector._text import levenshtein_distance
+from nullvector.domain.common import ContentSpan, PageSpan
+from nullvector.domain.tree import (
     HierarchyNode,
     LLMVerificationAssistRecord,
     OutlineAnchorRecord,
     OutlineAnchorStatus,
-    PageSpan,
     TitleMatchTier,
     TreeNodeVerificationResult,
     TreeSettings,
@@ -25,6 +25,13 @@ from nullvector.domain.models import (
 from nullvector.llm.prompts import VerificationPromptResponse, build_verification_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.storage._serialization import write_json_file
+from nullvector.tree._constants import (
+    SHORT_TITLE_EDIT_DISTANCE_THRESHOLD,
+    SHORT_TITLE_MAX_LENGTH_FOR_EDIT_DISTANCE,
+    TITLE_TOKEN_CONTAINMENT_THRESHOLD,
+    TOP_OF_PAGE_LINE_LIMIT,
+)
 from nullvector.tree.headings import (
     PageArtifacts,
     PageLine,
@@ -33,27 +40,6 @@ from nullvector.tree.headings import (
     split_text_lines_with_offsets,
     tokenize_title,
 )
-
-
-def _json_safe(value: Any) -> Any:
-    if hasattr(value, "model_dump") and callable(value.model_dump):
-        return _json_safe(value.model_dump(mode="json"))
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
-
-
-def _write_json(path: Path, payload: Any) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True),
-        encoding="utf-8",
-    )
-    return str(path)
 
 
 def _match_tier_from_lines(
@@ -78,13 +64,13 @@ def _match_tier_from_lines(
             if not line_tokens:
                 continue
             containment = len(title_tokens & line_tokens) / len(title_tokens)
-            if containment >= settings.title_token_containment_threshold:
+            if containment >= TITLE_TOKEN_CONTAINMENT_THRESHOLD:
                 return TitleMatchTier.TOKEN_CONTAINMENT
 
-    if len(normalized_title) <= settings.short_title_max_length_for_edit_distance:
+    if len(normalized_title) <= SHORT_TITLE_MAX_LENGTH_FOR_EDIT_DISTANCE:
         for line in lines:
             distance = _levenshtein_distance(normalized_title, line.normalized_text)
-            if distance <= settings.short_title_edit_distance_threshold:
+            if distance <= SHORT_TITLE_EDIT_DISTANCE_THRESHOLD:
                 return TitleMatchTier.EDIT_DISTANCE
 
     return TitleMatchTier.NONE
@@ -96,7 +82,7 @@ def determine_title_match_tier(
     settings: TreeSettings,
 ) -> TitleMatchTier:
     lines = split_text_lines_with_offsets(page.text, page.page_index)
-    return _match_tier_from_lines(title, list(lines[: settings.top_of_page_line_limit]), settings)
+    return _match_tier_from_lines(title, list(lines[:TOP_OF_PAGE_LINE_LIMIT]), settings)
 
 
 def determine_anchor_local_match_tier(
@@ -128,7 +114,7 @@ def determine_anchor_local_match_tier(
 
 def _bounded_page_excerpt(page: PageArtifacts, settings: TreeSettings) -> str:
     lines = split_text_lines_with_offsets(page.text, page.page_index)
-    excerpt_lines = [line.text for line in lines[: settings.top_of_page_line_limit]]
+    excerpt_lines = [line.text for line in lines[:TOP_OF_PAGE_LINE_LIMIT]]
     return "\n".join(excerpt_lines) if excerpt_lines else page.text[:400]
 
 
@@ -143,9 +129,11 @@ class LLMVerificationAssistant:
         self,
         gateway: StructuredLLMGateway,
         artifact_root: str | None = None,
+        artifact_writer: Callable[[str, Any], str] | None = None,
     ) -> None:
         self._gateway = gateway
         self._artifact_root = artifact_root
+        self._artifact_writer = artifact_writer
         self._records: list[LLMVerificationAssistRecord] = []
         self._artifact_path: str | None = None
 
@@ -188,8 +176,13 @@ class LLMVerificationAssistant:
             accepted=accepted,
         )
         self._records.append(record)
-        if self._artifact_root is not None:
-            self._artifact_path = _write_json(
+        if self._artifact_writer is not None:
+            self._artifact_path = self._artifact_writer(
+                "verify/llm-assists.json",
+                tuple(self._records),
+            )
+        elif self._artifact_root is not None:
+            self._artifact_path = write_json_file(
                 Path(self._artifact_root) / "verify" / "llm-assists.json",
                 tuple(self._records),
             )
@@ -200,27 +193,7 @@ class LLMVerificationAssistant:
 
 
 def _levenshtein_distance(left: str, right: str) -> int:
-    if left == right:
-        return 0
-    if not left:
-        return len(right)
-    if not right:
-        return len(left)
-
-    previous = list(range(len(right) + 1))
-    for left_index, left_char in enumerate(left, start=1):
-        current = [left_index]
-        for right_index, right_char in enumerate(right, start=1):
-            cost = 0 if left_char == right_char else 1
-            current.append(
-                min(
-                    previous[right_index] + 1,
-                    current[right_index - 1] + 1,
-                    previous[right_index - 1] + cost,
-                ),
-            )
-        previous = current
-    return previous[-1]
+    return levenshtein_distance(left, right)
 
 
 def _child_span_is_valid(node: HierarchyNode, parent: HierarchyNode) -> bool:

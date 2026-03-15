@@ -4,32 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
-
-from pydantic import BaseModel
 
 from nullvector.llm.protocols import RedactionHook
-from nullvector.llm.types import GatewayAuditRecord, JSONValue
-
-
-def json_safe(value: Any) -> JSONValue:
-    """Convert provider payloads into recursively JSON-safe structures."""
-
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    if hasattr(value, "model_dump") and callable(value.model_dump):
-        return json_safe(value.model_dump(mode="json"))
-    if isinstance(value, dict):
-        return {str(key): json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [json_safe(item) for item in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    if hasattr(value, "dict") and callable(value.dict):
-        return json_safe(value.dict())
-    if hasattr(value, "__dict__"):
-        return json_safe(vars(value))
-    return str(value)
+from nullvector.llm.types import GatewayAuditRecord
+from nullvector.storage._serialization import json_safe as json_safe
 
 
 def apply_redaction_hooks(
@@ -60,3 +38,10 @@ def persist_audit_record(
         encoding="utf-8",
     )
     return str(destination)
+
+
+__all__ = [
+    "apply_redaction_hooks",
+    "json_safe",
+    "persist_audit_record",
+]

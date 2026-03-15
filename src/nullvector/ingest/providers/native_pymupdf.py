@@ -3,29 +3,25 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-import fitz
 from pypdf import PdfReader
 
-from nullvector.domain.models import (
+from nullvector.domain.events import DocumentEvent, EventSeverity
+from nullvector.domain.ledger import (
     AcquisitionManifest,
     AcquisitionRequest,
     CanonicalDocumentLedger,
-    DocumentEvent,
-    EventSeverity,
     SourceMetadata,
 )
-from nullvector.ingest.acquisition_artifacts import settings_digest
 from nullvector.ingest.fingerprint import fingerprint_document
 from nullvector.ingest.outline import (
     extract_pymupdf_outlines,
     extract_pypdf_outlines,
     select_outline,
 )
+from nullvector.ingest.pdf_backend import open_document
 from nullvector.ingest.profiling import profile_page
-
-fitz_module: Any = fitz
+from nullvector.storage._serialization import settings_digest
 
 
 class NativePyMuPDFAcquisitionProvider:
@@ -37,7 +33,7 @@ class NativePyMuPDFAcquisitionProvider:
         fingerprint = fingerprint_document(request.source_path)
         source = Path(request.source_path)
 
-        with fitz_module.open(request.source_path) as document:
+        with open_document(request.source_path) as document:
             reader = PdfReader(request.source_path)
             _, pymupdf_entries = extract_pymupdf_outlines(document)
             _, pypdf_entries = extract_pypdf_outlines(reader)

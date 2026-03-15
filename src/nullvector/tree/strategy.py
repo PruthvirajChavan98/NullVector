@@ -5,14 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from nullvector.domain.models import (
+from nullvector.domain.ledger import OutlineSource
+from nullvector.domain.tree import (
     HeadingCandidate,
     HierarchyStrategy,
-    OutlineSource,
     OutlineTrustMode,
     StrategyExecutionReport,
     StrategyRationale,
-    TreeSettings,
 )
 
 
@@ -21,7 +20,6 @@ class StrategyAttemptResult:
     """Internal result payload for a single strategy attempt."""
 
     strategy: HierarchyStrategy
-    accuracy: float
     artifact_root: str
     committed_hierarchy_path: str
     node_cards_path: str
@@ -35,6 +33,7 @@ class StrategyAttemptResult:
     build_report_path: str
     committed_node_count: int
     unassigned_span_count: int
+    full_document_unassigned: bool
     toc_detection_path: str | None = None
     toc_reconciliation_path: str | None = None
     llm_verification_assists_path: str | None = None
@@ -106,10 +105,9 @@ def execute_hierarchy_strategy(
     selected_outline_source: OutlineSource,
     toc_candidates: Sequence[HeadingCandidate],
     gateway_available: bool,
-    settings: TreeSettings,
     attempt_runner: Callable[[HierarchyStrategy, int], StrategyAttemptResult],
 ) -> tuple[StrategyAttemptResult, StrategyExecutionReport]:
-    """Run bounded deterministic strategy attempts until accuracy is sufficient."""
+    """Run deterministic strategy attempts until one avoids hard-failure conditions."""
 
     first_strategy, rationale = select_hierarchy_strategy(
         current_trust_mode=current_trust_mode,
@@ -125,17 +123,21 @@ def execute_hierarchy_strategy(
     )
 
     attempted: list[HierarchyStrategy] = []
-    accuracies: list[float] = []
+    fallback_reasons: list[str] = []
     selected_result: StrategyAttemptResult | None = None
-    max_attempts = min(len(ordered), 1 + settings.max_strategy_cascade_depth)
 
-    for attempt_index, strategy in enumerate(ordered[:max_attempts], start=1):
+    for attempt_index, strategy in enumerate(ordered, start=1):
         result = attempt_runner(strategy, attempt_index)
         attempted.append(strategy)
-        accuracies.append(result.accuracy)
         selected_result = result
-        if result.accuracy >= settings.strategy_accuracy_threshold:
+        reason: str | None = None
+        if result.committed_node_count == 0:
+            reason = "zero_committed_nodes"
+        elif result.full_document_unassigned:
+            reason = "full_document_unassigned"
+        if reason is None:
             break
+        fallback_reasons.append(f"{strategy.value}:{reason}")
 
     if selected_result is None:
         msg = "strategy execution produced no attempt results"
@@ -153,7 +155,6 @@ def execute_hierarchy_strategy(
                 )
             }
         ),
-        cascade_depth=max(0, len(attempted) - 1),
-        accuracy_at_each_level=tuple(accuracies),
+        fallback_reasons=tuple(fallback_reasons),
     )
     return selected_result, report

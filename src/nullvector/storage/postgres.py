@@ -139,10 +139,11 @@ class PostgresDocumentStore:
         run_type: str,
         run_id: str,
         document_id: str,
-        artifact_root: str,
+        artifact_root: str | None = None,
         identity: Mapping[str, object | None],
     ) -> tuple[bool, dict[str, Any]]:
         table = self._run_table(run_type)
+        _root = artifact_root or ""
         with self._connect() as conn:
             inserted = conn.execute(
                 f"""
@@ -157,7 +158,7 @@ class PostgresDocumentStore:
                 VALUES (%s, %s, %s, 'running', %s::jsonb, NULL)
                 ON CONFLICT (run_id) DO NOTHING
                 """,
-                (run_id, document_id, artifact_root, canonical_json_text(identity)),
+                (run_id, document_id, _root, canonical_json_text(identity)),
             )
             created = inserted.rowcount > 0
             row = conn.execute(

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 
-from nullvector.domain.models import NonEmptyStr, StrataModel
+from nullvector.domain.common import NonEmptyStr, NullVectorModel
 from nullvector.llm.types import LLMMessage, LLMRole
 
 
-class VerificationPromptResponse(StrataModel):
+class VerificationPromptResponse(NullVectorModel):
     """Typed verification-assistance output for future phases."""
 
     verdict: NonEmptyStr

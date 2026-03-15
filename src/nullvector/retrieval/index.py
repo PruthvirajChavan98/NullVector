@@ -2,22 +2,13 @@
 
 from __future__ import annotations
 
-import string
 from collections import defaultdict
+from typing import cast
 
-from nullvector.domain.models import PageSpan
+from nullvector._text import normalize_text, tokenize
+from nullvector.domain.common import PageSpan
 from nullvector.domain.retrieval import QueryPlan, RetrievalCorpus, RetrievalEvidence
-
-_PUNCTUATION_TABLE = str.maketrans({character: " " for character in string.punctuation})
-
-
-def _normalize_text(value: str) -> str:
-    return " ".join(value.casefold().translate(_PUNCTUATION_TABLE).split())
-
-
-def _tokenize(value: str) -> tuple[str, ...]:
-    normalized = _normalize_text(value)
-    return tuple(token for token in normalized.split() if token)
+from nullvector.storage.protocol import DocumentStore
 
 
 def _intersects(left: PageSpan, right: PageSpan) -> bool:
@@ -46,9 +37,7 @@ class InMemoryRetrievalIndex:
         if plan.page_filter is not None:
             page_filter = plan.page_filter
             candidates = tuple(
-                unit
-                for unit in candidates
-                if _intersects(unit.page_span, page_filter)
+                unit for unit in candidates if _intersects(unit.page_span, page_filter)
             )
         if plan.unit_types:
             allowed_types = set(plan.unit_types)
@@ -59,7 +48,7 @@ class InMemoryRetrievalIndex:
         return candidates
 
     def postings(self, token: str) -> tuple[str, ...]:
-        return self._token_postings.get(_normalize_text(token), ())
+        return self._token_postings.get(normalize_text(token), ())
 
     def _build_indexes(self) -> None:
         token_postings: dict[str, set[str]] = defaultdict(set)
@@ -79,13 +68,13 @@ class InMemoryRetrievalIndex:
                 for part in (unit.title or "", unit.text or "", " ".join(unit.keywords))
                 if part
             )
-            for token in _tokenize(token_source):
+            for token in tokenize(token_source):
                 token_postings[token].add(unit.unit_id)
             if unit.title is not None:
-                for token in _tokenize(unit.title):
+                for token in tokenize(unit.title):
                     title_postings[token].add(unit.unit_id)
             for keyword in unit.keywords:
-                for token in _tokenize(keyword):
+                for token in tokenize(keyword):
                     keyword_postings[token].add(unit.unit_id)
 
         self._token_postings = {
@@ -106,4 +95,34 @@ class InMemoryRetrievalIndex:
         }
 
 
-__all__ = ["InMemoryRetrievalIndex"]
+class PostgresRetrievalIndex:
+    """Store-backed retrieval index that delegates filtering to PostgreSQL."""
+
+    def __init__(self, store: DocumentStore, *, document_id: str) -> None:
+        self._store = store
+        self._document_id = document_id
+
+    def filter_units(self, plan: QueryPlan) -> tuple[RetrievalEvidence, ...]:
+        page_start: int | None = None
+        page_end: int | None = None
+        if plan.page_filter is not None:
+            page_start = plan.page_filter.start_page
+            page_end = plan.page_filter.end_page
+        payloads = self._store.query_retrieval_units(
+            self._document_id,
+            page_start=page_start,
+            page_end=page_end,
+            unit_types=tuple(unit_type.value for unit_type in plan.unit_types),
+            modalities=tuple(modality.value for modality in plan.modality_filters),
+            text_query=plan.normalized_query if plan.normalized_query else None,
+            limit=250,
+        )
+        return tuple(
+            # strict=False required: JSONB round-trip deserialises tuple fields as
+            # lists; model_validate must coerce them back to tuples.
+            RetrievalEvidence.model_validate(cast(dict[str, object], payload), strict=False)
+            for payload in payloads
+        )
+
+
+__all__ = ["InMemoryRetrievalIndex", "PostgresRetrievalIndex"]

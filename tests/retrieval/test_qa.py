@@ -10,13 +10,16 @@ from nullvector.domain import (
     PageSpan,
     VisualRegionReference,
 )
-from nullvector.llm.multimodal_gateway import (
-    MultimodalAssuranceMode,
-    MultimodalFailureCategory,
-    MultimodalGatewayAuditRecord,
-    MultimodalGatewayError,
-    MultimodalGatewayFailure,
+from nullvector.llm import (
+    GatewayAssuranceMode,
+    GatewayAuditRecord,
+    GatewayError,
+    GatewayFailure,
+    GatewayFailureCategory,
+    LLMMessage,
+    LLMRole,
     RegionImageInput,
+    StructuredOutputMode,
 )
 from nullvector.retrieval import (
     QueryPlanner,
@@ -33,34 +36,38 @@ from .support import write_synthetic_bundle
 
 def _services(
     *,
-    multimodal_service: object | None = None,
+    gateway: object | None = None,
 ) -> tuple[RetrievalService, RetrievalQAService]:
     retrieval_service = RetrievalService(QueryPlanner(), RetrievalRanker())
     return retrieval_service, RetrievalQAService(
         retrieval_service,
-        multimodal_service=multimodal_service,
+        gateway=gateway,
     )
 
 
-def _multimodal_gateway_error() -> MultimodalGatewayError:
-    failure = MultimodalGatewayFailure(
+def _gateway_error() -> GatewayError:
+    failure = GatewayFailure(
         request_id="request-001",
         operation_name="visual_region_enrichment",
-        category=MultimodalFailureCategory.NETWORK_FAILURE,
+        category=GatewayFailureCategory.NETWORK_FAILURE,
         message="network failure",
         provider_name="test-provider",
         model_name="test-model",
-        assurance_mode=MultimodalAssuranceMode.ATTACHMENT_ONLY,
+        assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+        structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+        retryable=False,
+        attempt_count=1,
     )
-    audit_record = MultimodalGatewayAuditRecord(
+    audit_record = GatewayAuditRecord(
         audit_id="audit-001",
         request_id="request-001",
         operation_name="visual_region_enrichment",
         provider_name="test-provider",
         model_name="test-model",
-        assurance_mode=MultimodalAssuranceMode.ATTACHMENT_ONLY,
-        prompt="Describe the image region.",
-        regions=(
+        assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+        structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+        messages=(LLMMessage(role=LLMRole.USER, content="Describe the image region."),),
+        attachments=(
             RegionImageInput(
                 region=VisualRegionReference(
                     document_id="d" * 64,
@@ -72,21 +79,22 @@ def _multimodal_gateway_error() -> MultimodalGatewayError:
             ),
         ),
         failure=failure,
+        attempts=(),
     )
-    return MultimodalGatewayError(
+    return GatewayError(
         failure,
         audit_record=audit_record,
         audit_path=None,
     )
 
 
-class _GatewayErrorMultimodalService:
-    def enrich(self, _request: object) -> object:
-        raise _multimodal_gateway_error()
+class _GatewayErrorGateway:
+    def invoke(self, _request: object) -> object:
+        raise _gateway_error()
 
 
-class _RuntimeErrorMultimodalService:
-    def enrich(self, _request: object) -> object:
+class _RuntimeErrorGateway:
+    def invoke(self, _request: object) -> object:
         raise RuntimeError("boom")
 
 
@@ -120,7 +128,7 @@ def test_visual_query_multimodal_gateway_error_falls_back_cleanly(tmp_path: Path
         tree_manifest_path=str(bundle.tree_manifest_path),
     )
     corpus = load_retrieval_corpus(manifest.corpus_path)
-    _, qa_service = _services(multimodal_service=_GatewayErrorMultimodalService())
+    _, qa_service = _services(gateway=_GatewayErrorGateway())
 
     response = qa_service.answer(
         corpus=corpus,
@@ -139,7 +147,7 @@ def test_visual_query_runtime_error_falls_back_cleanly(tmp_path: Path) -> None:
         tree_manifest_path=str(bundle.tree_manifest_path),
     )
     corpus = load_retrieval_corpus(manifest.corpus_path)
-    _, qa_service = _services(multimodal_service=_RuntimeErrorMultimodalService())
+    _, qa_service = _services(gateway=_RuntimeErrorGateway())
 
     response = qa_service.answer(
         corpus=corpus,

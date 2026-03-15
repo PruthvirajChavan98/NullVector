@@ -23,8 +23,7 @@ from nullvector.domain import (
     TreeBuildRequest,
     TreeSettings,
 )
-from nullvector.domain.models import PageExtractionMethod
-from nullvector.ingest.artifacts import settings_digest
+from nullvector.domain.ledger import PageExtractionMethod
 from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
@@ -33,6 +32,7 @@ from nullvector.llm import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
+from nullvector.storage._serialization import settings_digest
 from nullvector.tree import TreeConflictError, TreePipelineError, build_tree
 
 from ..support.acquisition_fixtures import convert_legacy_parse_fixture_to_acquisition
@@ -214,6 +214,7 @@ def first_source_line(cell: dict[str, Any]) -> str:
     return ""
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "case_name",
     [
@@ -261,6 +262,7 @@ def test_tree_build_matches_expected_fixture_outputs(case_name: str, tmp_path: P
         assert expected["suppressed_title"] not in [card["title"] for card in node_cards]
 
 
+@pytest.mark.integration
 def test_tree_run_index_is_written_and_points_to_manifest(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
@@ -280,6 +282,7 @@ def test_tree_run_index_is_written_and_points_to_manifest(tmp_path: Path) -> Non
     assert run_index["document_id"] == manifest.document_id
 
 
+@pytest.mark.integration
 def test_strategy_report_is_persisted_for_default_builds(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
@@ -298,9 +301,11 @@ def test_strategy_report_is_persisted_for_default_builds(tmp_path: Path) -> None
     assert report["attempted_strategies"][0] == "outline_only"
     assert headings["strategy"] == "outline_only"
     assert headings["effective_trust_mode"] == "outline_primary"
-    assert "/strategy/attempts/" in manifest.headings_path
+    assert "/strategy/attempts/" not in manifest.headings_path
+    assert manifest.headings_path.endswith("/headings/candidates.json")
 
 
+@pytest.mark.integration
 def test_strategy_attempt_artifacts_are_written(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("no_outline_inferred", tmp_path)
 
@@ -317,9 +322,11 @@ def test_strategy_attempt_artifacts_are_written(tmp_path: Path) -> None:
     headings = cast(dict[str, Any], load_json(manifest.headings_path))
     assert "strategy" in headings
     assert "effective_trust_mode" in headings
-    assert "/strategy/attempts/" in manifest.committed_hierarchy_path
+    assert "/strategy/attempts/" not in manifest.committed_hierarchy_path
+    assert manifest.committed_hierarchy_path.endswith("/hierarchy/committed.json")
 
 
+@pytest.mark.integration
 def test_tree_rerun_is_idempotent_and_conflicts_on_changed_input(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
     request = TreeBuildRequest(
@@ -351,6 +358,7 @@ def test_tree_rerun_is_idempotent_and_conflicts_on_changed_input(tmp_path: Path)
         )
 
 
+@pytest.mark.integration
 def test_tree_run_id_conflicts_across_acquisition_roots_with_identical_contents(
     tmp_path: Path,
 ) -> None:
@@ -378,6 +386,7 @@ def test_tree_run_id_conflicts_across_acquisition_roots_with_identical_contents(
         )
 
 
+@pytest.mark.integration
 def test_build_report_counts_follow_reconciled_candidate_sequence(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("partial_outline", tmp_path)
 
@@ -404,6 +413,7 @@ def test_build_report_counts_follow_reconciled_candidate_sequence(tmp_path: Path
     )
 
 
+@pytest.mark.integration
 def test_tree_build_summarization_is_opt_in(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
@@ -439,6 +449,7 @@ def test_tree_build_summarization_is_opt_in(tmp_path: Path) -> None:
     assert any(card.get("summary_method") is not None for card in cards_with_summaries)
 
 
+@pytest.mark.integration
 def test_tree_build_raises_when_summarize_enabled_without_gateway(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
@@ -452,6 +463,7 @@ def test_tree_build_raises_when_summarize_enabled_without_gateway(tmp_path: Path
         )
 
 
+@pytest.mark.integration
 def test_build_path_applies_large_leaf_decomposition(tmp_path: Path) -> None:
     acquisition_manifest_path = write_decomposition_acquisition_fixture(tmp_path)
 
@@ -477,6 +489,7 @@ def test_build_path_applies_large_leaf_decomposition(tmp_path: Path) -> None:
     assert all("owned_spans" in card for card in node_cards)
 
 
+@pytest.mark.integration
 def test_verification_report_uses_tree_specific_node_results(tmp_path: Path) -> None:
     acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
 
@@ -494,6 +507,7 @@ def test_verification_report_uses_tree_specific_node_results(tmp_path: Path) -> 
     assert all("parse_run_id" not in result for result in report["node_results"])
 
 
+@pytest.mark.integration
 def test_progress_notebook_executes_top_to_bottom(tmp_path: Path) -> None:
     output_path = tmp_path / "progress.executed.ipynb"
     subprocess.run(
@@ -519,6 +533,7 @@ def test_progress_notebook_executes_top_to_bottom(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.integration
 def test_progress_notebook_source_has_no_saved_error_outputs() -> None:
     notebook = cast(
         dict[str, Any],
@@ -534,6 +549,7 @@ def test_progress_notebook_source_has_no_saved_error_outputs() -> None:
     )
 
 
+@pytest.mark.integration
 def test_progress_notebook_structure_matches_repo_contract() -> None:
     notebook = cast(
         dict[str, Any],
@@ -573,6 +589,7 @@ def test_progress_notebook_structure_matches_repo_contract() -> None:
     assert "### Known Limitations" in "".join(cells[-1].get("source", []))
 
 
+@pytest.mark.integration
 def test_spec_v1_demo_notebook_source_has_no_saved_error_outputs() -> None:
     notebook = cast(
         dict[str, Any],
@@ -588,6 +605,7 @@ def test_spec_v1_demo_notebook_source_has_no_saved_error_outputs() -> None:
     )
 
 
+@pytest.mark.integration
 def test_spec_v1_demo_notebook_structure_matches_contract() -> None:
     notebook = cast(
         dict[str, Any],
@@ -626,6 +644,7 @@ def test_spec_v1_demo_notebook_structure_matches_contract() -> None:
     assert "### Known Limitations" in "".join(cells[-1].get("source", []))
 
 
+@pytest.mark.integration
 def test_spec_v1_demo_notebook_executes_when_local_pdf_present(tmp_path: Path) -> None:
     if not Path("903000608.pdf").exists():
         pytest.skip("903000608.pdf not present; local real-PDF demo notebook is optional")

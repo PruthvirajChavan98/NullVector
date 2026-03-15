@@ -6,23 +6,21 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from nullvector.domain.models import (
-    ContentSpan,
+from nullvector.domain.common import ContentSpan, NodeOwnedSpan, PageSpan
+from nullvector.domain.ledger import OutlineQualityReport, OutlineSource
+from nullvector.domain.tree import (
     HeadingCandidate,
     HeadingSourceKind,
     HierarchyNode,
     HierarchyOrigin,
     NodeCard,
-    NodeOwnedSpan,
-    OutlineQualityReport,
-    OutlineSource,
     OutlineTrustMode,
-    PageSpan,
     RepairKind,
     RepairRequest,
     TreeSettings,
     UnassignedPageSpan,
 )
+from nullvector.tree._constants import MAXIMUM_ALLOWED_PAGE_ADJACENCY
 from nullvector.tree.anchors import node_anchor_to_source_anchor
 from nullvector.tree.headings import PageArtifacts, numbering_depth
 
@@ -77,7 +75,7 @@ def _candidates_match(
 ) -> bool:
     return (
         left.normalized_title == right.normalized_title
-        and abs(left.page_index - right.page_index) <= settings.maximum_allowed_page_adjacency
+        and abs(left.page_index - right.page_index) <= MAXIMUM_ALLOWED_PAGE_ADJACENCY
     )
 
 

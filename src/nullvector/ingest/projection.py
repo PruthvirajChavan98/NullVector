@@ -3,42 +3,26 @@
 from __future__ import annotations
 
 import hashlib
-import string
 
-from nullvector.domain.models import (
+from nullvector._text import casefold_punct_key, normalized_text_key
+from nullvector.domain.events import ContentAuthoritativeness, SourceTrack, TrustTier
+from nullvector.domain.ledger import (
     CanonicalDocumentLedger,
     CanonicalTextLine,
     CanonicalTextPage,
     CanonicalTextSubstrate,
-    ContentAuthoritativeness,
     LineBlock,
-    SourceTrack,
+    TableArtifact,
+    UnresolvedRegion,
+)
+from nullvector.domain.tree import (
     SynthesisLine,
     SynthesisPage,
     SynthesisTextProjection,
     SynthesisTrustSummary,
     SynthesisUnresolvedRegion,
-    TableArtifact,
     TreeSynthesisView,
-    TrustTier,
-    UnresolvedRegion,
 )
-
-_PUNCTUATION_TABLE = str.maketrans("", "", string.punctuation)
-
-
-def _display_text(value: str) -> str:
-    return " ".join(value.split()).strip()
-
-
-def _normalize_text(value: str) -> str:
-    return _display_text(value).casefold()
-
-
-def _casefold_punct_key(value: str) -> str:
-    normalized = _display_text(value)
-    punct_stripped = normalized.casefold().translate(_PUNCTUATION_TABLE)
-    return punct_stripped.strip() or normalized.casefold().strip() or "__empty__"
 
 
 def _trust_tier_for_provenance(source_track: SourceTrack, confidence: float | None) -> TrustTier:
@@ -84,8 +68,8 @@ def build_canonical_text_substrate(ledger: CanonicalDocumentLedger) -> Canonical
                 CanonicalTextLine(
                     line_id=line.line_id,
                     content=line.content,
-                    normalized_text=_normalize_text(line.content),
-                    casefold_punct_text=_casefold_punct_key(line.content),
+                    normalized_text=normalized_text_key(line.content),
+                    casefold_punct_text=casefold_punct_key(line.content),
                     page_index=page.page_index,
                     reading_index=line.reading_index,
                     start_offset=start_offset,
@@ -130,8 +114,8 @@ def project_ledger_to_tree_synthesis_view(ledger: CanonicalDocumentLedger) -> Tr
                 SynthesisLine(
                     line_id=line.line_id,
                     content=line.content,
-                    normalized_text=_normalize_text(line.content),
-                    casefold_punct_text=_casefold_punct_key(line.content),
+                    normalized_text=normalized_text_key(line.content),
+                    casefold_punct_text=casefold_punct_key(line.content),
                     page_index=page.page_index,
                     reading_index=line.reading_index,
                     start_offset=start_offset,

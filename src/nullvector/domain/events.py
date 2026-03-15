@@ -7,7 +7,7 @@ from typing import Self
 
 from pydantic import Field, NonNegativeInt, model_validator
 
-from nullvector.domain.common import NonEmptyStr, ScalarValue, StrataModel
+from nullvector.domain.common import NonEmptyStr, NullVectorModel, ScalarValue
 
 
 class EventSeverity(StrEnum):
@@ -45,7 +45,7 @@ class TrustTier(StrEnum):
     VISUAL_INTERPRETIVE = "visual_interpretive"
 
 
-class ExtractionProvenance(StrataModel):
+class ExtractionProvenance(NullVectorModel):
     """Normalized provenance for any acquired or enriched content unit."""
 
     source_track: SourceTrack
@@ -65,7 +65,7 @@ class ExtractionProvenance(StrataModel):
         return self
 
 
-class GroundingEvidence(StrataModel):
+class GroundingEvidence(NullVectorModel):
     """Hard evidence that supports a block independently of provenance."""
 
     has_native_text_anchor: bool = False
@@ -74,7 +74,7 @@ class GroundingEvidence(StrataModel):
     supporting_native_refs: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
 
 
-class DocumentEvent(StrataModel):
+class DocumentEvent(NullVectorModel):
     """Typed document-level event suitable for artifact persistence and event buses."""
 
     event_id: NonEmptyStr
@@ -84,7 +84,7 @@ class DocumentEvent(StrataModel):
     details: dict[str, ScalarValue] = Field(default_factory=dict)
 
 
-class PageEvent(StrataModel):
+class PageEvent(NullVectorModel):
     """Typed page-level event suitable for artifact persistence and event buses."""
 
     event_id: NonEmptyStr

@@ -15,7 +15,7 @@ from nullvector.domain import (
     PageSpan,
     TreeSettings,
 )
-from nullvector.domain.models import VerificationStatus
+from nullvector.domain.tree import VerificationStatus
 from nullvector.llm import (
     GatewayAssuranceMode,
     GatewayAuditConfig,
@@ -465,7 +465,7 @@ def test_mid_page_verification_fallback_accepts_local_anchor_window() -> None:
         origin=HierarchyOrigin.INFERRED,
         confidence=0.8,
     )
-    settings = TreeSettings(top_of_page_line_limit=3)
+    settings = TreeSettings()
 
     assert determine_title_match_tier(node.title, page, settings).value == "none"
 

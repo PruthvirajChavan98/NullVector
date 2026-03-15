@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import importlib
+from logging import Logger
 from typing import Any
 
-from nullvector.domain.models import NodeCard, NodeSummary, VisualEnrichmentAttachment
+from nullvector.domain.tree import NodeCard, NodeSummary, VisualEnrichmentAttachment
 from nullvector.export.langchain import ExporterDependencyError, _base_metadata
-from nullvector.observability import EventBus, ExportCompleted
+from nullvector.observability.logging import log_event
 
 
 def to_llamaindex_node(
@@ -35,7 +36,7 @@ def to_llamaindex_nodes(
     *,
     summaries_by_id: dict[str, NodeSummary] | None = None,
     attachments_by_node_id: dict[str, tuple[VisualEnrichmentAttachment, ...]] | None = None,
-    event_bus: EventBus | None = None,
+    logger: Logger | None = None,
 ) -> list[Any]:
     """Project many node cards into LlamaIndex TextNodes."""
 
@@ -49,15 +50,13 @@ def to_llamaindex_nodes(
         )
         for node_card in node_cards
     ]
-    if event_bus is not None and node_cards:
-        event_bus.publish(
-            ExportCompleted(
-                event_id=f"{node_cards[0].document_id}-llamaindex-export",
-                event_name="ExportCompleted",
-                document_id=node_cards[0].document_id,
-                exporter_name="llamaindex",
-                item_count=len(nodes),
-            )
+    if node_cards:
+        log_event(
+            logger,
+            "ExportCompleted",
+            document_id=node_cards[0].document_id,
+            exporter_name="llamaindex",
+            item_count=len(nodes),
         )
     return nodes
 
