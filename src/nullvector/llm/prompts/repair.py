@@ -24,8 +24,8 @@ class RepairPromptResponse(NullVectorModel):
     request_id: NonEmptyStr
     status: RepairStatus
     message: NonEmptyStr
-    proposed_title: NonEmptyStr | None = None
-    resolved_level: PositiveInt | None = None
+    proposed_title: NonEmptyStr | None
+    resolved_level: PositiveInt | None
 
     @model_validator(mode="after")
     def validate_response(self) -> RepairPromptResponse:

@@ -20,9 +20,9 @@ Adopt the following final migration structure:
 - semantic summarization and decomposition move into `nullvector.semantic`
 - token accounting is mediated by a tokenizer protocol with a heuristic default and an optional
   exact tokenizer
-- multimodal/VLM enrichment lives under `nullvector.llm.multimodal_gateway` and is strictly
-  attachment-only
-- typed workflow events are emitted through an in-process deterministic event bus under
+- multimodal/VLM enrichment is handled through the main `nullvector.llm` gateway surface using
+  attachment inputs
+- structured runtime events are emitted through logger helpers under
   `nullvector.observability`
 - LangChain and LlamaIndex exporters live under `nullvector.export` and remain optional,
   edge-only helpers

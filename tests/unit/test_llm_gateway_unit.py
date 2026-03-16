@@ -216,22 +216,36 @@ def test_noop_adapter_rejects_unknown_operations(tmp_path: Path) -> None:
         gateway.invoke(make_request(operation_name="missing-script", idempotency_key="missing"))
 
 
+def _fake_completion_response(message_content: str, resp_id: str) -> dict[str, Any]:
+    """Build a minimal litellm.completion() response dict."""
+    return {
+        "id": resp_id,
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": message_content,
+                    "parsed": None,
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 4,
+            "completion_tokens": 5,
+            "total_tokens": 9,
+        },
+    }
+
+
 def test_litellm_adapter_returns_transport_compatible_assurance(tmp_path: Path) -> None:
-    def fake_responses(**kwargs: Any) -> dict[str, Any]:
-        assert kwargs["text"]["format"]["type"] == "json_schema"
-        return {
-            "id": "litellm-resp-1",
-            "output_text": '{"message":"hello from litellm"}',
-            "usage": {
-                "input_tokens": 4,
-                "output_tokens": 5,
-                "total_tokens": 9,
-            },
-        }
+    def fake_completion(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["response_format"]["type"] == "json_schema"
+        return _fake_completion_response('{"message":"hello from litellm"}', "litellm-resp-1")
 
     gateway = GatewayService(
         make_config(tmp_path),
-        provider_adapter=LiteLLMSDKAdapter(responses_callable=fake_responses),
+        provider_adapter=LiteLLMSDKAdapter(completion_callable=fake_completion),
     )
 
     success = gateway.invoke(make_request(idempotency_key="litellm-success"))
@@ -243,12 +257,11 @@ def test_litellm_adapter_returns_transport_compatible_assurance(tmp_path: Path) 
 def test_litellm_adapter_accepts_direct_provider_credentials(tmp_path: Path) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_responses(**kwargs: Any) -> dict[str, Any]:
+    def fake_completion(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
-        return {
-            "id": "litellm-direct-creds",
-            "output_text": '{"message":"hello from direct creds"}',
-        }
+        return _fake_completion_response(
+            '{"message":"hello from direct creds"}', "litellm-direct-creds"
+        )
 
     gateway = GatewayService(
         GatewayConfig(
@@ -259,7 +272,7 @@ def test_litellm_adapter_accepts_direct_provider_credentials(tmp_path: Path) -> 
             ),
             audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
         ),
-        provider_adapter=LiteLLMSDKAdapter(responses_callable=fake_responses),
+        provider_adapter=LiteLLMSDKAdapter(completion_callable=fake_completion),
     )
 
     success = gateway.invoke(make_request(idempotency_key="litellm-direct-creds"))
@@ -272,7 +285,7 @@ def test_litellm_adapter_accepts_direct_provider_credentials(tmp_path: Path) -> 
 def test_litellm_adapter_rejects_provider_native_requests(tmp_path: Path) -> None:
     gateway = GatewayService(
         make_config(tmp_path),
-        provider_adapter=LiteLLMSDKAdapter(responses_callable=lambda **_: {}),
+        provider_adapter=LiteLLMSDKAdapter(completion_callable=lambda **_: {}),
     )
 
     with pytest.raises(GatewayConfigurationError, match="does not support structured output mode"):

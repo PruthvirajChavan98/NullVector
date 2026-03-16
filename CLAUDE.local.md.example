@@ -1,0 +1,41 @@
+# CLAUDE.local.md — Personal Overrides
+#
+# This file is GITIGNORED. It contains machine-local or personal preferences
+# that should not be shared with the team.
+#
+# To activate: copy to CLAUDE.local.md in the project root.
+# cp CLAUDE.local.md.example CLAUDE.local.md
+#
+# Instructions here override project-level CLAUDE.md on conflict.
+# Keep this file minimal — only personal deviations from team defaults belong here.
+
+---
+
+## Personal Tooling Preferences
+
+# Example: if you prefer a different terminal pager
+# env: PAGER=less
+
+## Local Infrastructure
+
+# If your local postgres runs on a non-standard port
+# DATABASE_URL=postgresql+asyncpg://REDACTED_DB_CRED@localhost:5433/devdb
+
+## Editor Integration
+
+# If you use a specific Python interpreter path not managed by uv
+# PYTHON_INTERPRETER=/usr/local/bin/python3.11
+
+## Verbosity Preferences
+
+# Uncomment to get verbose pytest output locally (CI always uses -q)
+# pytest_default_flags = -v --tb=short
+
+## Personal Notes for Claude
+
+# Add any personal instructions here that you want Claude to follow
+# only in your local sessions. For example:
+#
+# - When I say "check the DB", query the local postgres instance, not staging.
+# - My preferred diff format is side-by-side (git diff --word-diff).
+# - When suggesting refactors, always show before/after comparisons.

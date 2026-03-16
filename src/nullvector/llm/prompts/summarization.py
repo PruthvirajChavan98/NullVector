@@ -12,7 +12,7 @@ class SummarizationPromptResponse(NullVectorModel):
     """Typed summarization output for later workflow phases."""
 
     summary: NonEmptyStr
-    keywords: tuple[NonEmptyStr, ...] = ()
+    keywords: tuple[NonEmptyStr, ...]
 
 
 def build_summarization_messages(

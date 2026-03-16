@@ -8,6 +8,8 @@ from nullvector.domain import (
     AcquisitionSettings,
     AnchorSource,
     AnswerCitation,
+    BatchItemFailure,
+    BatchResult,
     BoundingBox,
     CanonicalDocumentLedger,
     CanonicalPage,
@@ -91,6 +93,8 @@ from nullvector.domain import (
     VisualEnrichmentRequest,
     VisualRegionReference,
 )
+from nullvector.ingest.acquisition_service import acquire_batch
+from nullvector.tree.service import build_tree_batch
 
 __all__ = [
     "AcquisitionManifest",
@@ -100,6 +104,8 @@ __all__ = [
     "AcquisitionSettings",
     "AnchorSource",
     "AnswerCitation",
+    "BatchItemFailure",
+    "BatchResult",
     "BoundingBox",
     "CanonicalDocumentLedger",
     "CanonicalPage",
@@ -182,4 +188,6 @@ __all__ = [
     "VisualEnrichmentAttachment",
     "VisualEnrichmentRequest",
     "VisualRegionReference",
+    "acquire_batch",
+    "build_tree_batch",
 ]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Self, TypeAlias
+from typing import Annotated, Generic, Self, TypeAlias, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -114,7 +114,34 @@ class NodeOwnedSpan(NullVectorModel):
     kind: NonEmptyStr
 
 
+_T = TypeVar("_T")
+
+
+class BatchItemFailure(NullVectorModel):
+    """Records a single-item failure within a batch pipeline operation."""
+
+    item_index: NonNegativeInt
+    error_type: NonEmptyStr
+    error_message: NonEmptyStr
+
+
+class BatchResult(BaseModel, Generic[_T]):
+    """Typed envelope for the outcome of a batch pipeline operation.
+
+    Uses ``BaseModel`` directly (not ``NullVectorModel``) because ``strict=True``
+    on a Generic container causes TypeVar resolution friction with Pydantic v2.
+    ``frozen=True`` and ``extra="forbid"`` are still enforced via ``ConfigDict``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    successful: tuple[_T, ...]
+    failed: tuple[BatchItemFailure, ...]
+
+
 __all__ = [
+    "BatchItemFailure",
+    "BatchResult",
     "BoundingBox",
     "ContentSpan",
     "GeometryCoordinateSpace",

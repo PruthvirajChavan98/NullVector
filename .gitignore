@@ -13,8 +13,11 @@ tmp/
 .ipynb_checkpoints/
 htmlcov/
 artifacts/
+_artifacts/
+nullvector_artifacts/
 fixtures/phase02/inputs/*/tree/
 notebooks/_artifacts/
 notebooks/artifacts/
 notebooks/.ipynb_checkpoints/
 files_dump*
+CHANGE_DIFF*

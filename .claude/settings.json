@@ -1,0 +1,83 @@
+{
+  "//": "Claude Code project-level settings. Committed to version control.",
+  "//": "Personal overrides belong in CLAUDE.local.md (gitignored), not here.",
+
+  "permissions": {
+    "allow": [
+      "Bash(uv:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(echo:*)",
+      "Bash(docker compose up -d)",
+      "Bash(docker compose down)",
+      "Bash(docker compose ps)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push:*)",
+      "Bash(git push --force:*)",
+      "Bash(git rebase:*)",
+      "Bash(uv add:*)",
+      "Bash(uv remove:*)",
+      "Bash(pip:*)",
+      "Bash(pip3:*)",
+      "Bash(poetry:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(sudo:*)",
+      "Bash(chmod 777:*)",
+      "Bash(psql:*)",
+      "Bash(alembic upgrade:*)",
+      "Bash(alembic downgrade:*)"
+    ]
+  },
+
+  "env": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1",
+    "MYPY_FORCE_COLOR": "1",
+    "RUFF_OUTPUT_FORMAT": "concise"
+  },
+
+  "autoMemoryEnabled": true,
+
+  "//cleanup": "Hooks run shell commands at defined lifecycle points.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "//": "Remind Claude to verify types before presenting any Python file change.",
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[pre-edit] Remember: run mypy on modified modules before presenting output.'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "//": "Auto-lint after any Python file is written or edited.",
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ruff check --fix --quiet . 2>&1 | head -20"
+          }
+        ]
+      }
+    ]
+  }
+}

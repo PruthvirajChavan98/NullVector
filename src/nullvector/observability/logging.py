@@ -16,7 +16,7 @@ def log_event(
     logger: logging.Logger | None,
     event_name: str,
     *,
-    document_id: str,
+    document_id: str = "",
     **fields: Any,
 ) -> None:
     """Emit one structured runtime event when logging is enabled."""

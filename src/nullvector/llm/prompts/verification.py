@@ -13,7 +13,7 @@ class VerificationPromptResponse(NullVectorModel):
 
     verdict: NonEmptyStr
     rationale: NonEmptyStr
-    supporting_quotes: tuple[NonEmptyStr, ...] = ()
+    supporting_quotes: tuple[NonEmptyStr, ...]
 
 
 def build_verification_messages(

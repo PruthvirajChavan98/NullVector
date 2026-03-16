@@ -20,7 +20,13 @@ def load_retrieval_manifest(
     if not is_postgres_ref(ref):
         manifest_path = Path(path)
         return RetrievalManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-    store = build_document_store(storage, default_filesystem_root=".")
+    if storage is None:
+        msg = (
+            f"load_retrieval_manifest: ref {ref!r} is a PostgreSQL artifact ref "
+            "but no storage config was provided; pass storage=<PostgresStorageConfig>"
+        )
+        raise ValueError(msg)
+    store = build_document_store(storage)
     return RetrievalManifest.model_validate_json(canonical_json_text(store.read_json_artifact(ref)))
 
 
@@ -35,7 +41,13 @@ def load_retrieval_corpus(
     if not is_postgres_ref(ref):
         corpus_path = Path(path)
         return RetrievalCorpus.model_validate_json(corpus_path.read_text(encoding="utf-8"))
-    store = build_document_store(storage, default_filesystem_root=".")
+    if storage is None:
+        msg = (
+            f"load_retrieval_corpus: ref {ref!r} is a PostgreSQL artifact ref "
+            "but no storage config was provided; pass storage=<PostgresStorageConfig>"
+        )
+        raise ValueError(msg)
+    store = build_document_store(storage)
     return RetrievalCorpus.model_validate_json(canonical_json_text(store.read_json_artifact(ref)))
 
 

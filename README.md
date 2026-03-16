@@ -95,9 +95,11 @@ The `major-changes-v2` migration now runs acquisition/projection as the primary 
 - `TreeBuildRequest` now builds from `acquisition_manifest_path`
 - `src/nullvector/semantic/` provides the tokenizer boundary plus semantic summarization and
   decomposition services
-- `src/nullvector/observability/` provides the in-process event bus and subscribers
+- `src/nullvector/observability/` provides logger configuration helpers and structured runtime
+  event emitters
 - `src/nullvector/export/` provides optional edge exporters for LangChain and LlamaIndex
-- `src/nullvector/llm/multimodal_gateway/` provides attachment-only multimodal enrichment
+- `src/nullvector/llm/` handles both structured text requests and attachment-backed enrichment via
+  the main gateway surface
 
 The legacy parse substrate is no longer part of the main ingest/tree runtime surface. It remains
 available only through `nullvector.compat.legacy_parse` for compatibility fixtures and migration

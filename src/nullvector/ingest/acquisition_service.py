@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from logging import Logger
 from pathlib import Path
 from typing import Any, cast
@@ -9,6 +11,7 @@ from typing import Any, cast
 from pypdf import PdfReader
 
 from nullvector.constants import DEFAULT_ACQUISITION_ARTIFACT_ROOT
+from nullvector.domain.common import BatchItemFailure, BatchResult
 from nullvector.domain.ledger import (
     AcquisitionRequest,
     AcquisitionRunManifest,
@@ -346,3 +349,52 @@ def acquire_document(
     """Acquire a document through the deterministic v2 runtime."""
 
     return AcquisitionService(logger=logger, storage=storage).acquire(request)
+
+
+def acquire_batch(
+    requests: Sequence[AcquisitionRequest],
+    *,
+    storage: StorageConfig | None = None,
+    provider: AcquisitionProvider | None = None,
+    max_workers: int = 4,
+    logger: Logger | None = None,
+) -> BatchResult[AcquisitionRunManifest]:
+    """Acquire multiple documents concurrently with per-item failure isolation.
+
+    Each request is processed by an independent ``AcquisitionService`` in a
+    ``ThreadPoolExecutor`` worker thread.  A failure in one document does not
+    abort the batch; failed items are collected in ``BatchResult.failed``.
+
+    Args:
+        requests: Sequence of acquisition requests to process.
+        storage: Storage backend config shared by all workers.
+        provider: Optional custom ``AcquisitionProvider`` passed to every worker.
+        max_workers: Thread-pool size.  Defaults to 4.
+        logger: Optional logger propagated to every worker service instance.
+
+    Returns:
+        A ``BatchResult[AcquisitionRunManifest]`` with per-document outcomes.
+    """
+    successful: list[AcquisitionRunManifest] = []
+    failed: list[BatchItemFailure] = []
+
+    futures: list[Future[AcquisitionRunManifest]] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for req in requests:
+            service = AcquisitionService(provider=provider, logger=logger, storage=storage)
+            futures.append(executor.submit(service.acquire, req))
+
+    for idx, future in enumerate(futures):
+        exc = future.exception()
+        if exc is None:
+            successful.append(future.result())
+        else:
+            failed.append(
+                BatchItemFailure(
+                    item_index=idx,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
+
+    return BatchResult(successful=tuple(successful), failed=tuple(failed))

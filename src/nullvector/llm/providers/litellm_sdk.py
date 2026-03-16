@@ -274,12 +274,20 @@ class LiteLLMSDKAdapter:
         request: ProviderInvocationRequest,
         provider: LiteLLMProviderConfig,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build chat-completions kwargs for a text-only structured output request.
+
+        Uses litellm.completion() with response_format (chat completions endpoint)
+        rather than litellm.responses() (OpenAI Responses API / WebSocket streaming).
+        The Responses API is not supported by Groq, Anthropic, Gemini, or OpenRouter
+        natively; LiteLLM's translation bridge has known schema-validation bugs for
+        those providers (litellm#12602, litellm#15761).
+        """
         raw_request_payload: dict[str, Any] = {
             "model": request.model_name,
-            "input": [message.model_dump(mode="json") for message in request.messages],
-            "text": {
-                "format": {
-                    "type": "json_schema",
+            "messages": [message.model_dump(mode="json") for message in request.messages],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
                     "name": request.response_schema_name,
                     "schema": request.response_schema,
                     "strict": True,
@@ -289,7 +297,7 @@ class LiteLLMSDKAdapter:
         if request.temperature is not None:
             raw_request_payload["temperature"] = request.temperature
         if request.max_output_tokens is not None:
-            raw_request_payload["max_output_tokens"] = request.max_output_tokens
+            raw_request_payload["max_tokens"] = request.max_output_tokens
         call_kwargs = dict(raw_request_payload)
 
         api_key = provider.api_key
@@ -322,7 +330,7 @@ class LiteLLMSDKAdapter:
     ) -> ProviderInvocationResult:
         raw_request_payload, call_kwargs = self._text_call_kwargs(request, provider)
         try:
-            response = self._default_responses_callable()(
+            response = self._default_completion_callable()(
                 timeout=config.timeout_seconds,
                 **call_kwargs,
             )
@@ -338,8 +346,18 @@ class LiteLLMSDKAdapter:
             )
 
         payload = _extract_response_json(response)
-        output_text = _extract_output_text(payload)
-        usage = _extract_usage(payload)
+        try:
+            structured_output = _extract_structured_output(payload)
+        except Exception as exc:
+            return ProviderInvocationResult(
+                failure=_normalize_exception(
+                    exc,
+                    provider_name=self.provider_name,
+                    model_name=request.model_name,
+                    structured_output_mode=request.structured_output_mode,
+                    raw_request_payload=raw_request_payload,
+                )
+            )
         return ProviderInvocationResult(
             success=ProviderInvocationSuccess(
                 provider_name=self.provider_name,
@@ -348,8 +366,8 @@ class LiteLLMSDKAdapter:
                 structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
                 raw_request_payload=json_safe(raw_request_payload),
                 raw_response_payload=json_safe(payload),
-                structured_output_text=output_text,
-                usage=usage,
+                structured_output_json=structured_output,
+                usage=_extract_usage(payload),
                 status_code=200,
                 provider_response_id=(
                     str(payload.get("id")) if payload.get("id") is not None else None

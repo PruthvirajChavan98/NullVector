@@ -1,0 +1,16 @@
+git diff -- \
+  ':!workspace-diff.md' \
+  ':!notebooks/' \
+  ':!cookbooks/' \
+  ':!docs/' \
+  ':!fixtures/' \
+  ':!scripts/' \
+  ':!tmp/' \
+  ':!.dumperignore' \
+  ':!.agents' \
+  ':!.codex' \
+  ':!.artifacts' \
+  ':!AGENTS.md' \
+  ':!GEMINI.md' \
+  ':!src/files_dump_src_*.txt' \
+  ':!CHANGE_DIFF.md' > workspace-diff.txt

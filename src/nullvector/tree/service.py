@@ -5,11 +5,14 @@ from __future__ import annotations
 import gzip
 import json
 import shutil
+from collections.abc import Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from typing import Any, cast
 
+from nullvector.domain.common import BatchItemFailure, BatchResult
 from nullvector.domain.ledger import (
     AcquisitionRunManifest,
     CanonicalTextSubstrate,
@@ -1016,3 +1019,59 @@ def build_tree(
         repair_engine=repair_engine,
         gateway=gateway,
     )
+
+
+def build_tree_batch(
+    requests: Sequence[TreeBuildRequest],
+    *,
+    storage: StorageConfig | None = None,
+    gateway: StructuredLLMGateway | None = None,
+    repair_engine: RepairEngine | None = None,
+    max_workers: int = 4,
+    logger: Logger | None = None,
+) -> BatchResult[TreeBuildManifest]:
+    """Build hierarchy trees for multiple documents concurrently.
+
+    Each request is processed by a dedicated ``TreePipelineService`` in its
+    own ``ThreadPoolExecutor`` worker thread to avoid shared mutable state.
+    A failure in one document does not abort the batch; failed items are
+    collected in ``BatchResult.failed``.
+
+    Args:
+        requests: Sequence of tree build requests to process.
+        storage: Storage backend config shared by all workers.
+        gateway: Optional structured LLM gateway for repair, verification,
+            TOC detection, and summarization.
+        repair_engine: Optional repair engine for hierarchy repair.
+        max_workers: Thread-pool size.  Defaults to 4.
+        logger: Optional logger propagated to every worker service instance.
+
+    Returns:
+        A ``BatchResult[TreeBuildManifest]`` with per-document outcomes.
+    """
+    successful: list[TreeBuildManifest] = []
+    failed: list[BatchItemFailure] = []
+
+    def _build_one(request: TreeBuildRequest) -> TreeBuildManifest:
+        service = TreePipelineService(logger=logger, storage=storage)
+        return service.build(request, gateway=gateway, repair_engine=repair_engine)
+
+    futures: list[Future[TreeBuildManifest]] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for req in requests:
+            futures.append(executor.submit(_build_one, req))
+
+    for idx, future in enumerate(futures):
+        exc = future.exception()
+        if exc is None:
+            successful.append(future.result())
+        else:
+            failed.append(
+                BatchItemFailure(
+                    item_index=idx,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
+
+    return BatchResult(successful=tuple(successful), failed=tuple(failed))

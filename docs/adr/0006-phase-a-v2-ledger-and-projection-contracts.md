@@ -64,7 +64,7 @@ The additive v2 contracts introduced in this phase are:
   immediate cutover.
 - The repo now has a typed place to land the future native-first acquisition and projection work
   from `major-changes-v2.md`.
-- Existing imports from `nullvector.domain.models` remain valid, which keeps the migration
-  additive.
+- This ADR originally kept `nullvector.domain.models` additive during the split, but the current
+  runtime has since completed the hard cut to authoritative domain modules.
 - `PageLedgerRow` remains in the codebase for compatibility, but it is no longer the only
   long-term contract surface available for future phases.

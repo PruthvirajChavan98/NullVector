@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections.abc import Callable
@@ -40,6 +41,7 @@ from nullvector.llm.types import (
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
+from nullvector.observability.logging import log_event
 from nullvector.runtime_validation import (
     validate_attachment_path,
     validate_writable_root,
@@ -362,6 +364,7 @@ class GatewayService(StructuredLLMGateway):
         redaction_hooks: tuple[RedactionHook, ...] = (),
         sleep_fn: Callable[[float], None] = time.sleep,
         storage: StorageConfig | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         validate_gateway_mode_configuration(config)
         if storage is None:
@@ -370,6 +373,7 @@ class GatewayService(StructuredLLMGateway):
         self._provider_adapter = provider_adapter or _default_provider_adapter(config)
         self._redaction_hooks = redaction_hooks
         self._sleep_fn = sleep_fn
+        self._logger = logger
         self._audit_store: DocumentStore | None = None
         if storage is not None or config.audit.persist_root is not None:
             self._audit_store = build_document_store(
@@ -405,10 +409,23 @@ class GatewayService(StructuredLLMGateway):
         attempts: list[GatewayAttempt] = []
         delay = 0.0
 
+        _attachment_paths = [a.image_path for a in request.attachments]
         for attempt_number in range(1, self._config.retry_policy.max_attempts + 1):
+            log_event(
+                self._logger,
+                "GatewayCallAttempted",
+                operation_name=request.operation_name,
+                model_name=provider_request.model_name,
+                provider_name=self._provider_adapter.provider_name,
+                attempt_number=attempt_number,
+                max_attempts=self._config.retry_policy.max_attempts,
+                attachment_count=len(_attachment_paths),
+                attachment_paths=_attachment_paths,
+            )
             started_at = _utcnow()
             result = self._provider_adapter.invoke(provider_request, self._config)
             completed_at = _utcnow()
+            _latency_ms = round((completed_at - started_at).total_seconds() * 1000)
             attempts.append(
                 _build_attempt(
                     attempt_number=attempt_number,
@@ -433,6 +450,18 @@ class GatewayService(StructuredLLMGateway):
                         attempts=tuple(attempts),
                         exc=exc,
                         parsed_output=locals().get("parsed_output"),
+                    )
+                    log_event(
+                        self._logger,
+                        "GatewayCallFailed",
+                        operation_name=request.operation_name,
+                        model_name=success.model_name,
+                        provider_name=success.provider_name,
+                        failure_category=GatewayFailureCategory.VALIDATION_FAILURE.value,
+                        message=failure.message,
+                        retryable=False,
+                        attempt_number=attempt_number,
+                        latency_ms=_latency_ms,
                     )
                     audit_record = _audit_record(
                         request=request,
@@ -475,6 +504,18 @@ class GatewayService(StructuredLLMGateway):
                     usage=success.usage,
                     provider_request_id=success.provider_request_id,
                     provider_response_id=success.provider_response_id,
+                )
+                _usage = success.usage
+                log_event(
+                    self._logger,
+                    "GatewayCallSucceeded",
+                    operation_name=request.operation_name,
+                    model_name=success.model_name,
+                    provider_name=success.provider_name,
+                    tokens_in=_usage.input_tokens if _usage is not None else 0,
+                    tokens_out=_usage.output_tokens if _usage is not None else 0,
+                    latency_ms=_latency_ms,
+                    attempt_number=attempt_number,
                 )
                 audit_record = _audit_record(
                     request=request,
@@ -524,6 +565,18 @@ class GatewayService(StructuredLLMGateway):
                 request=request,
                 attempts=tuple(attempts),
                 failure=provider_failure,
+            )
+            log_event(
+                self._logger,
+                "GatewayCallFailed",
+                operation_name=request.operation_name,
+                model_name=provider_failure.model_name,
+                provider_name=provider_failure.provider_name,
+                failure_category=provider_failure.category.value,
+                message=provider_failure.message,
+                retryable=provider_failure.retryable,
+                attempt_number=attempt_number,
+                latency_ms=_latency_ms,
             )
             audit_record = _audit_record(
                 request=request,
