@@ -35,6 +35,7 @@ from nullvector.domain.tree import (
     TreeRunIndex,
     VerificationStatus,
 )
+from nullvector.llm.errors import GatewayAuthError, GatewayConfigurationError
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.observability.logging import log_event
 from nullvector.runtime_validation import validate_canonical_text_substrate_contract
@@ -78,6 +79,12 @@ class TreePipelineError(Exception):
 
 class TreeConflictError(TreePipelineError):
     """Raised when a tree run id is reused with different effective inputs."""
+
+
+_BATCH_FATAL_ERRORS = (
+    GatewayAuthError,
+    GatewayConfigurationError,
+)
 
 
 @dataclass(frozen=True)
@@ -1034,8 +1041,9 @@ def build_tree_batch(
 
     Each request is processed by a dedicated ``TreePipelineService`` in its
     own ``ThreadPoolExecutor`` worker thread to avoid shared mutable state.
-    A failure in one document does not abort the batch; failed items are
-    collected in ``BatchResult.failed``.
+    Document-specific failures are collected in ``BatchResult.failed``.
+    Batch-fatal gateway authentication or configuration failures are
+    re-raised after worker completion.
 
     Args:
         requests: Sequence of tree build requests to process.
@@ -1048,9 +1056,16 @@ def build_tree_batch(
 
     Returns:
         A ``BatchResult[TreeBuildManifest]`` with per-document outcomes.
+
+    Raises:
+        GatewayAuthError: When any worker hits an authentication or
+            authorization failure that is expected to affect the whole batch.
+        GatewayConfigurationError: When any worker hits a gateway
+            misconfiguration that is expected to affect the whole batch.
     """
     successful: list[TreeBuildManifest] = []
     failed: list[BatchItemFailure] = []
+    first_batch_fatal: Exception | None = None
 
     def _build_one(request: TreeBuildRequest) -> TreeBuildManifest:
         service = TreePipelineService(logger=logger, storage=storage)
@@ -1066,6 +1081,9 @@ def build_tree_batch(
         if exc is None:
             successful.append(future.result())
         else:
+            if first_batch_fatal is None and isinstance(exc, _BATCH_FATAL_ERRORS):
+                first_batch_fatal = exc
+                continue
             failed.append(
                 BatchItemFailure(
                     item_index=idx,
@@ -1073,5 +1091,8 @@ def build_tree_batch(
                     error_message=str(exc),
                 )
             )
+
+    if first_batch_fatal is not None:
+        raise first_batch_fatal
 
     return BatchResult(successful=tuple(successful), failed=tuple(failed))

@@ -12,6 +12,7 @@ from typing import Any, cast
 
 import pytest
 
+from nullvector import build_tree_batch
 from nullvector.domain import (
     DocumentFingerprint,
     OcrMode,
@@ -26,8 +27,11 @@ from nullvector.domain import (
 from nullvector.domain.ledger import PageExtractionMethod
 from nullvector.llm import (
     GatewayAuditConfig,
+    GatewayAuthError,
     GatewayConfig,
+    GatewayFailureCategory,
     GatewayService,
+    GatewayValidationError,
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
@@ -200,6 +204,46 @@ def make_summary_gateway(tmp_path: Path) -> GatewayService:
                 "summarize_parent_node": NoopScriptedResponse(
                     output_json={"summary": "parent summary", "keywords": ["parent"]}
                 ),
+            }
+        ),
+    )
+
+
+def make_auth_failure_gateway(tmp_path: Path) -> GatewayService:
+    return GatewayService(
+        GatewayConfig(
+            default_model="test-model",
+            audit=GatewayAuditConfig(persist_root=str(tmp_path / "auth-audit")),
+        ),
+        provider_adapter=NoopProviderAdapter(
+            {
+                "summarize_leaf_node": NoopScriptedResponse(
+                    failure_category=GatewayFailureCategory.AUTH_FAILURE,
+                    failure_message="simulated auth failure",
+                    status_code=401,
+                ),
+                "summarize_parent_node": NoopScriptedResponse(
+                    failure_category=GatewayFailureCategory.AUTH_FAILURE,
+                    failure_message="simulated auth failure",
+                    status_code=401,
+                ),
+            }
+        ),
+    )
+
+
+def make_parent_validation_failure_gateway(tmp_path: Path) -> GatewayService:
+    return GatewayService(
+        GatewayConfig(
+            default_model="test-model",
+            audit=GatewayAuditConfig(persist_root=str(tmp_path / "batch-failure-audit")),
+        ),
+        provider_adapter=NoopProviderAdapter(
+            {
+                "summarize_leaf_node": NoopScriptedResponse(
+                    output_json={"summary": "leaf summary", "keywords": ["leaf"]}
+                ),
+                "summarize_parent_node": NoopScriptedResponse(output_json={"wrong": "shape"}),
             }
         ),
     )
@@ -460,6 +504,76 @@ def test_tree_build_raises_when_summarize_enabled_without_gateway(tmp_path: Path
                 summarize=True,
             ),
         )
+
+
+@pytest.mark.integration
+def test_tree_build_propagates_summarization_gateway_errors(tmp_path: Path) -> None:
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
+    failing_gateway = make_parent_validation_failure_gateway(tmp_path)
+
+    with pytest.raises(GatewayValidationError):
+        build_tree(
+            TreeBuildRequest(
+                acquisition_manifest_path=str(acquisition_manifest_path),
+                tree_run_id="summary-gateway-failure",
+                summarize=True,
+            ),
+            gateway=failing_gateway,
+        )
+
+
+@pytest.mark.integration
+def test_build_tree_batch_raises_on_auth_failure(tmp_path: Path) -> None:
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
+    requests = (
+        TreeBuildRequest(
+            acquisition_manifest_path=str(acquisition_manifest_path),
+            tree_run_id="batch-auth-one",
+            summarize=True,
+        ),
+        TreeBuildRequest(
+            acquisition_manifest_path=str(acquisition_manifest_path),
+            tree_run_id="batch-auth-two",
+            summarize=True,
+        ),
+    )
+
+    with pytest.raises(GatewayAuthError):
+        build_tree_batch(
+            requests,
+            gateway=make_auth_failure_gateway(tmp_path),
+            max_workers=2,
+        )
+
+    audit_files = tuple((tmp_path / "auth-audit").glob("*.json"))
+    assert len(audit_files) == 2
+
+
+@pytest.mark.integration
+def test_build_tree_batch_collects_nonfatal_per_item_failures(tmp_path: Path) -> None:
+    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
+    result = build_tree_batch(
+        (
+            TreeBuildRequest(
+                acquisition_manifest_path=str(acquisition_manifest_path),
+                tree_run_id="batch-mixed-success",
+                summarize=False,
+            ),
+            TreeBuildRequest(
+                acquisition_manifest_path=str(acquisition_manifest_path),
+                tree_run_id="batch-mixed-failure",
+                summarize=True,
+            ),
+        ),
+        gateway=make_parent_validation_failure_gateway(tmp_path),
+        max_workers=2,
+    )
+
+    assert len(result.successful) == 1
+    assert result.successful[0].tree_run_id == "batch-mixed-success"
+    assert len(result.failed) == 1
+    assert result.failed[0].item_index == 1
+    assert result.failed[0].error_type == "GatewayValidationError"
 
 
 @pytest.mark.integration
