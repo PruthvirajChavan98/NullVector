@@ -6,7 +6,8 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import TypeVar, cast
 
@@ -578,6 +579,40 @@ class GatewayService(StructuredLLMGateway):
 
         msg = "gateway retry loop exhausted without producing a result"
         raise RuntimeError(msg)
+
+    def invoke_many(
+        self,
+        requests: Sequence[GatewayRequest[T]],
+        *,
+        max_workers: int | None = None,
+    ) -> tuple[GatewaySuccess[T], ...]:
+        request_list = tuple(requests)
+        if not request_list:
+            return ()
+        if max_workers is not None and max_workers < 1:
+            msg = "max_workers must be greater than or equal to 1"
+            raise ValueError(msg)
+
+        worker_count = min(len(request_list), max_workers or 32)
+        if worker_count == 1:
+            return tuple(self.invoke(request) for request in request_list)
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = tuple(executor.submit(self.invoke, request) for request in request_list)
+
+        results: list[GatewaySuccess[T] | None] = [None] * len(request_list)
+        first_error: Exception | None = None
+        for index, future in enumerate(futures):
+            try:
+                results[index] = future.result()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+
+        if first_error is not None:
+            raise first_error
+
+        return tuple(cast(GatewaySuccess[T], result) for result in results)
 
 
 def evaluate_repairs(

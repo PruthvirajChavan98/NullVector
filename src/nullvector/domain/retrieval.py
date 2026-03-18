@@ -5,9 +5,15 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field, NonNegativeInt, model_validator
+from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 
-from nullvector.domain.common import ContentSpan, NonEmptyStr, NullVectorModel, PageSpan
+from nullvector.domain.common import (
+    ContentSpan,
+    NonEmptyStr,
+    NullVectorModel,
+    PageSpan,
+    Sha256Hex,
+)
 from nullvector.domain.events import TrustTier
 from nullvector.domain.tree import VisualRegionReference
 
@@ -73,6 +79,56 @@ class RetrievalManifest(NullVectorModel):
     unit_count: NonNegativeInt
 
 
+class DocumentDescriptionMethod(StrEnum):
+    """Generation path used for one persisted document description artifact."""
+
+    LLM_FROM_SUMMARIES = "llm_from_summaries"
+    LLM_FROM_NODE_CARDS = "llm_from_node_cards"
+    DETERMINISTIC_FALLBACK = "deterministic_fallback"
+
+
+class DocumentDescriptionSettings(NullVectorModel):
+    """Configuration for one document-description generation run."""
+
+    max_source_nodes: PositiveInt = 8
+    prefer_node_summaries: bool = True
+    max_output_tokens: PositiveInt = 120
+    require_gateway: bool = False
+
+
+class DocumentDescriptionRequest(NullVectorModel):
+    """Typed request for building one persisted document description."""
+
+    acquisition_manifest_path: NonEmptyStr
+    tree_manifest_path: NonEmptyStr
+    description_run_id: NonEmptyStr
+    settings: DocumentDescriptionSettings = Field(default_factory=DocumentDescriptionSettings)
+    artifact_root: NonEmptyStr | None = None
+
+
+class DocumentDescription(NullVectorModel):
+    """Persisted document-level description derived from existing tree artifacts."""
+
+    document_id: NonEmptyStr
+    tree_run_id: NonEmptyStr
+    source_manifest_paths: tuple[NonEmptyStr, ...]
+    description_text: NonEmptyStr
+    description_method: DocumentDescriptionMethod
+    source_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    settings_digest: Sha256Hex
+
+
+class DocumentDescriptionManifest(NullVectorModel):
+    """Manifest for one persisted document-description artifact set."""
+
+    document_id: NonEmptyStr
+    description_run_id: NonEmptyStr
+    artifact_root: NonEmptyStr | None = None
+    description_path: NonEmptyStr
+    source_tree_manifest_path: NonEmptyStr
+    source_acquisition_manifest_path: NonEmptyStr
+
+
 class QueryPlan(NullVectorModel):
     """Deterministic retrieval plan derived from one raw query."""
 
@@ -126,6 +182,11 @@ class AnswerCitation(NullVectorModel):
 
 __all__ = [
     "AnswerCitation",
+    "DocumentDescription",
+    "DocumentDescriptionManifest",
+    "DocumentDescriptionMethod",
+    "DocumentDescriptionRequest",
+    "DocumentDescriptionSettings",
     "QueryPlan",
     "RetrievalCorpus",
     "RetrievalEvidence",

@@ -18,10 +18,13 @@ from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
     GatewayService,
+    GatewaySuccess,
     GatewayUsage,
 )
+from nullvector.llm.prompts import SummarizationPromptResponse
 from nullvector.llm.protocols import ProviderAdapter
 from nullvector.llm.types import (
+    GatewayRequest,
     ProviderInvocationRequest,
     ProviderInvocationResult,
     ProviderInvocationSuccess,
@@ -63,6 +66,53 @@ class CaptureSummarizationAdapter:
                 status_code=200,
             )
         )
+
+
+class RecordingBatchGateway:
+    """Gateway test double that records batched summarization requests."""
+
+    def __init__(self) -> None:
+        self.invoke_calls: list[str] = []
+        self.batch_calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    def invoke(
+        self,
+        request: GatewayRequest[SummarizationPromptResponse],
+    ) -> GatewaySuccess[SummarizationPromptResponse]:
+        self.invoke_calls.append(request.operation_name)
+        raise AssertionError("NodeSummarizer should use invoke_many for LLM summaries")
+
+    def invoke_many(
+        self,
+        requests: tuple[GatewayRequest[SummarizationPromptResponse], ...],
+        *,
+        max_workers: int | None = None,
+    ) -> tuple[GatewaySuccess[SummarizationPromptResponse], ...]:
+        self.batch_calls.append(
+            (tuple(request.operation_name for request in requests), max_workers)
+        )
+        responses: list[GatewaySuccess[SummarizationPromptResponse]] = []
+        for index, request in enumerate(requests):
+            summary = (
+                f"leaf summary {index}"
+                if request.operation_name == "summarize_leaf_node"
+                else "parent rollup summary"
+            )
+            responses.append(
+                GatewaySuccess(
+                    request_id=f"batch-{index}",
+                    operation_name=request.operation_name,
+                    provider_name="recording-batch",
+                    model_name="test-model",
+                    assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+                    structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+                    output=SummarizationPromptResponse(summary=summary, keywords=("k1", "k2")),
+                    attempts=(),
+                    usage=GatewayUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+                    audit_path=f"/tmp/{request.operation_name}-{index}.json",
+                )
+            )
+        return tuple(responses)
 
 
 def make_gateway(tmp_path: Path, adapter: ProviderAdapter) -> GatewayService:
@@ -215,4 +265,51 @@ def test_bottom_up_ordering_is_deterministic(tmp_path: Path) -> None:
     assert [call[0] for call in adapter.calls] == [
         "summarize_leaf_node",
         "summarize_parent_node",
+    ]
+
+
+def test_summarizer_batches_llm_requests_per_level() -> None:
+    gateway = RecordingBatchGateway()
+    summarizer = NodeSummarizer(gateway, max_workers=3)
+    parent = make_node(node_id="parent", title="Parent", page_index=0, span_end_page=2)
+    child_a = make_node(
+        node_id="child-a",
+        title="Child A",
+        page_index=1,
+        parent_id="parent",
+        path=("Parent", "Child A"),
+        level=2,
+    )
+    child_b = make_node(
+        node_id="child-b",
+        title="Child B",
+        page_index=2,
+        parent_id="parent",
+        path=("Parent", "Child B"),
+        level=2,
+    )
+    long_a = " ".join(["alpha"] * 180)
+    long_b = " ".join(["beta"] * 180)
+    pages = (
+        PageArtifacts(page_index=0, text="Parent prefix context", rawdict=None),
+        PageArtifacts(page_index=1, text=f"Child A\n{long_a}", rawdict=None),
+        PageArtifacts(page_index=2, text=f"Child B\n{long_b}", rawdict=None),
+    )
+
+    _, node_cards, summaries = summarizer.summarize(nodes=(parent, child_a, child_b), pages=pages)
+
+    assert gateway.invoke_calls == []
+    assert gateway.batch_calls == [
+        (("summarize_leaf_node", "summarize_leaf_node"), 3),
+        (("summarize_parent_node",), 3),
+    ]
+    assert [summary.summary_method for summary in summaries] == [
+        NodeSummaryMethod.LLM_PARENT,
+        NodeSummaryMethod.LLM_LEAF,
+        NodeSummaryMethod.LLM_LEAF,
+    ]
+    assert [card.summary for card in node_cards] == [
+        "parent rollup summary",
+        "leaf summary 0",
+        "leaf summary 1",
     ]

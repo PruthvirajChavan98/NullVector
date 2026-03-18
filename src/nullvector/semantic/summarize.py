@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from typing import Any
@@ -108,6 +108,17 @@ def _parent_prefix_text(
     return "\n".join(part for part in parts if part).strip()
 
 
+@dataclass(frozen=True)
+class _PendingSummaryRequest:
+    index: int
+    node: HierarchyNode
+    summary_method: NodeSummaryMethod
+    token_count: int
+    estimated_token_count: int
+    exact_token_count: int | None
+    request: GatewayRequest[SummarizationPromptResponse]
+
+
 class NodeSummarizer:
     """Bottom-up committed-node summarizer over normalized synthesis text."""
 
@@ -151,19 +162,46 @@ class NodeSummarizer:
 
         for level in levels:
             level_nodes = [node for node in ordered_nodes if node.level == level]
-            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-                level_summaries = list(
-                    executor.map(
-                        lambda node: self._summarize_node(
-                            node=node,
-                            pages_by_index=pages_by_index,
-                            children=children_by_parent.get(node.node_id, ()),
-                            summaries_by_id=summaries_by_id,
-                        ),
-                        level_nodes,
-                    )
+            level_summaries: list[NodeSummary | None] = [None] * len(level_nodes)
+            pending_requests: list[_PendingSummaryRequest] = []
+            for index, node in enumerate(level_nodes):
+                summary, pending_request = self._prepare_node_summary(
+                    index=index,
+                    node=node,
+                    pages_by_index=pages_by_index,
+                    children=children_by_parent.get(node.node_id, ()),
+                    summaries_by_id=summaries_by_id,
                 )
+                if summary is not None:
+                    level_summaries[index] = summary
+                if pending_request is not None:
+                    pending_requests.append(pending_request)
+
+            if pending_requests:
+                responses = self._gateway.invoke_many(
+                    tuple(item.request for item in pending_requests),
+                    max_workers=self._max_workers,
+                )
+                for pending_request, response in zip(pending_requests, responses, strict=True):
+                    summary = NodeSummary(
+                        node_id=pending_request.node.node_id,
+                        summary=response.output.summary,
+                        keywords=response.output.keywords,
+                        summary_method=pending_request.summary_method,
+                        token_count=pending_request.token_count,
+                        estimated_token_count=pending_request.estimated_token_count,
+                        exact_token_count=pending_request.exact_token_count,
+                        tokenizer_identity=self._tokenizer.identity,
+                        gateway_provider_name=response.provider_name,
+                        gateway_assurance_mode=response.assurance_mode.value,
+                        gateway_audit_path=response.audit_path,
+                        gateway_usage=_usage_snapshot(response.usage),
+                    )
+                    self._publish_summary_event(pending_request.node, summary)
+                    level_summaries[pending_request.index] = summary
+
             for summary in level_summaries:
+                assert summary is not None
                 summaries_by_id[summary.node_id] = summary
 
         ordered_summaries = tuple(summaries_by_id[node.node_id] for node in ordered_nodes)
@@ -196,14 +234,15 @@ class NodeSummarizer:
             )
         return tuple(ordered_nodes), node_cards, ordered_summaries
 
-    def _summarize_node(
+    def _prepare_node_summary(
         self,
         *,
+        index: int,
         node: HierarchyNode,
         pages_by_index: dict[int, PageArtifacts],
         children: tuple[HierarchyNode, ...],
         summaries_by_id: dict[str, NodeSummary],
-    ) -> NodeSummary:
+    ) -> tuple[NodeSummary | None, _PendingSummaryRequest | None]:
         if not children:
             raw_text = _node_raw_text(node, pages_by_index)
             token_count, estimated_token_count, exact_token_count = self._token_counts(raw_text)
@@ -218,33 +257,23 @@ class NodeSummarizer:
                     tokenizer_identity=self._tokenizer.identity,
                 )
                 self._publish_summary_event(node, summary)
-                return summary
-            response = self._gateway.invoke(
-                GatewayRequest[SummarizationPromptResponse](
+                return summary, None
+            return None, _PendingSummaryRequest(
+                index=index,
+                node=node,
+                summary_method=NodeSummaryMethod.LLM_LEAF,
+                token_count=token_count,
+                estimated_token_count=estimated_token_count,
+                exact_token_count=exact_token_count,
+                request=GatewayRequest[SummarizationPromptResponse](
                     operation_name="summarize_leaf_node",
                     messages=build_summarization_messages(
                         node_title=node.title,
                         excerpts=_bounded_leaf_excerpts(node, pages_by_index),
                     ),
                     response_model=SummarizationPromptResponse,
-                )
+                ),
             )
-            summary = NodeSummary(
-                node_id=node.node_id,
-                summary=response.output.summary,
-                keywords=response.output.keywords,
-                summary_method=NodeSummaryMethod.LLM_LEAF,
-                token_count=token_count,
-                estimated_token_count=estimated_token_count,
-                exact_token_count=exact_token_count,
-                tokenizer_identity=self._tokenizer.identity,
-                gateway_provider_name=response.provider_name,
-                gateway_assurance_mode=response.assurance_mode.value,
-                gateway_audit_path=response.audit_path,
-                gateway_usage=_usage_snapshot(response.usage),
-            )
-            self._publish_summary_event(node, summary)
-            return summary
 
         child_pairs = tuple(
             (child.title, summaries_by_id[child.node_id].summary)
@@ -255,8 +284,14 @@ class NodeSummarizer:
             prefix_text + "\n" + "\n".join(f"{title}: {summary}" for title, summary in child_pairs)
         )
         token_count, estimated_token_count, exact_token_count = self._token_counts(semantic_text)
-        response = self._gateway.invoke(
-            GatewayRequest[SummarizationPromptResponse](
+        return None, _PendingSummaryRequest(
+            index=index,
+            node=node,
+            summary_method=NodeSummaryMethod.LLM_PARENT,
+            token_count=token_count,
+            estimated_token_count=estimated_token_count,
+            exact_token_count=exact_token_count,
+            request=GatewayRequest[SummarizationPromptResponse](
                 operation_name="summarize_parent_node",
                 messages=build_summarization_messages(
                     node_title=node.title,
@@ -264,24 +299,8 @@ class NodeSummarizer:
                     child_summaries=child_pairs,
                 ),
                 response_model=SummarizationPromptResponse,
-            )
+            ),
         )
-        summary = NodeSummary(
-            node_id=node.node_id,
-            summary=response.output.summary,
-            keywords=response.output.keywords,
-            summary_method=NodeSummaryMethod.LLM_PARENT,
-            token_count=token_count,
-            estimated_token_count=estimated_token_count,
-            exact_token_count=exact_token_count,
-            tokenizer_identity=self._tokenizer.identity,
-            gateway_provider_name=response.provider_name,
-            gateway_assurance_mode=response.assurance_mode.value,
-            gateway_audit_path=response.audit_path,
-            gateway_usage=_usage_snapshot(response.usage),
-        )
-        self._publish_summary_event(node, summary)
-        return summary
 
     def _token_counts(self, text: str) -> tuple[int, int, int | None]:
         estimated = self._tokenizer.estimate_tokens(text)

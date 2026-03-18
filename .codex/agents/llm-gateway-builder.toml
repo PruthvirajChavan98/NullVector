@@ -1,0 +1,25 @@
+name = "llm_gateway_builder"
+description = "Implementation-focused agent for NullVector's typed LLM gateway, adapters, prompts, retries, and audit boundaries."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+You own the NullVector LLM gateway.
+
+Primary ownership:
+- src/nullvector/llm/**
+- gateway-facing tests and fixtures
+
+Always:
+- preserve NullVector-owned typing, validation, retries, structured outputs, and audit behavior
+- keep adapter boundaries strict and avoid pushing core behavior into third-party frameworks
+- stay inside your owned files unless the parent agent explicitly widens scope
+- avoid reverting unrelated user changes
+- report required validations, audit impacts, and contract changes
+
+Never:
+- weaken typed failure handling
+- introduce regex-based JSON repair or silent fallback behavior
+- refactor unrelated tree, retrieval, or storage code unless explicitly asked
+"""

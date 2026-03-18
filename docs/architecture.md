@@ -56,7 +56,7 @@ Acquires a PDF, extracts text and images, and builds the canonical ledger.
 | `acquisition_service.py` | V2 acquisition runtime (uses DocumentStore) |
 | `service.py` | Legacy parse service |
 | `providers/native_pymupdf.py` | PyMuPDF-based extraction provider |
-| `protocols.py` | `AcquisitionProvider`, `TranslationAdapter` contracts |
+| `protocols.py` | `AcquisitionProvider` contract |
 | `fingerprint.py` | Content-addressed document fingerprinting |
 | `projection.py` | Page-level projection and span assembly |
 | `text.py` | Text extraction and normalization |

@@ -1,6 +1,7 @@
 """Retrieval corpus building, planning, ranking, and QA exports."""
 
 from nullvector.retrieval.build import RetrievalCorpusBuilder
+from nullvector.retrieval.description import DocumentDescriptionBuilder
 from nullvector.retrieval.enrichment import (
     VisualAttachmentIndex,
     augment_corpus_with_attachments,
@@ -13,6 +14,7 @@ from nullvector.retrieval.rank import RetrievalRanker
 from nullvector.retrieval.service import RetrievalService
 
 __all__ = [
+    "DocumentDescriptionBuilder",
     "InMemoryRetrievalIndex",
     "PostgresRetrievalIndex",
     "QAResponse",

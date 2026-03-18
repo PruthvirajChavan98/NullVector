@@ -8,6 +8,7 @@ Before substantive work:
 3. Read `.codex/rules/runtime-enforcement.md`
 4. Read the relevant phase prompt in `.codex/prompts/`
 5. If present, run `bash .codex/bin/preflight-codex.sh`
+6. Make use of `.codex/agents`
 
 Do not recursively read all files under `.codex/` unless a task explicitly requires it.
 

@@ -52,7 +52,7 @@ New library features before recommending them
 │   │   ├── acquisition_service.py  # V2 acquisition runtime (uses DocumentStore)
 │   │   ├── service.py           # Legacy parse service
 │   │   ├── providers/           # PyMuPDF provider implementation
-│   │   └── protocols.py         # AcquisitionProvider, TranslationAdapter
+│   │   └── protocols.py         # AcquisitionProvider
 │   ├── tree/                    # Phase 02: Deterministic hierarchy builder
 │   │   ├── service.py           # TreePipelineService
 │   │   ├── strategy.py          # Hierarchy strategy selection

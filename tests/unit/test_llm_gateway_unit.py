@@ -18,6 +18,7 @@ from nullvector.llm import (
     GatewayFailureCategory,
     GatewayRequest,
     GatewayService,
+    GatewaySuccess,
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
     LLMMessage,
@@ -201,6 +202,55 @@ def test_gateway_retries_retryable_failures_and_records_delays(tmp_path: Path) -
     assert len(success.attempts) == 2
     assert success.output.message == "after retry"
     assert success.attempts[0].failure_category is GatewayFailureCategory.TIMEOUT
+
+
+def test_invoke_many_preserves_input_order(tmp_path: Path) -> None:
+    gateway = GatewayService(
+        make_config(tmp_path),
+        provider_adapter=NoopProviderAdapter(
+            {
+                "first": NoopScriptedResponse(output_json={"message": "one"}),
+                "second": NoopScriptedResponse(output_json={"message": "two"}),
+            },
+        ),
+    )
+
+    results = gateway.invoke_many(
+        (
+            make_request(operation_name="second", idempotency_key="batch-second"),
+            make_request(operation_name="first", idempotency_key="batch-first"),
+        ),
+        max_workers=2,
+    )
+
+    assert [result.output.message for result in results] == ["two", "one"]
+    assert all(isinstance(result, GatewaySuccess) for result in results)
+
+
+def test_invoke_many_raises_first_error_and_persists_each_audit(tmp_path: Path) -> None:
+    gateway = GatewayService(
+        make_config(tmp_path),
+        provider_adapter=NoopProviderAdapter(
+            {
+                "bad-first": NoopScriptedResponse(output_json={"wrong": "shape"}),
+                "good-second": NoopScriptedResponse(output_json={"message": "hello"}),
+            },
+        ),
+    )
+
+    with pytest.raises(GatewayValidationError) as exc_info:
+        gateway.invoke_many(
+            (
+                make_request(operation_name="bad-first", idempotency_key="bad-first"),
+                make_request(operation_name="good-second", idempotency_key="good-second"),
+            ),
+            max_workers=2,
+        )
+
+    assert exc_info.value.failure.category is GatewayFailureCategory.VALIDATION_FAILURE
+    assert exc_info.value.audit_path is not None
+    audit_files = sorted((tmp_path / "audit").glob("*.json"))
+    assert [path.name for path in audit_files] == ["bad-first.json", "good-second.json"]
 
 
 def test_noop_adapter_rejects_unknown_operations(tmp_path: Path) -> None:

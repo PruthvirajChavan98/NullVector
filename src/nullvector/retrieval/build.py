@@ -32,10 +32,20 @@ from nullvector.domain.tree import (
     NodeSummary,
     TreeBuildManifest,
     UnassignedPageSpan,
-    VerificationReport,
     VisualRegionReference,
 )
-from nullvector.runtime_validation import validate_canonical_text_substrate_contract
+from nullvector.retrieval._artifacts import (
+    load_acquisition_manifest,
+    load_committed_nodes,
+    load_ledger,
+    load_node_cards,
+    load_node_summaries,
+    load_text_substrate,
+    load_tree_manifest,
+    load_unassigned_spans,
+    load_verification_report,
+    normalize_artifact_ref,
+)
 from nullvector.storage import StorageBackend, StorageConfig, build_document_store
 from nullvector.storage._serialization import (
     canonical_json_text,
@@ -44,7 +54,6 @@ from nullvector.storage._serialization import (
     run_identity_matches,
 )
 from nullvector.storage.config import PostgresStorageConfig
-from nullvector.storage.protocol import DocumentStore
 
 
 def _unique_non_empty(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -164,100 +173,6 @@ def _default_retrieval_root(
     if is_postgres_ref(acquisition_manifest_path):
         return f"retrieval/{retrieval_run_id}"
     return str(Path(acquisition_manifest_path).resolve().parent / "retrieval" / retrieval_run_id)
-
-
-def _load_acquisition_manifest(
-    store: DocumentStore,
-    ref: str,
-) -> AcquisitionRunManifest:
-    return AcquisitionRunManifest.model_validate_json(
-        canonical_json_text(store.read_json_artifact(ref))
-    )
-
-
-def _load_tree_manifest(
-    store: DocumentStore,
-    ref: str | None,
-) -> TreeBuildManifest | None:
-    if ref is None:
-        return None
-    return TreeBuildManifest.model_validate_json(canonical_json_text(store.read_json_artifact(ref)))
-
-
-def _load_ledger(
-    store: DocumentStore,
-    acquisition_manifest: AcquisitionRunManifest,
-) -> CanonicalDocumentLedger:
-    return CanonicalDocumentLedger.model_validate_json(
-        canonical_json_text(store.read_json_artifact(acquisition_manifest.ledger_path))
-    )
-
-
-def _load_text_substrate(
-    store: DocumentStore,
-    acquisition_manifest: AcquisitionRunManifest,
-) -> CanonicalTextSubstrate:
-    substrate_ref = validate_canonical_text_substrate_contract(manifest=acquisition_manifest)
-    return CanonicalTextSubstrate.model_validate_json(
-        canonical_json_text(store.read_json_artifact(substrate_ref))
-    )
-
-
-def _load_committed_nodes(
-    store: DocumentStore,
-    tree_manifest: TreeBuildManifest | None,
-) -> tuple[HierarchyNode, ...]:
-    if tree_manifest is None or tree_manifest.committed_hierarchy_path is None:
-        return ()
-    payload = cast(
-        list[dict[str, Any]], store.read_json_artifact(tree_manifest.committed_hierarchy_path)
-    )
-    return tuple(HierarchyNode.model_validate_json(json.dumps(item)) for item in payload)
-
-
-def _load_node_cards(
-    store: DocumentStore,
-    tree_manifest: TreeBuildManifest | None,
-) -> tuple[NodeCard, ...]:
-    if tree_manifest is None or tree_manifest.node_cards_path is None:
-        return ()
-    payload = cast(list[dict[str, Any]], store.read_json_artifact(tree_manifest.node_cards_path))
-    return tuple(NodeCard.model_validate_json(json.dumps(item)) for item in payload)
-
-
-def _load_node_summaries(
-    store: DocumentStore,
-    tree_manifest: TreeBuildManifest | None,
-) -> tuple[NodeSummary, ...]:
-    if tree_manifest is None or tree_manifest.node_summaries_path is None:
-        return ()
-    payload = cast(
-        list[dict[str, Any]], store.read_json_artifact(tree_manifest.node_summaries_path)
-    )
-    return tuple(NodeSummary.model_validate_json(json.dumps(item)) for item in payload)
-
-
-def _load_verification_report(
-    store: DocumentStore,
-    tree_manifest: TreeBuildManifest | None,
-) -> VerificationReport | None:
-    if tree_manifest is None or tree_manifest.verification_report_path is None:
-        return None
-    return VerificationReport.model_validate_json(
-        canonical_json_text(store.read_json_artifact(tree_manifest.verification_report_path))
-    )
-
-
-def _load_unassigned_spans(
-    store: DocumentStore,
-    tree_manifest: TreeBuildManifest | None,
-) -> tuple[UnassignedPageSpan, ...]:
-    if tree_manifest is None or tree_manifest.unassigned_spans_path is None:
-        return ()
-    payload = cast(
-        list[dict[str, Any]], store.read_json_artifact(tree_manifest.unassigned_spans_path)
-    )
-    return tuple(UnassignedPageSpan.model_validate_json(json.dumps(item)) for item in payload)
 
 
 def _build_page_units(
@@ -547,25 +462,20 @@ class RetrievalCorpusBuilder:
         artifact_root: str | None = None,
     ) -> RetrievalManifest:
         input_store = build_document_store(self._storage, default_filesystem_root=".")
-        acquisition_manifest_ref = (
-            acquisition_manifest_path
-            if is_postgres_ref(acquisition_manifest_path)
-            else str(Path(acquisition_manifest_path).resolve())
+        acquisition_manifest_ref = cast(
+            str,
+            normalize_artifact_ref(acquisition_manifest_path),
         )
-        tree_manifest_ref = (
-            tree_manifest_path
-            if tree_manifest_path is None or is_postgres_ref(tree_manifest_path)
-            else str(Path(tree_manifest_path).resolve())
-        )
-        acquisition_manifest = _load_acquisition_manifest(input_store, acquisition_manifest_ref)
-        tree_manifest = _load_tree_manifest(input_store, tree_manifest_ref)
-        ledger = _load_ledger(input_store, acquisition_manifest)
-        text_substrate = _load_text_substrate(input_store, acquisition_manifest)
-        committed_nodes = _load_committed_nodes(input_store, tree_manifest)
-        node_cards = _load_node_cards(input_store, tree_manifest)
-        node_summaries = _load_node_summaries(input_store, tree_manifest)
-        verification_report = _load_verification_report(input_store, tree_manifest)
-        unassigned_spans = _load_unassigned_spans(input_store, tree_manifest)
+        tree_manifest_ref = normalize_artifact_ref(tree_manifest_path)
+        acquisition_manifest = load_acquisition_manifest(input_store, acquisition_manifest_ref)
+        tree_manifest = load_tree_manifest(input_store, tree_manifest_ref)
+        ledger = load_ledger(input_store, acquisition_manifest)
+        text_substrate = load_text_substrate(input_store, acquisition_manifest)
+        committed_nodes = load_committed_nodes(input_store, tree_manifest)
+        node_cards = load_node_cards(input_store, tree_manifest)
+        node_summaries = load_node_summaries(input_store, tree_manifest)
+        verification_report = load_verification_report(input_store, tree_manifest)
+        unassigned_spans = load_unassigned_spans(input_store, tree_manifest)
 
         units = (
             *_build_page_units(text_substrate),

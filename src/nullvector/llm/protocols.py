@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
@@ -43,3 +44,11 @@ class StructuredLLMGateway(Protocol):
 
     def invoke(self, request: GatewayRequest[T]) -> GatewaySuccess[T]:
         """Return a validated model or raise a typed gateway exception."""
+
+    def invoke_many(
+        self,
+        requests: Sequence[GatewayRequest[T]],
+        *,
+        max_workers: int | None = None,
+    ) -> tuple[GatewaySuccess[T], ...]:
+        """Return ordered validated models or raise the first typed exception."""

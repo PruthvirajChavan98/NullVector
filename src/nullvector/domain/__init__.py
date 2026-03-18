@@ -60,6 +60,11 @@ from nullvector.domain.ledger import (
 )
 from nullvector.domain.retrieval import (
     AnswerCitation,
+    DocumentDescription,
+    DocumentDescriptionManifest,
+    DocumentDescriptionMethod,
+    DocumentDescriptionRequest,
+    DocumentDescriptionSettings,
     QueryPlan,
     RetrievalCorpus,
     RetrievalEvidence,
@@ -147,6 +152,11 @@ __all__ = [
     "DecompositionMethod",
     "DecompositionPromptResponse",
     "DecompositionReport",
+    "DocumentDescription",
+    "DocumentDescriptionManifest",
+    "DocumentDescriptionMethod",
+    "DocumentDescriptionRequest",
+    "DocumentDescriptionSettings",
     "DocumentEvent",
     "DocumentFingerprint",
     "EventSeverity",
