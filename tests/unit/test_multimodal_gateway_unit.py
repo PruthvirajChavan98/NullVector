@@ -20,7 +20,6 @@ from nullvector.llm import (
     GatewayFailureCategory,
     GatewayRequest,
     GatewayService,
-    LiteLLMProviderConfig,
     LLMMessage,
     LLMRole,
     NoopProviderAdapter,
@@ -52,7 +51,7 @@ def make_region(*, asset_path: Path | None = None) -> VisualRegionReference:
 def make_gateway(tmp_path: Path, adapter: NoopProviderAdapter) -> GatewayService:
     return GatewayService(
         GatewayConfig(
-            provider=LiteLLMProviderConfig(model="test-model"),
+            default_model="test-model",
             audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
         ),
         provider_adapter=adapter,

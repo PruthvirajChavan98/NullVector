@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -21,8 +20,6 @@ from nullvector.llm import (
     GatewayService,
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
-    LiteLLMProviderConfig,
-    LiteLLMSDKAdapter,
     LLMMessage,
     LLMRole,
     NoopProviderAdapter,
@@ -96,7 +93,7 @@ def make_request(
 
 def make_config(tmp_path: Path) -> GatewayConfig:
     return GatewayConfig(
-        provider=LiteLLMProviderConfig(model="test-model"),
+        default_model="test-model",
         audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
     )
 
@@ -216,82 +213,19 @@ def test_noop_adapter_rejects_unknown_operations(tmp_path: Path) -> None:
         gateway.invoke(make_request(operation_name="missing-script", idempotency_key="missing"))
 
 
-def _fake_completion_response(message_content: str, resp_id: str) -> dict[str, Any]:
-    """Build a minimal litellm.completion() response dict."""
-    return {
-        "id": resp_id,
-        "choices": [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": message_content,
-                    "parsed": None,
-                },
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": 4,
-            "completion_tokens": 5,
-            "total_tokens": 9,
-        },
-    }
-
-
-def test_litellm_adapter_returns_transport_compatible_assurance(tmp_path: Path) -> None:
-    def fake_completion(**kwargs: Any) -> dict[str, Any]:
-        assert kwargs["response_format"]["type"] == "json_schema"
-        return _fake_completion_response('{"message":"hello from litellm"}', "litellm-resp-1")
-
+def test_unsupported_structured_output_mode_rejected(tmp_path: Path) -> None:
+    """Provider-native mode is rejected when config only declares transport-compatible."""
     gateway = GatewayService(
         make_config(tmp_path),
-        provider_adapter=LiteLLMSDKAdapter(completion_callable=fake_completion),
-    )
-
-    success = gateway.invoke(make_request(idempotency_key="litellm-success"))
-
-    assert success.assurance_mode is GatewayAssuranceMode.TRANSPORT_COMPATIBLE
-    assert success.output.message == "hello from litellm"
-
-
-def test_litellm_adapter_accepts_direct_provider_credentials(tmp_path: Path) -> None:
-    captured: dict[str, Any] = {}
-
-    def fake_completion(**kwargs: Any) -> dict[str, Any]:
-        captured.update(kwargs)
-        return _fake_completion_response(
-            '{"message":"hello from direct creds"}', "litellm-direct-creds"
-        )
-
-    gateway = GatewayService(
-        GatewayConfig(
-            provider=LiteLLMProviderConfig(
-                model="openrouter/test-model",
-                api_key="direct-key",
-                api_base="https://openrouter.ai/api/v1",
-            ),
-            audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
+        provider_adapter=NoopProviderAdapter(
+            {"echo": NoopScriptedResponse(output_json={"message": "hello"})},
         ),
-        provider_adapter=LiteLLMSDKAdapter(completion_callable=fake_completion),
-    )
-
-    success = gateway.invoke(make_request(idempotency_key="litellm-direct-creds"))
-
-    assert success.output.message == "hello from direct creds"
-    assert captured["api_key"] == "direct-key"
-    assert captured["base_url"] == "https://openrouter.ai/api/v1"
-
-
-def test_litellm_adapter_rejects_provider_native_requests(tmp_path: Path) -> None:
-    gateway = GatewayService(
-        make_config(tmp_path),
-        provider_adapter=LiteLLMSDKAdapter(completion_callable=lambda **_: {}),
     )
 
     with pytest.raises(GatewayConfigurationError, match="does not support structured output mode"):
         gateway.invoke(
             make_request(
                 structured_output_mode=StructuredOutputMode.PROVIDER_NATIVE,
-                idempotency_key="litellm-native-unsupported",
+                idempotency_key="mode-unsupported",
             ),
         )

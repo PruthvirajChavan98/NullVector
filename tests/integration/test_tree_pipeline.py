@@ -28,7 +28,6 @@ from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
     GatewayService,
-    LiteLLMProviderConfig,
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
@@ -190,7 +189,7 @@ def write_decomposition_acquisition_fixture(tmp_path: Path) -> Path:
 def make_summary_gateway(tmp_path: Path) -> GatewayService:
     return GatewayService(
         GatewayConfig(
-            provider=LiteLLMProviderConfig(model="test-model"),
+            default_model="test-model",
             audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
         ),
         provider_adapter=NoopProviderAdapter(

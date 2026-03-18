@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-import httpx
 import pytest
 from pydantic import BaseModel
 
@@ -24,12 +23,17 @@ from nullvector.llm import (
     GatewayProviderRefusalError,
     GatewayRequest,
     GatewayService,
+    GatewayUsage,
     LLMMessage,
     LLMRole,
-    OpenAIProviderConfig,
-    OpenAIResponsesHTTPAdapter,
     StructuredOutputMode,
     evaluate_repairs,
+)
+from nullvector.llm.types import (
+    ProviderInvocationFailure,
+    ProviderInvocationRequest,
+    ProviderInvocationResult,
+    ProviderInvocationSuccess,
 )
 from nullvector.tree import build_tree
 from nullvector.tree import service as tree_service_module
@@ -40,16 +44,37 @@ FIXTURE_ROOT = Path("fixtures/phase02/inputs")
 
 
 class EchoResponse(BaseModel):
-    """Simple structured response model for OpenAI adapter tests."""
+    """Simple structured response model for gateway adapter tests."""
 
     message: str
 
 
-def openai_config(tmp_path: Path) -> GatewayConfig:
+class ScriptedProviderAdapter:
+    """Protocol-conforming test adapter that returns scripted results per operation."""
+
+    provider_name = "scripted-test"
+
+    def __init__(self, scripts: dict[str, ProviderInvocationResult]) -> None:
+        self._scripts = scripts
+        self.calls: list[str] = []
+
+    def invoke(
+        self,
+        request: ProviderInvocationRequest,
+        config: GatewayConfig,
+    ) -> ProviderInvocationResult:
+        del config
+        self.calls.append(request.operation_name)
+        return self._scripts[request.operation_name]
+
+
+def provider_native_config(tmp_path: Path) -> GatewayConfig:
+    """Gateway config declaring provider-native structured output support."""
     return GatewayConfig(
-        provider=OpenAIProviderConfig(model="gpt-4.1-mini"),
+        default_model="gpt-4.1-mini",
         audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
         structured_output_mode_preference=StructuredOutputMode.PROVIDER_NATIVE,
+        supported_structured_output_modes=(StructuredOutputMode.PROVIDER_NATIVE,),
     )
 
 
@@ -63,92 +88,68 @@ def make_request(operation_name: str) -> GatewayRequest[EchoResponse]:
 
 
 @pytest.mark.integration
-def test_openai_responses_adapter_strict_success_with_mocked_transport(
+def test_provider_native_strict_success_via_protocol_adapter(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/responses"
-        payload = json.loads(request.content.decode("utf-8"))
-        assert payload["text"]["format"]["type"] == "json_schema"
-        return httpx.Response(
-            200,
-            headers={"x-request-id": "req-openai-1"},
-            json={
-                "id": "resp-openai-1",
-                "output": [
-                    {
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": '{"message":"hello from openai"}',
-                            }
-                        ]
-                    }
-                ],
-                "usage": {
-                    "input_tokens": 3,
-                    "output_tokens": 4,
-                    "total_tokens": 7,
-                },
-            },
-        )
-
-    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.openai.com")
+    adapter = ScriptedProviderAdapter(
+        {
+            "protocol-success": ProviderInvocationResult(
+                success=ProviderInvocationSuccess(
+                    provider_name="scripted-test",
+                    model_name="gpt-4.1-mini",
+                    assurance_mode=GatewayAssuranceMode.PROVIDER_NATIVE_STRICT,
+                    structured_output_mode=StructuredOutputMode.PROVIDER_NATIVE,
+                    structured_output_json={"message": "hello from protocol adapter"},
+                    usage=GatewayUsage(input_tokens=3, output_tokens=4, total_tokens=7),
+                    status_code=200,
+                    provider_request_id="req-protocol-1",
+                    provider_response_id="resp-protocol-1",
+                ),
+            ),
+        },
+    )
     gateway = GatewayService(
-        openai_config(tmp_path),
-        provider_adapter=OpenAIResponsesHTTPAdapter(client=client),
+        provider_native_config(tmp_path),
+        provider_adapter=adapter,
     )
 
-    success = gateway.invoke(make_request("openai-success"))
+    success = gateway.invoke(make_request("protocol-success"))
 
     assert success.assurance_mode is GatewayAssuranceMode.PROVIDER_NATIVE_STRICT
-    assert success.output.message == "hello from openai"
-    assert success.provider_request_id == "req-openai-1"
+    assert success.output.message == "hello from protocol adapter"
+    assert success.provider_request_id == "req-protocol-1"
 
 
 @pytest.mark.integration
-def test_openai_responses_refusal_is_typed_and_not_retried(
+def test_provider_refusal_is_typed_and_not_retried(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sleep_calls: list[float] = []
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        del request
-        return httpx.Response(
-            200,
-            headers={"x-request-id": "req-openai-refusal"},
-            json={
-                "id": "resp-openai-refusal",
-                "output": [
-                    {
-                        "content": [
-                            {
-                                "type": "refusal",
-                                "refusal": "safety refusal",
-                            }
-                        ]
-                    }
-                ],
-            },
-        )
-
-    gateway = GatewayService(
-        openai_config(tmp_path),
-        provider_adapter=OpenAIResponsesHTTPAdapter(
-            client=httpx.Client(
-                transport=httpx.MockTransport(handler), base_url="https://api.openai.com"
+    adapter = ScriptedProviderAdapter(
+        {
+            "protocol-refusal": ProviderInvocationResult(
+                failure=ProviderInvocationFailure(
+                    provider_name="scripted-test",
+                    model_name="gpt-4.1-mini",
+                    assurance_mode=GatewayAssuranceMode.PROVIDER_NATIVE_STRICT,
+                    structured_output_mode=StructuredOutputMode.PROVIDER_NATIVE,
+                    category=GatewayFailureCategory.PROVIDER_REFUSAL,
+                    message="safety refusal",
+                    retryable=False,
+                    status_code=200,
+                    provider_request_id="req-protocol-refusal",
+                ),
             ),
-        ),
+        },
+    )
+    gateway = GatewayService(
+        provider_native_config(tmp_path),
+        provider_adapter=adapter,
         sleep_fn=sleep_calls.append,
     )
 
     with pytest.raises(GatewayProviderRefusalError) as exc_info:
-        gateway.invoke(make_request("openai-refusal"))
+        gateway.invoke(make_request("protocol-refusal"))
 
     assert exc_info.value.failure.category is GatewayFailureCategory.PROVIDER_REFUSAL
     assert sleep_calls == []
@@ -157,43 +158,43 @@ def test_openai_responses_refusal_is_typed_and_not_retried(
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    ("status_code", "error_message", "expected_error"),
+    ("failure_category", "expected_error"),
     [
-        (401, "invalid api key", GatewayAuthError),
-        (400, "context length exceeded for this model", GatewayContextLengthError),
+        (GatewayFailureCategory.AUTH_FAILURE, GatewayAuthError),
+        (GatewayFailureCategory.CONTEXT_LENGTH_VIOLATION, GatewayContextLengthError),
     ],
 )
-def test_openai_non_retryable_failures_do_not_backoff(
+def test_non_retryable_failures_do_not_backoff(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    status_code: int,
-    error_message: str,
+    failure_category: GatewayFailureCategory,
     expected_error: type[Exception],
 ) -> None:
     sleep_calls: list[float] = []
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        del request
-        return httpx.Response(
-            status_code,
-            headers={"x-request-id": "req-openai-error"},
-            json={"error": {"message": error_message, "code": "bad_request"}},
-        )
-
-    gateway_config = openai_config(tmp_path)
-    gateway = GatewayService(
-        gateway_config,
-        provider_adapter=OpenAIResponsesHTTPAdapter(
-            client=httpx.Client(
-                transport=httpx.MockTransport(handler), base_url="https://api.openai.com"
+    op_name = f"protocol-{failure_category.value}"
+    adapter = ScriptedProviderAdapter(
+        {
+            op_name: ProviderInvocationResult(
+                failure=ProviderInvocationFailure(
+                    provider_name="scripted-test",
+                    model_name="gpt-4.1-mini",
+                    assurance_mode=GatewayAssuranceMode.PROVIDER_NATIVE_STRICT,
+                    structured_output_mode=StructuredOutputMode.PROVIDER_NATIVE,
+                    category=failure_category,
+                    message=f"simulated {failure_category.value}",
+                    retryable=False,
+                    status_code=400,
+                ),
             ),
-        ),
+        },
+    )
+    gateway = GatewayService(
+        provider_native_config(tmp_path),
+        provider_adapter=adapter,
         sleep_fn=sleep_calls.append,
     )
 
     with pytest.raises(expected_error):
-        gateway.invoke(make_request("openai-error"))
+        gateway.invoke(make_request(op_name))
 
     assert sleep_calls == []
 
@@ -204,48 +205,48 @@ def copy_fixture(case_name: str, tmp_path: Path) -> Path:
     return convert_legacy_parse_fixture_to_acquisition(destination)
 
 
+class RepairProviderAdapter:
+    """Protocol-conforming adapter that returns scripted repair decisions."""
+
+    provider_name = "repair-test"
+
+    def invoke(
+        self,
+        request: ProviderInvocationRequest,
+        config: GatewayConfig,
+    ) -> ProviderInvocationResult:
+        del config
+        decision_payload = {
+            "request_id": request.idempotency_key or "repair-request",
+            "status": "proposal_generated",
+            "message": "normalize title casing",
+            "proposed_title": "Overview",
+            "resolved_level": None,
+        }
+        return ProviderInvocationResult(
+            success=ProviderInvocationSuccess(
+                provider_name=self.provider_name,
+                model_name=request.model_name,
+                assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+                structured_output_mode=request.structured_output_mode,
+                structured_output_json=decision_payload,
+                usage=GatewayUsage(input_tokens=8, output_tokens=5, total_tokens=13),
+                status_code=200,
+                provider_request_id="req-gateway-repair",
+            ),
+        )
+
+
 @pytest.mark.integration
 def test_evaluate_repairs_emits_typed_decisions_without_breaking_tree_verification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
     tree_run_id = "gateway-repair-tree"
     audit_root = (
         acquisition_manifest_path.parent / "tree" / tree_run_id / "repair" / "gateway-audit"
     )
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        payload = json.loads(request.content.decode("utf-8"))
-        decision_payload = {
-            "request_id": payload.get("metadata", {}).get("request_id", "repair-request"),
-            "status": "proposal_generated",
-            "message": "normalize title casing",
-            "proposed_title": "Overview",
-        }
-        return httpx.Response(
-            200,
-            headers={"x-request-id": "req-gateway-repair"},
-            json={
-                "id": "resp-gateway-repair",
-                "output": [
-                    {
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": json.dumps(decision_payload),
-                            }
-                        ]
-                    }
-                ],
-                "usage": {
-                    "input_tokens": 8,
-                    "output_tokens": 5,
-                    "total_tokens": 13,
-                },
-            },
-        )
 
     tree_service_any = cast(Any, tree_service_module)
     original_build_hierarchy = cast(Any, tree_service_any.build_hierarchy)
@@ -264,20 +265,13 @@ def test_evaluate_repairs_emits_typed_decisions_without_breaking_tree_verificati
         return nodes, (repair_request,), ambiguity_count + 1
 
     monkeypatch.setattr(tree_service_any, "build_hierarchy", wrapped_build_hierarchy)
-    gateway_config = openai_config(tmp_path).model_copy(
-        update={
-            "audit": openai_config(tmp_path).audit.model_copy(
-                update={"persist_root": str(audit_root)}
-            )
-        }
+    gateway_config = GatewayConfig(
+        default_model="test-model",
+        audit=GatewayAuditConfig(persist_root=str(audit_root)),
     )
     gateway = GatewayService(
         gateway_config,
-        provider_adapter=OpenAIResponsesHTTPAdapter(
-            client=httpx.Client(
-                transport=httpx.MockTransport(handler), base_url="https://api.openai.com"
-            ),
-        ),
+        provider_adapter=RepairProviderAdapter(),
     )
 
     class _GatewayBackedRepairEngine:

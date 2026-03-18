@@ -3,27 +3,25 @@
 from __future__ import annotations
 
 from nullvector.llm.errors import GatewayConfigurationError
-from nullvector.llm.types import GatewayConfig, OpenAIProviderConfig, StructuredOutputMode
+from nullvector.llm.types import GatewayConfig, StructuredOutputMode
 
 
 def provider_supported_modes(config: GatewayConfig) -> tuple[StructuredOutputMode, ...]:
-    """Return the structured-output modes supported by the configured provider family."""
+    """Return the structured-output modes declared in the gateway configuration."""
 
-    if isinstance(config.provider, OpenAIProviderConfig):
-        return (StructuredOutputMode.PROVIDER_NATIVE,)
-    return (StructuredOutputMode.TRANSPORT_COMPATIBLE,)
+    return config.supported_structured_output_modes
 
 
 def validate_gateway_mode_configuration(config: GatewayConfig) -> None:
-    """Reject unsupported provider/mode combinations before the first request is sent."""
+    """Reject unsupported mode preferences before the first request is sent."""
 
     if (
         config.structured_output_mode_preference is not None
         and config.structured_output_mode_preference not in provider_supported_modes(config)
     ):
         msg = (
-            f"provider {config.provider.provider} does not support configured structured "
-            f"output mode {config.structured_output_mode_preference.value}"
+            f"configured provider does not support structured output mode "
+            f"{config.structured_output_mode_preference.value}"
         )
         raise GatewayConfigurationError(msg)
 

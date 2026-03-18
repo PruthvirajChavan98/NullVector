@@ -95,43 +95,25 @@ class GatewayAuditConfig(NullVectorModel):
     capture_raw_response: bool = True
 
 
-class LiteLLMProviderConfig(NullVectorModel):
-    """Config for the LiteLLM SDK adapter."""
-
-    provider: NonEmptyStr = "litellm"
-    model: NonEmptyStr
-    api_key: NonEmptyStr | None = None
-    api_base: NonEmptyStr | None = None
-    api_version: NonEmptyStr | None = None
-    api_key_env_var: NonEmptyStr | None = None
-    api_base_env_var: NonEmptyStr | None = None
-    api_version_env_var: NonEmptyStr | None = None
-    extra_body: dict[str, JSONValue] = Field(default_factory=dict)
-
-
-class OpenAIProviderConfig(NullVectorModel):
-    """Config for the direct OpenAI Responses API adapter."""
-
-    provider: NonEmptyStr = "openai_http"
-    model: NonEmptyStr
-    api_key_env_var: NonEmptyStr = "OPENAI_API_KEY"
-    base_url: NonEmptyStr = "https://api.openai.com/v1"
-    organization_env_var: NonEmptyStr | None = None
-    project_env_var: NonEmptyStr | None = None
-    extra_body: dict[str, JSONValue] = Field(default_factory=dict)
-
-
-ProviderConfig = LiteLLMProviderConfig | OpenAIProviderConfig
-
-
 class GatewayConfig(NullVectorModel):
-    """Gateway-level configuration and provider selection."""
+    """Gateway-level configuration (provider-agnostic)."""
 
-    provider: ProviderConfig
+    default_model: NonEmptyStr
     timeout_seconds: PositiveFloat = 30.0
     retry_policy: GatewayRetryPolicy = Field(default_factory=GatewayRetryPolicy)
     audit: GatewayAuditConfig = Field(default_factory=GatewayAuditConfig)
     structured_output_mode_preference: StructuredOutputMode | None = None
+    supported_structured_output_modes: tuple[StructuredOutputMode, ...] = (
+        StructuredOutputMode.TRANSPORT_COMPATIBLE,
+    )
+
+    @model_validator(mode="after")
+    def _validate_modes(self) -> GatewayConfig:
+        """Ensure at least one structured output mode is declared."""
+        if not self.supported_structured_output_modes:
+            msg = "at least one supported structured output mode is required"
+            raise ValueError(msg)
+        return self
 
 
 class GatewayRequest(NullVectorModel, Generic[T]):
@@ -166,16 +148,21 @@ class GatewayUsage(NullVectorModel):
     output_tokens: NonNegativeInt = 0
     total_tokens: NonNegativeInt = 0
 
-    @model_validator(mode="after")
-    def validate_total(self) -> GatewayUsage:
-        if self.total_tokens not in (0, self.input_tokens + self.output_tokens):
+    @model_validator(mode="before")
+    @classmethod
+    def validate_total(cls, data: dict[str, int]) -> dict[str, int]:
+        """Auto-compute total_tokens when zero or missing."""
+        if not isinstance(data, dict):
+            return data
+        input_t = data.get("input_tokens", 0)
+        output_t = data.get("output_tokens", 0)
+        total_t = data.get("total_tokens", 0)
+        if total_t not in (0, input_t + output_t):
             msg = "total_tokens must be zero or equal input_tokens + output_tokens"
             raise ValueError(msg)
-        if self.total_tokens == 0:
-            return self.model_copy(
-                update={"total_tokens": self.input_tokens + self.output_tokens},
-            )
-        return self
+        if total_t == 0:
+            data = {**data, "total_tokens": input_t + output_t}
+        return data
 
 
 class GatewayAttempt(NullVectorModel):

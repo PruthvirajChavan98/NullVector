@@ -65,7 +65,8 @@ New library features before recommending them
 │   ├── llm/                     # Phase 03: Typed LLM gateway
 │   │   ├── service.py           # GatewayService (sync-first, retries, auditing)
 │   │   ├── protocols.py         # ProviderAdapter, StructuredLLMGateway
-│   │   ├── providers/           # LiteLLM SDK, OpenAI HTTP, Noop adapters
+│   │   ├── adapters/            # Optional convenience adapters (OpenAI, LiteLLM) — zero deps
+│   │   ├── providers/           # Noop adapter (users bring their own ProviderAdapter)
 │   │   ├── prompts/             # Prompt templates (repair, summarization, verification, toc)
 │   │   └── types.py             # GatewayRequest, GatewaySuccess, GatewayFailure
 │   ├── retrieval/               # Corpus building, query planning, ranking, QA
@@ -118,7 +119,6 @@ New library features before recommending them
 | Package | Pin | Purpose |
 |---------|-----|---------|
 | `httpx` | `>=0.28.0,<1.0.0` | Async HTTP client |
-| `litellm` | `>=1.79.0,<2.0.0` | LLM provider abstraction |
 | `PyMuPDF` | `==1.27.2` | Primary PDF parser (exact pin for determinism) |
 | `pypdf` | `==6.8.0` | Alternative outline extractor (exact pin) |
 | `pydantic` | `>=2.11.0,<3.0.0` | Domain model validation |
@@ -135,6 +135,12 @@ New library features before recommending them
 | Package | Purpose |
 |---------|---------|
 | `psycopg[binary]` | PostgreSQL storage backend |
+
+### Optional Convenience Adapters (zero new dependencies)
+| Adapter | SDK Required | Install |
+|---------|-------------|---------|
+| `OpenAIAdapter` | `openai>=1.0.0` | `pip install openai` |
+| `LiteLLMAdapter` | `litellm>=1.79.0` | `pip install litellm` |
 
 ### NOT in dependencies (despite docs claiming otherwise)
 - `pytest-asyncio` — not installed
@@ -178,7 +184,7 @@ uv lock                           # Regenerate lockfile
 - Python 3.11+. Use `str | None`, not `Optional[str]`.
 - Every public function/method/class requires complete type annotations.
 - `mypy --strict` must pass with zero errors. No `# type: ignore` without inline explanation.
-- mypy ignores `fitz` (PyMuPDF) and `litellm` — they have no type stubs.
+- mypy ignores `fitz` (PyMuPDF) — it has no type stubs.
 
 ### Imports
 - PEP 517 src layout. All imports are absolute: `from nullvector.domain.tree import HierarchyNode`.
@@ -193,7 +199,7 @@ uv lock                           # Regenerate lockfile
 ### Error Handling
 - Domain-specific exceptions only. Defined in `ingest/errors.py`, `llm/errors.py`, `tree/service.py`, `storage/postgres.py`.
 - Never swallow exceptions silently. Log before re-raising.
-- Bare `except Exception:` only for documented defensive cases (see `outline.py`, `litellm_sdk.py`).
+- Bare `except Exception:` only for documented defensive cases (see `outline.py`).
 
 ### Storage
 - All persistence goes through `DocumentStore` protocol (`storage/protocol.py`).
@@ -242,6 +248,9 @@ and used programmatically.
 - **Typed failure envelopes**: `GatewaySuccess | GatewayFailure` instead of exceptions for expected failures
 - **Deterministic outputs**: Exact version pins on PDF parsers, content-addressed fingerprinting
 - **Artifact-driven pipelines**: Each phase produces typed artifacts persisted via `DocumentStore`
+- **BYOLLM (Bring Your Own LLM)**: `provider_adapter` is a required kwarg on `GatewayService`.
+  Users bring their own SDK client. Optional convenience adapters in `llm/adapters/` wrap
+  OpenAI and LiteLLM with zero added dependencies (lazy imports).
 
 ### ADRs (Authoritative)
 The `docs/adr/` directory contains the actual architectural decisions:

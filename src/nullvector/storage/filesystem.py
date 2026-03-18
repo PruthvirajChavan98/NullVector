@@ -86,7 +86,7 @@ class FilesystemDocumentStore:
         run_id: str,
         document_id: str,
     ) -> RunScopedStore:
-        return ScopedDocumentRun(self, run_type=run_type, run_id=run_id, document_id=document_id)  # type: ignore[return-value]  # ScopedDocumentRun structurally satisfies RunScopedStore
+        return ScopedDocumentRun(self, run_type=run_type, run_id=run_id, document_id=document_id)
 
     def artifact_ref(
         self,

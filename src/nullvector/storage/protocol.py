@@ -16,10 +16,17 @@ from nullvector.storage.config import StorageBackend
 class RunScopedStore(Protocol):
     """One persistence handle scoped to a single reserved run."""
 
-    backend: StorageBackend
-    run_type: str
-    run_id: str
-    document_id: str
+    @property
+    def backend(self) -> StorageBackend: ...
+
+    @property
+    def run_type(self) -> str: ...
+
+    @property
+    def run_id(self) -> str: ...
+
+    @property
+    def document_id(self) -> str: ...
 
     def artifact_ref(self, artifact_path: str) -> str:
         """Return the deterministic ref for one artifact path."""

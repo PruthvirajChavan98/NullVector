@@ -21,8 +21,6 @@ from nullvector.llm.config_validation import (
 from nullvector.llm.errors import GatewayConfigurationError, error_from_failure
 from nullvector.llm.prompts.repair import RepairPromptResponse, build_repair_messages
 from nullvector.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
-from nullvector.llm.providers.litellm_sdk import LiteLLMSDKAdapter
-from nullvector.llm.providers.openai_http import OpenAIResponsesHTTPAdapter
 from nullvector.llm.retry import backoff_delay_seconds, should_retry
 from nullvector.llm.types import (
     GatewayAssuranceMode,
@@ -34,7 +32,6 @@ from nullvector.llm.types import (
     GatewayRequest,
     GatewaySuccess,
     JSONValue,
-    OpenAIProviderConfig,
     ProviderInvocationFailure,
     ProviderInvocationRequest,
     ProviderInvocationResult,
@@ -52,30 +49,6 @@ from nullvector.storage.protocol import DocumentStore
 T = TypeVar("T", bound=BaseModel)
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _default_provider_adapter(config: GatewayConfig) -> ProviderAdapter:
-    if isinstance(config.provider, OpenAIProviderConfig):
-        return OpenAIResponsesHTTPAdapter()
-    return LiteLLMSDKAdapter()
-
-
-def _request_id(request: GatewayRequest[T]) -> str:
-    return request.idempotency_key or uuid.uuid4().hex
-
-
-def _model_name(config: GatewayConfig, request: GatewayRequest[T]) -> str:
-    return request.model_name or config.provider.model
-
-
-def _provider_default_mode(config: GatewayConfig) -> StructuredOutputMode:
-    if isinstance(config.provider, OpenAIProviderConfig):
-        return StructuredOutputMode.PROVIDER_NATIVE
-    return StructuredOutputMode.TRANSPORT_COMPATIBLE
-
-
 def _effective_structured_output_mode(
     config: GatewayConfig,
     request: GatewayRequest[T],
@@ -83,13 +56,10 @@ def _effective_structured_output_mode(
     requested_mode = (
         request.structured_output_mode
         or config.structured_output_mode_preference
-        or _provider_default_mode(config)
+        or config.supported_structured_output_modes[0]
     )
     if requested_mode not in provider_supported_modes(config):
-        msg = (
-            f"provider {config.provider.provider} does not support structured output mode "
-            f"{requested_mode.value}"
-        )
+        msg = f"configured provider does not support structured output mode {requested_mode.value}"
         raise GatewayConfigurationError(msg)
     return requested_mode
 
@@ -107,7 +77,7 @@ def _provider_request(
         operation_name=request.operation_name,
         messages=request.messages,
         attachments=request.attachments,
-        model_name=_model_name(config, request),
+        model_name=request.model_name or config.default_model,
         structured_output_mode=_effective_structured_output_mode(config, request),
         response_model_name=model.__name__,
         response_schema_name=model.__name__,
@@ -360,7 +330,7 @@ class GatewayService(StructuredLLMGateway):
         self,
         config: GatewayConfig,
         *,
-        provider_adapter: ProviderAdapter | None = None,
+        provider_adapter: ProviderAdapter,
         redaction_hooks: tuple[RedactionHook, ...] = (),
         sleep_fn: Callable[[float], None] = time.sleep,
         storage: StorageConfig | None = None,
@@ -370,7 +340,7 @@ class GatewayService(StructuredLLMGateway):
         if storage is None:
             validate_writable_root(config.audit.persist_root, label="gateway audit root")
         self._config = config
-        self._provider_adapter = provider_adapter or _default_provider_adapter(config)
+        self._provider_adapter = provider_adapter
         self._redaction_hooks = redaction_hooks
         self._sleep_fn = sleep_fn
         self._logger = logger
@@ -387,13 +357,13 @@ class GatewayService(StructuredLLMGateway):
             close_method()
 
     def invoke(self, request: GatewayRequest[T]) -> GatewaySuccess[T]:
-        request_id = _request_id(request)
+        request_id = request.idempotency_key or uuid.uuid4().hex
         structured_output_mode = _effective_structured_output_mode(self._config, request)
         attachment_failure = _validate_attachments(
             request_id,
             request,
             provider_name=self._provider_adapter.provider_name,
-            model_name=_model_name(self._config, request),
+            model_name=request.model_name or self._config.default_model,
             structured_output_mode=structured_output_mode,
         )
         if attachment_failure is not None:
@@ -422,9 +392,9 @@ class GatewayService(StructuredLLMGateway):
                 attachment_count=len(_attachment_paths),
                 attachment_paths=_attachment_paths,
             )
-            started_at = _utcnow()
+            started_at = datetime.now(UTC)
             result = self._provider_adapter.invoke(provider_request, self._config)
-            completed_at = _utcnow()
+            completed_at = datetime.now(UTC)
             _latency_ms = round((completed_at - started_at).total_seconds() * 1000)
             attempts.append(
                 _build_attempt(

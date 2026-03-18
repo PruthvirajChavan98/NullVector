@@ -1,5 +1,6 @@
 """Phase 03 typed LLM gateway exports."""
 
+from nullvector.llm.adapters import LiteLLMAdapter, OpenAIAdapter
 from nullvector.llm.errors import (
     GatewayAuthError,
     GatewayConfigurationError,
@@ -13,12 +14,10 @@ from nullvector.llm.errors import (
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
 )
-from nullvector.llm.protocols import RedactionHook, StructuredLLMGateway
+from nullvector.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
 from nullvector.llm.providers import (
-    LiteLLMSDKAdapter,
     NoopProviderAdapter,
     NoopScriptedResponse,
-    OpenAIResponsesHTTPAdapter,
 )
 from nullvector.llm.service import GatewayService, evaluate_repairs
 from nullvector.llm.types import (
@@ -33,10 +32,8 @@ from nullvector.llm.types import (
     GatewayRetryPolicy,
     GatewaySuccess,
     GatewayUsage,
-    LiteLLMProviderConfig,
     LLMMessage,
     LLMRole,
-    OpenAIProviderConfig,
     RegionImageInput,
     StructuredOutputMode,
     VisualInsightResponse,
@@ -69,12 +66,11 @@ __all__ = [
     "GatewayValidationError",
     "LLMMessage",
     "LLMRole",
-    "LiteLLMProviderConfig",
-    "LiteLLMSDKAdapter",
+    "LiteLLMAdapter",
     "NoopProviderAdapter",
     "NoopScriptedResponse",
-    "OpenAIProviderConfig",
-    "OpenAIResponsesHTTPAdapter",
+    "OpenAIAdapter",
+    "ProviderAdapter",
     "RedactionHook",
     "RegionImageInput",
     "StructuredLLMGateway",

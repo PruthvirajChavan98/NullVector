@@ -22,7 +22,6 @@ from nullvector.llm import (
     GatewayConfig,
     GatewayService,
     GatewayUsage,
-    LiteLLMProviderConfig,
 )
 from nullvector.llm.protocols import ProviderAdapter
 from nullvector.llm.types import (
@@ -69,7 +68,7 @@ class CaptureDecompositionAdapter:
 def make_gateway(tmp_path: Path, adapter: ProviderAdapter) -> GatewayService:
     return GatewayService(
         GatewayConfig(
-            provider=LiteLLMProviderConfig(model="test-model"),
+            default_model="test-model",
             audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
         ),
         provider_adapter=adapter,

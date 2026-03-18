@@ -11,7 +11,6 @@ from nullvector.llm import (
     GatewayAuditConfig,
     GatewayConfig,
     GatewayService,
-    LiteLLMProviderConfig,
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
@@ -85,7 +84,7 @@ def make_gateway(tmp_path: Path, *, is_toc: bool) -> tuple[GatewayService, Count
     adapter = CountingProviderAdapter(delegate)
     gateway = GatewayService(
         GatewayConfig(
-            provider=LiteLLMProviderConfig(model="test-model"),
+            default_model="test-model",
             audit=GatewayAuditConfig(persist_root=str(audit_root)),
         ),
         provider_adapter=adapter,
