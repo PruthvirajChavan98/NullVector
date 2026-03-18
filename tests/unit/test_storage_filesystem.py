@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nullvector.domain.document_selection import DocumentMetadataRecord
 from nullvector.domain.ledger import DocumentFingerprint
 from nullvector.storage.filesystem import FilesystemDocumentStore
 
@@ -173,3 +174,22 @@ def test_filesystem_store_writes_run_index_on_complete(tmp_path: Path) -> None:
     assert '"run_id": "run-002"' in run_index
     assert '"run_type": "parse"' in run_index
     assert '"status": "succeeded"' in run_index
+
+
+def test_filesystem_store_metadata_helpers_are_safe_noops(tmp_path: Path) -> None:
+    store = FilesystemDocumentStore(str(tmp_path / "artifacts" / "metadata"))
+
+    count = store.put_metadata_records(
+        "collection-001",
+        (
+            DocumentMetadataRecord(
+                document_id="doc-001",
+                display_name="Alpha",
+                attributes={"company": "Acme"},
+            ),
+        ),
+    )
+
+    assert count == 1
+    assert store.load_metadata_records("collection-001") == []
+    assert store.query_metadata_records("collection-001", limit=5) == []

@@ -8,6 +8,11 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
+from nullvector.domain.document_selection import (
+    DocumentFilterClause,
+    DocumentFilterOperator,
+    DocumentMetadataRecord,
+)
 from nullvector.domain.ledger import DocumentFingerprint
 from nullvector.storage._serialization import (
     build_postgres_artifact_ref,
@@ -31,7 +36,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 # ---------------------------------------------------------------------------
 
 # Append new version names here; never modify or remove existing entries.
-_MIGRATION_VERSIONS: tuple[str, ...] = ("001_initial",)
+_MIGRATION_VERSIONS: tuple[str, ...] = ("001_initial", "002_document_metadata")
 
 
 def _pending_migrations(applied: frozenset[str]) -> list[tuple[str, str]]:
@@ -50,6 +55,42 @@ def _pending_migrations(applied: frozenset[str]) -> list[tuple[str, str]]:
             sql = pkg.joinpath(f"{version}.sql").read_text(encoding="utf-8")
             result.append((version, sql))
     return result
+
+
+def _metadata_clause_sql(clause: DocumentFilterClause) -> tuple[str, list[Any]]:
+    """Compile one typed metadata filter clause into PostgreSQL SQL + params."""
+
+    field = clause.field
+    if clause.operator is DocumentFilterOperator.EQ:
+        return (
+            "(attributes ? %s AND attributes -> %s = %s::jsonb)",
+            [field, field, canonical_json_text(clause.value)],
+        )
+    if clause.operator is DocumentFilterOperator.IN:
+        assert isinstance(clause.value, tuple)
+        comparisons = " OR ".join("attributes -> %s = %s::jsonb" for _ in clause.value)
+        params: list[Any] = [field]
+        for item in clause.value:
+            params.extend([field, canonical_json_text(item)])
+        return (f"(attributes ? %s AND ({comparisons}))", params)
+    if clause.operator is DocumentFilterOperator.CONTAINS:
+        return (
+            "("
+            "attributes ? %s "
+            "AND jsonb_typeof(attributes -> %s) = 'string' "
+            "AND lower(attributes ->> %s) LIKE %s"
+            ")",
+            [field, field, field, f"%{cast(str, clause.value).casefold()}%"],
+        )
+    comparator = ">=" if clause.operator is DocumentFilterOperator.GTE else "<="
+    return (
+        "("
+        "attributes ? %s "
+        "AND jsonb_typeof(attributes -> %s) = 'number' "
+        f"AND (attributes ->> %s)::double precision {comparator} %s"
+        ")",
+        [field, field, field, float(cast(int | float, clause.value))],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +594,79 @@ class PostgresDocumentStore:
             SELECT payload
             FROM {self._schema}.retrieval_units
             WHERE {" AND ".join(conditions)}
+            LIMIT %s
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [cast(dict[str, Any], row["payload"]) for row in rows]
+
+    def put_metadata_records(
+        self,
+        collection_id: str,
+        records: Sequence[DocumentMetadataRecord],
+    ) -> int:
+        with self._connect() as conn, conn.cursor() as cursor:
+            for record in records:
+                payload = record.model_dump(mode="json")
+                cursor.execute(
+                    f"""
+                        INSERT INTO {self._schema}.document_metadata_records (
+                            collection_id,
+                            document_id,
+                            display_name,
+                            attributes,
+                            payload
+                        )
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb)
+                        ON CONFLICT (collection_id, document_id)
+                        DO UPDATE SET
+                            display_name = EXCLUDED.display_name,
+                            attributes = EXCLUDED.attributes,
+                            payload = EXCLUDED.payload,
+                            updated_at = now()
+                        """,
+                    (
+                        collection_id,
+                        record.document_id,
+                        record.display_name,
+                        canonical_json_text(record.attributes),
+                        canonical_json_text(payload),
+                    ),
+                )
+        return len(records)
+
+    def load_metadata_records(self, collection_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT payload
+                FROM {self._schema}.document_metadata_records
+                WHERE collection_id = %s
+                ORDER BY lower(display_name), document_id
+                """,
+                (collection_id,),
+            ).fetchall()
+        return [cast(dict[str, Any], row["payload"]) for row in rows]
+
+    def query_metadata_records(
+        self,
+        collection_id: str,
+        *,
+        clauses: tuple[DocumentFilterClause, ...] = (),
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        conditions = ["collection_id = %s"]
+        params: list[Any] = [collection_id]
+        for clause in clauses:
+            sql, clause_params = _metadata_clause_sql(clause)
+            conditions.append(sql)
+            params.extend(clause_params)
+        params.append(limit)
+        query = f"""
+            SELECT payload
+            FROM {self._schema}.document_metadata_records
+            WHERE {" AND ".join(conditions)}
+            ORDER BY lower(display_name), document_id
             LIMIT %s
         """
         with self._connect() as conn:

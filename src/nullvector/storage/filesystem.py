@@ -10,6 +10,10 @@ from typing import Any, cast
 from pydantic import BaseModel
 
 from nullvector.domain.common import ScalarValue
+from nullvector.domain.document_selection import (
+    DocumentFilterClause,
+    DocumentMetadataRecord,
+)
 from nullvector.domain.ledger import DocumentFingerprint
 from nullvector.storage._serialization import canonical_json_text
 from nullvector.storage.config import StorageBackend
@@ -216,6 +220,28 @@ class FilesystemDocumentStore:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         del document_id, page_start, page_end, unit_types, modalities, text_query, limit
+        return []
+
+    def put_metadata_records(
+        self,
+        collection_id: str,
+        records: Sequence[DocumentMetadataRecord],
+    ) -> int:
+        del collection_id
+        return len(records)
+
+    def load_metadata_records(self, collection_id: str) -> list[dict[str, Any]]:
+        del collection_id
+        return []
+
+    def query_metadata_records(
+        self,
+        collection_id: str,
+        *,
+        clauses: tuple[DocumentFilterClause, ...] = (),
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        del collection_id, clauses, limit
         return []
 
     def append_audit(self, record: BaseModel) -> str | None:

@@ -8,6 +8,10 @@ from nullvector.retrieval.enrichment import (
 )
 from nullvector.retrieval.index import InMemoryRetrievalIndex, PostgresRetrievalIndex
 from nullvector.retrieval.load import load_retrieval_corpus, load_retrieval_manifest
+from nullvector.retrieval.metadata_selection import (
+    MetadataSelectionPlanner,
+    MetadataSelectionService,
+)
 from nullvector.retrieval.planner import QueryPlanner
 from nullvector.retrieval.qa import QAResponse, RetrievalQAService
 from nullvector.retrieval.rank import RetrievalRanker
@@ -16,6 +20,8 @@ from nullvector.retrieval.service import RetrievalService
 __all__ = [
     "DocumentDescriptionBuilder",
     "InMemoryRetrievalIndex",
+    "MetadataSelectionPlanner",
+    "MetadataSelectionService",
     "PostgresRetrievalIndex",
     "QAResponse",
     "QueryPlanner",

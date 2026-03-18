@@ -9,6 +9,10 @@ from typing import Any, Protocol
 from pydantic import BaseModel
 
 from nullvector.domain.common import ScalarValue
+from nullvector.domain.document_selection import (
+    DocumentFilterClause,
+    DocumentMetadataRecord,
+)
 from nullvector.domain.ledger import DocumentFingerprint
 from nullvector.storage.config import StorageBackend
 
@@ -214,6 +218,25 @@ class DocumentStore(Protocol):
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Filter persisted retrieval units when the backend supports it."""
+
+    def put_metadata_records(
+        self,
+        collection_id: str,
+        records: Sequence[DocumentMetadataRecord],
+    ) -> int:
+        """Bulk persist collection-scoped document metadata when supported."""
+
+    def load_metadata_records(self, collection_id: str) -> list[dict[str, Any]]:
+        """Load all persisted collection metadata records when supported."""
+
+    def query_metadata_records(
+        self,
+        collection_id: str,
+        *,
+        clauses: tuple[DocumentFilterClause, ...] = (),
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Filter persisted collection metadata records when supported."""
 
     def append_audit(self, record: BaseModel) -> str | None:
         """Persist one audit record and return its reference when enabled."""

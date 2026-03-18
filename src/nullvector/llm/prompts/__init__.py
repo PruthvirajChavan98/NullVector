@@ -5,6 +5,10 @@ from nullvector.llm.prompts.document_description import (
     DocumentDescriptionPromptResponse,
     build_document_description_messages,
 )
+from nullvector.llm.prompts.metadata_selection import (
+    MetadataSelectionPromptResponse,
+    build_metadata_selection_messages,
+)
 from nullvector.llm.prompts.repair import RepairPromptResponse, build_repair_messages
 from nullvector.llm.prompts.summarization import (
     SummarizationPromptResponse,
@@ -19,11 +23,13 @@ from nullvector.llm.prompts.verification import (
 
 __all__ = [
     "DocumentDescriptionPromptResponse",
+    "MetadataSelectionPromptResponse",
     "RepairPromptResponse",
     "SummarizationPromptResponse",
     "VerificationPromptResponse",
     "build_decomposition_messages",
     "build_document_description_messages",
+    "build_metadata_selection_messages",
     "build_repair_messages",
     "build_summarization_messages",
     "build_toc_detection_messages",
