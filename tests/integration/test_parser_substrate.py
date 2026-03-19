@@ -8,10 +8,10 @@ from typing import Any, cast
 
 import pytest
 
-from nullvector.compat.legacy_parse import parse_document
 from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
 from nullvector.domain.ledger import ParseRequest, ParserSettings
 from nullvector.ingest import MissingOcrRuntimeError, ParseConflictError
+from nullvector.ingest.service import parse_document
 
 FIXTURE_DIR = Path("fixtures/pdfs/phase01")
 EXPECTED_DIR = Path("fixtures/expected/phase01")
@@ -60,6 +60,7 @@ def test_parse_born_digital_with_outline_persists_both_outline_sources(tmp_path:
         ),
     )
 
+    assert manifest.artifact_root is not None
     selected_outline = json.loads(Path(manifest.selected_outline_path).read_text(encoding="utf-8"))
     quality_report = json.loads(
         (Path(manifest.artifact_root) / "outline" / "quality-report.json").read_text(
@@ -96,11 +97,13 @@ def test_parse_writes_run_index_pointing_to_manifest(tmp_path: Path) -> None:
     run_index = json.loads(run_index_path.read_text(encoding="utf-8"))
 
     assert run_index_path.exists()
-    assert run_index["parse_run_id"] == "run-index-run"
+    assert run_index["run_id"] == "run-index-run"
+    assert run_index["run_type"] == "parse"
     assert run_index["document_id"] == manifest.document_id
-    assert run_index["fingerprint_sha256"] == manifest.fingerprint.sha256
-    assert run_index["settings_digest"] == manifest.settings_digest
-    assert Path(run_index["manifest_path"]) == Path(manifest.artifact_root) / "manifest.json"
+    assert run_index["identity"]["fingerprint_sha256"] == manifest.fingerprint.sha256
+    assert run_index["identity"]["settings_digest"] == manifest.settings_digest
+    assert manifest.artifact_root is not None
+    assert Path(run_index["manifest_ref"]) == Path(manifest.artifact_root) / "manifest.json"
 
 
 @pytest.mark.integration

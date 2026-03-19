@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from importlib.resources import files as _resource_files
 from typing import Any, cast
@@ -36,7 +37,27 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 # ---------------------------------------------------------------------------
 
 # Append new version names here; never modify or remove existing entries.
-_MIGRATION_VERSIONS: tuple[str, ...] = ("001_initial", "002_document_metadata")
+_MIGRATION_VERSIONS: tuple[str, ...] = (
+    "001_initial",
+    "002_document_metadata",
+    "003_run_tables_phase_fj",
+)
+_SCHEMA_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_schema_name(schema: str) -> str:
+    """Validate one PostgreSQL schema identifier before SQL interpolation."""
+
+    if _SCHEMA_NAME_PATTERN.fullmatch(schema) is None:
+        msg = "PostgreSQL schema names must match ^[A-Za-z_][A-Za-z0-9_]*$"
+        raise ValueError(msg)
+    return schema
+
+
+def _escape_like_value(value: str) -> str:
+    """Escape LIKE metacharacters for literal substring searches."""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _pending_migrations(applied: frozenset[str]) -> list[tuple[str, str]]:
@@ -67,7 +88,9 @@ def _metadata_clause_sql(clause: DocumentFilterClause) -> tuple[str, list[Any]]:
             [field, field, canonical_json_text(clause.value)],
         )
     if clause.operator is DocumentFilterOperator.IN:
-        assert isinstance(clause.value, tuple)
+        if not isinstance(clause.value, tuple):
+            msg = "in filters require a tuple value"
+            raise TypeError(msg)
         comparisons = " OR ".join("attributes -> %s = %s::jsonb" for _ in clause.value)
         params: list[Any] = [field]
         for item in clause.value:
@@ -78,9 +101,14 @@ def _metadata_clause_sql(clause: DocumentFilterClause) -> tuple[str, list[Any]]:
             "("
             "attributes ? %s "
             "AND jsonb_typeof(attributes -> %s) = 'string' "
-            "AND lower(attributes ->> %s) LIKE %s"
+            "AND lower(attributes ->> %s) LIKE %s ESCAPE '\\'"
             ")",
-            [field, field, field, f"%{cast(str, clause.value).casefold()}%"],
+            [
+                field,
+                field,
+                field,
+                f"%{_escape_like_value(cast(str, clause.value).casefold())}%",
+            ],
         )
     comparator = ">=" if clause.operator is DocumentFilterOperator.GTE else "<="
     return (
@@ -112,7 +140,7 @@ class PostgresDocumentStore:
             msg = "PostgreSQL storage requires the optional 'psycopg[binary]' dependency"
             raise PostgresDependencyError(msg)
         self._conninfo = conninfo
-        self._schema = schema
+        self._schema = _validate_schema_name(schema)
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
@@ -124,10 +152,15 @@ class PostgresDocumentStore:
         either everything is applied or nothing is.
         """
         with self._connect() as conn:
+            conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self._schema}")
             # Acquire a transaction-level advisory lock keyed to this schema.
             # pg_advisory_xact_lock blocks until the lock is available and
             # releases automatically when the transaction commits or rolls back.
-            conn.execute("SELECT pg_advisory_xact_lock(hashtext('nullvector:schema_v1'))")
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"nullvector:schema_v1:{self._schema}",),
+            )
+            conn.execute(f"SET LOCAL search_path TO {self._schema}")
             conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self._schema}.schema_migrations (
                     version    TEXT        PRIMARY KEY,
@@ -184,6 +217,8 @@ class PostgresDocumentStore:
         identity: Mapping[str, object | None],
     ) -> tuple[bool, dict[str, Any]]:
         table = self._run_table(run_type)
+        # Postgres runs store "" when artifact_root is None
+        # (convention: all *_runs tables use NOT NULL).
         _root = artifact_root or ""
         with self._connect() as conn:
             inserted = conn.execute(
@@ -735,7 +770,9 @@ class PostgresDocumentStore:
             )
 
     def _connect(self) -> psycopg.Connection[Any]:
-        assert psycopg is not None and dict_row is not None
+        if psycopg is None or dict_row is None:
+            msg = "PostgreSQL storage requires the optional 'psycopg[binary]' dependency"
+            raise PostgresDependencyError(msg)
         return psycopg.connect(self._conninfo, row_factory=dict_row)
 
     def _run_table(self, run_type: str) -> str:
@@ -748,6 +785,14 @@ class PostgresDocumentStore:
                 return "tree_runs"
             case "retrieval":
                 return "retrieval_runs"
+            case "document_description":
+                return "document_description_runs"
+            case "document_selection":
+                return "document_selection_runs"
+            case "tree_search":
+                return "tree_search_runs"
+            case "tree_compaction":
+                return "tree_compaction_runs"
         msg = f"unsupported run type: {run_type}"
         raise ValueError(msg)
 

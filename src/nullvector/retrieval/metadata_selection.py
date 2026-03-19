@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
-from nullvector.domain.common import ScalarValue
+from nullvector.domain.common import ScalarValue, is_numeric_scalar
 from nullvector.domain.document_selection import (
     DocumentFilterClause,
     DocumentFilterOperator,
@@ -22,44 +21,15 @@ from nullvector.llm.prompts.metadata_selection import (
 )
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.retrieval._selection_artifacts import (
+    selection_artifact_path,
+    selection_artifact_root,
+)
 from nullvector.storage import StorageBackend, StorageConfig, build_document_store
-from nullvector.storage.config import FilesystemStorageConfig, PostgresStorageConfig
-
-
-def _is_numeric_scalar(value: object) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def _record_sort_key(record: DocumentMetadataRecord) -> tuple[str, str]:
     return (record.display_name.casefold(), record.document_id)
-
-
-def _selection_artifact_root(
-    *,
-    request: MetadataSelectionRequest,
-    storage: StorageConfig | None,
-) -> str:
-    if isinstance(storage, PostgresStorageConfig):
-        return request.artifact_root or (
-            f"document-selection/{request.collection_id}/{request.selection_run_id}"
-        )
-
-    base_root = (
-        Path(storage.root)
-        if isinstance(storage, FilesystemStorageConfig) and storage.root is not None
-        else Path()
-    )
-    configured_root = Path(
-        request.artifact_root
-        or str(Path("document-selection") / request.collection_id / request.selection_run_id)
-    )
-    if not configured_root.is_absolute():
-        configured_root = (base_root / configured_root).resolve()
-    return str(configured_root)
-
-
-def _artifact_path(artifact_root: str, filename: str) -> str:
-    return str(Path(artifact_root) / filename)
 
 
 def _validate_plan_fields(
@@ -86,11 +56,13 @@ def _metadata_matches_clause(
     if clause.operator is DocumentFilterOperator.EQ:
         return actual == clause.value
     if clause.operator is DocumentFilterOperator.IN:
-        assert isinstance(clause.value, tuple)
+        if not isinstance(clause.value, tuple):
+            msg = "in filters require a tuple value"
+            raise TypeError(msg)
         return actual in clause.value
     if clause.operator is DocumentFilterOperator.CONTAINS:
         return isinstance(actual, str) and cast(str, clause.value).casefold() in actual.casefold()
-    if not _is_numeric_scalar(actual):
+    if not is_numeric_scalar(actual):
         return False
     actual_numeric = cast(int | float, actual)
     expected = cast(int | float, clause.value)
@@ -131,8 +103,7 @@ def _records_from_payloads(
     payloads: list[dict[str, object]],
 ) -> tuple[DocumentMetadataRecord, ...]:
     return tuple(
-        DocumentMetadataRecord.model_validate(payload, strict=False)
-        for payload in payloads
+        DocumentMetadataRecord.model_validate(payload, strict=False) for payload in payloads
     )
 
 
@@ -214,7 +185,12 @@ class MetadataSelectionService:
     def select(self, request: MetadataSelectionRequest) -> MetadataSelectionResponse:
         _validate_plan_fields(request.plan, allowed_fields=request.allowed_fields)
 
-        artifact_root = _selection_artifact_root(request=request, storage=self._storage)
+        artifact_root = selection_artifact_root(
+            collection_id=request.collection_id,
+            selection_run_id=request.selection_run_id,
+            artifact_root=request.artifact_root,
+            storage=self._storage,
+        )
         store = build_document_store(self._storage, default_filesystem_root=".")
 
         if request.metadata_records:
@@ -240,7 +216,7 @@ class MetadataSelectionService:
             run_id=request.selection_run_id,
             document_id=request.collection_id,
             artifact_kind="document_selection",
-            artifact_path=_artifact_path(artifact_root, "metadata-index.jsonl"),
+            artifact_path=selection_artifact_path(artifact_root, "metadata-index.jsonl"),
             payloads=tuple(record.model_dump(mode="json") for record in index_records),
         )
         selection_plan_path = store.put_json_artifact(
@@ -248,7 +224,10 @@ class MetadataSelectionService:
             run_id=request.selection_run_id,
             document_id=request.collection_id,
             artifact_kind="document_selection",
-            artifact_path=_artifact_path(artifact_root, "metadata-selection-plan.json"),
+            artifact_path=selection_artifact_path(
+                artifact_root,
+                "metadata-selection-plan.json",
+            ),
             payload=request.plan,
         )
 
@@ -281,7 +260,10 @@ class MetadataSelectionService:
             run_id=request.selection_run_id,
             document_id=request.collection_id,
             artifact_kind="document_selection",
-            artifact_path=_artifact_path(artifact_root, "metadata-selection-results.json"),
+            artifact_path=selection_artifact_path(
+                artifact_root,
+                "metadata-selection-results.json",
+            ),
             payload={
                 "collection_id": request.collection_id,
                 "selection_run_id": request.selection_run_id,

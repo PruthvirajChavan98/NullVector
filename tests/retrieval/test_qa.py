@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from nullvector.domain import (
     AnswerCitation,
@@ -21,6 +22,7 @@ from nullvector.llm import (
     RegionImageInput,
     StructuredOutputMode,
 )
+from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.retrieval import (
     QueryPlanner,
     RetrievalCorpusBuilder,
@@ -41,7 +43,7 @@ def _services(
     retrieval_service = RetrievalService(QueryPlanner(), RetrievalRanker())
     return retrieval_service, RetrievalQAService(
         retrieval_service,
-        gateway=gateway,
+        gateway=cast(StructuredLLMGateway | None, gateway),
     )
 
 
@@ -203,6 +205,7 @@ def test_answer_citation_formats_multi_page_labels() -> None:
         document_id="d" * 64,
         unit_id="unit-001",
         page_span=PageSpan(start_page=0, end_page=2),
+        page_label="1-3",
     )
 
     assert citation.page_label == "1-3"

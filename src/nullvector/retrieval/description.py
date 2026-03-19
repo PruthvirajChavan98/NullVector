@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from nullvector._hierarchy import document_order_key, path_has_prefix
+from nullvector._text import collapse_whitespace
 from nullvector.domain.retrieval import (
     DocumentDescription,
     DocumentDescriptionManifest,
@@ -49,24 +51,6 @@ class _SelectedSourceNode:
     source_quotes: tuple[str, ...]
 
 
-def _normalize_text(value: str) -> str:
-    return " ".join(value.split()).strip()
-
-
-def _path_has_prefix(candidate: tuple[str, ...], prefix: tuple[str, ...]) -> bool:
-    return len(candidate) > len(prefix) and candidate[: len(prefix)] == prefix
-
-
-def _document_order_key(node_card: NodeCard) -> tuple[int, int, int, tuple[str, ...], str]:
-    return (
-        node_card.page_span.start_page,
-        node_card.page_span.end_page,
-        node_card.level,
-        node_card.path,
-        node_card.node_id,
-    )
-
-
 def _page_span_width(node_card: NodeCard) -> int:
     return node_card.page_span.end_page - node_card.page_span.start_page
 
@@ -79,7 +63,7 @@ def _summary_text_for_card(
     if summary is not None:
         return summary.summary
     if node_card.summary is not None:
-        return _normalize_text(node_card.summary)
+        return collapse_whitespace(node_card.summary)
     return None
 
 
@@ -97,7 +81,7 @@ def _source_quotes_for_card(node_card: NodeCard) -> tuple[str, ...]:
     ordered: list[str] = []
     seen: set[str] = set()
     for anchor in node_card.source_anchors:
-        normalized = _normalize_text(anchor.quote)
+        normalized = collapse_whitespace(anchor.quote)
         if not normalized or normalized in seen:
             continue
         seen.add(normalized)
@@ -141,11 +125,19 @@ def _select_source_nodes(
             for summary in node_summaries[:max_source_nodes]
         )
 
-    ordered_cards = sorted(node_cards, key=_document_order_key)
+    ordered_cards = sorted(
+        node_cards,
+        key=lambda node_card: document_order_key(
+            page_span=node_card.page_span,
+            level=node_card.level,
+            path=node_card.path,
+            identifier=node_card.node_id,
+        ),
+    )
     root_candidate: NodeCard | None = None
     top_level_cards = tuple(node_card for node_card in ordered_cards if len(node_card.path) == 1)
     if len(top_level_cards) == 1 and any(
-        _path_has_prefix(other.path, top_level_cards[0].path) for other in ordered_cards
+        path_has_prefix(other.path, top_level_cards[0].path) for other in ordered_cards
     ):
         root_candidate = top_level_cards[0]
 
@@ -180,11 +172,16 @@ def _select_source_nodes(
             node_card
             for node_card in ordered_cards
             if _summary_text_for_card(node_card, summaries_by_id) is not None
-            and not any(_path_has_prefix(other.path, node_card.path) for other in ordered_cards)
+            and not any(path_has_prefix(other.path, node_card.path) for other in ordered_cards)
         ),
         key=lambda node_card: (
             -_page_span_width(node_card),
-            *_document_order_key(node_card),
+            *document_order_key(
+                page_span=node_card.page_span,
+                level=node_card.level,
+                path=node_card.path,
+                identifier=node_card.node_id,
+            ),
         ),
     )
     for node_card in summarized_leaf_cards:
@@ -231,12 +228,12 @@ def _build_deterministic_description(
 
     for source in selected_sources:
         if source.title is not None:
-            normalized_title = _normalize_text(source.title)
+            normalized_title = collapse_whitespace(source.title)
             if normalized_title and normalized_title not in seen_titles:
                 seen_titles.add(normalized_title)
                 unique_titles.append(normalized_title)
         if first_summary is None and source.summary_text is not None:
-            first_summary = _normalize_text(source.summary_text)
+            first_summary = collapse_whitespace(source.summary_text)
         if first_quote is None and source.source_quotes:
             first_quote = source.source_quotes[0]
 
@@ -332,9 +329,13 @@ class DocumentDescriptionBuilder:
             )
         )
         _is_postgres = isinstance(self._storage, PostgresStorageConfig)
-        output_store = build_document_store(
-            self._storage,
-            default_filesystem_root=None if _is_postgres else str(description_root),
+        output_store = (
+            input_store
+            if _is_postgres
+            else build_document_store(
+                self._storage,
+                default_filesystem_root=str(description_root),
+            )
         )
         expected_identity = {
             "document_id": acquisition_manifest.document_id,

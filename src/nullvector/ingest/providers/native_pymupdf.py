@@ -30,7 +30,11 @@ class NativePyMuPDFAcquisitionProvider:
     provider_identity = "native_pymupdf"
 
     def acquire(self, request: AcquisitionRequest) -> CanonicalDocumentLedger:
-        fingerprint = fingerprint_document(request.source_path)
+        fingerprint = fingerprint_document(
+            request.source_path,
+            source_kind=request.source_kind,
+            acquisition_settings=request.settings,
+        )
         source = Path(request.source_path)
 
         with open_document(request.source_path) as document:

@@ -72,16 +72,18 @@ class FilesystemDocumentStore:
         run_root = Path(manifest_ref).parent.parent
         record_path = run_root / "run-index.json"
         payload = cast(dict[str, Any], self._read_json_path(record_path))
-        payload.update(
-            {
-                "run_type": run_type,
-                "run_id": run_id,
-                "status": "succeeded",
-                "manifest_ref": manifest_ref,
-                "manifest": manifest.model_dump(mode="json"),
-            }
+        completed_payload = {
+            **payload,
+            "run_type": run_type,
+            "run_id": run_id,
+            "status": "succeeded",
+            "manifest_ref": manifest_ref,
+            "manifest": manifest.model_dump(mode="json"),
+        }
+        record_path.write_text(
+            canonical_json_text(completed_payload, pretty=True),
+            encoding="utf-8",
         )
-        record_path.write_text(canonical_json_text(payload, pretty=True), encoding="utf-8")
 
     def for_run(
         self,

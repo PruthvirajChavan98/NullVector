@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from nullvector.domain import (
     AnchorSource,
@@ -22,7 +23,7 @@ from nullvector.llm import (
     GatewayUsage,
 )
 from nullvector.llm.prompts import SummarizationPromptResponse
-from nullvector.llm.protocols import ProviderAdapter
+from nullvector.llm.protocols import ProviderAdapter, StructuredLLMGateway
 from nullvector.llm.types import (
     GatewayRequest,
     ProviderInvocationRequest,
@@ -270,7 +271,7 @@ def test_bottom_up_ordering_is_deterministic(tmp_path: Path) -> None:
 
 def test_summarizer_batches_llm_requests_per_level() -> None:
     gateway = RecordingBatchGateway()
-    summarizer = NodeSummarizer(gateway, max_workers=3)
+    summarizer = NodeSummarizer(cast(StructuredLLMGateway, gateway), max_workers=3)
     parent = make_node(node_id="parent", title="Parent", page_index=0, span_end_page=2)
     child_a = make_node(
         node_id="child-a",

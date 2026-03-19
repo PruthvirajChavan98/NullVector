@@ -35,7 +35,11 @@ class PostgresStorageConfig(NullVectorModel):
 
     backend: Literal[StorageBackend.POSTGRES] = StorageBackend.POSTGRES
     conninfo: NonEmptyStr
-    pg_schema: NonEmptyStr = Field(default="public", alias="schema")
+    pg_schema: NonEmptyStr = Field(
+        default="public",
+        alias="schema",
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
 
 
 StorageConfig = FilesystemStorageConfig | PostgresStorageConfig

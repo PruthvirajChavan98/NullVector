@@ -11,10 +11,14 @@ import pytest
 
 from nullvector.domain import (
     AcquisitionRequest,
+    AcquisitionSettings,
+    MarkdownAcquisitionSettings,
+    SourceDocumentKind,
     TreeBuildRequest,
 )
-from nullvector.ingest import acquire_document
+from nullvector.ingest.acquisition_service import acquire_document
 from nullvector.ingest.errors import ParseConflictError
+from nullvector.retrieval import RetrievalCorpusBuilder
 from nullvector.tree import build_tree
 
 PHASE01_FIXTURES = Path("fixtures/pdfs/phase01")
@@ -22,6 +26,30 @@ PHASE01_FIXTURES = Path("fixtures/pdfs/phase01")
 
 def _load_json(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _write_markdown_fixture(path: Path) -> Path:
+    path.write_text(
+        "\n".join(
+            (
+                "# Overview",
+                "NullVector ingests authored Markdown directly.",
+                "",
+                "## Details ##",
+                "This section exists to verify heading normalization.",
+                "",
+                "---",
+                "### Appendix",
+                "```python",
+                "print('stable notebook smoke')",
+                "```",
+                "",
+                "Final notes stay in plain text.",
+            )
+        ),
+        encoding="utf-8",
+    )
+    return path
 
 
 class _CaptureHandler(logging.Handler):
@@ -60,7 +88,7 @@ def test_acquisition_runtime_persists_ledger_projection_and_outline_artifacts(
     assert Path(manifest.projection_view_path or "").exists()
     assert Path(manifest.selected_outline_path).exists()
     assert Path(manifest.event_stream_path).exists()
-    assert run_index["acquisition_run_id"] == "acquisition-outline-smoke"
+    assert run_index["run_id"] == "acquisition-outline-smoke"
     assert ledger["document_id"] == manifest.document_id
     assert projection["document_id"] == manifest.document_id
     assert len(projection["pages"]) == manifest.page_count
@@ -143,6 +171,8 @@ def test_tree_build_accepts_acquisition_manifest(tmp_path: Path) -> None:
         )
     )
 
+    assert acquisition_tree.node_cards_path is not None
+    assert acquisition_tree.verification_report_path is not None
     acquisition_cards = cast(list[dict[str, Any]], _load_json(acquisition_tree.node_cards_path))
     verification_report = cast(
         dict[str, Any], _load_json(acquisition_tree.verification_report_path)
@@ -161,6 +191,60 @@ def test_tree_build_accepts_acquisition_manifest(tmp_path: Path) -> None:
     assert [issue["code"] for issue in verification_report["document_issues"]] == [
         "page-present-but-title-not-visible"
     ]
+
+
+@pytest.mark.integration
+def test_markdown_acquisition_tree_build_and_retrieval_corpus_succeed(tmp_path: Path) -> None:
+    markdown_path = _write_markdown_fixture(tmp_path / "authored.md")
+    manifest = acquire_document(
+        AcquisitionRequest(
+            source_path=str(markdown_path),
+            acquisition_run_id="markdown-acquisition-smoke",
+            artifact_root=str(tmp_path / "acquisition-runs"),
+            source_kind=SourceDocumentKind.MARKDOWN,
+            provider_identity="markdown_native",
+            settings=AcquisitionSettings(
+                markdown=MarkdownAcquisitionSettings(
+                    max_logical_lines_per_page=5,
+                    split_on_thematic_breaks=True,
+                )
+            ),
+        )
+    )
+
+    ledger = cast(dict[str, Any], _load_json(manifest.ledger_path))
+    selected_outline = cast(dict[str, Any], _load_json(manifest.selected_outline_path))
+    tree_manifest = build_tree(
+        TreeBuildRequest(
+            acquisition_manifest_path=str(Path(manifest.artifact_root or "") / "manifest.json"),
+            tree_run_id="markdown-tree-build",
+            summarize=False,
+        )
+    )
+    assert tree_manifest.artifact_root is not None
+    retrieval_manifest = RetrievalCorpusBuilder().build(
+        acquisition_manifest_path=str(Path(manifest.artifact_root or "") / "manifest.json"),
+        tree_manifest_path=str(Path(tree_manifest.artifact_root) / "manifest.json"),
+    )
+    retrieval_corpus = cast(dict[str, Any], _load_json(retrieval_manifest.corpus_path))
+
+    assert manifest.source_copy_path.endswith("source/original.md")
+    assert manifest.selected_outline_source.value == "markdown"
+    assert manifest.page_count == 2
+    assert selected_outline["selected_source"] == "markdown"
+    assert [entry["title"] for entry in selected_outline["entries"]] == [
+        "Overview",
+        "Details",
+        "Appendix",
+    ]
+    first_page_lines = [
+        block["content"]
+        for block in cast(list[dict[str, Any]], ledger["pages"][0]["blocks"])
+        if block["block_type"] == "line_block"
+    ]
+    assert "# Overview" not in first_page_lines
+    assert "Overview" in first_page_lines
+    assert any(unit["unit_type"] == "node_text" for unit in retrieval_corpus["units"])
 
 
 @pytest.mark.integration

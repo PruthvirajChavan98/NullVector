@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from nullvector.domain.document_selection import DocumentMetadataRecord
 from nullvector.domain.ledger import DocumentFingerprint
@@ -174,6 +177,41 @@ def test_filesystem_store_writes_run_index_on_complete(tmp_path: Path) -> None:
     assert '"run_id": "run-002"' in run_index
     assert '"run_type": "parse"' in run_index
     assert '"status": "succeeded"' in run_index
+
+
+def test_filesystem_complete_run_does_not_mutate_loaded_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    store = FilesystemDocumentStore(str(tmp_path / "artifacts" / "run-004" / "doc-004"))
+    loaded_payload: dict[str, Any] = {
+        "run_type": "parse",
+        "run_id": "run-004",
+        "document_id": "d" * 64,
+        "artifact_root": str(tmp_path / "artifacts" / "run-004" / "doc-004"),
+        "status": "running",
+        "identity": {"document_id": "d" * 64},
+        "manifest_ref": None,
+    }
+    monkeypatch.setattr(store, "_read_json_path", lambda _path: loaded_payload)
+
+    class _Manifest:
+        def model_dump(self, mode: str = "json") -> dict[str, str]:
+            del mode
+            return {"status": "ok"}
+
+    manifest_ref = str(tmp_path / "artifacts" / "run-004" / "doc-004" / "manifest.json")
+    Path(manifest_ref).parent.mkdir(parents=True, exist_ok=True)
+    store.complete_run(
+        run_type="parse",
+        run_id="run-004",
+        manifest_ref=manifest_ref,
+        manifest=_Manifest(),  # type: ignore[arg-type]
+    )
+
+    assert loaded_payload["status"] == "running"
+    assert loaded_payload["manifest_ref"] is None
+    assert "manifest" not in loaded_payload
 
 
 def test_filesystem_store_metadata_helpers_are_safe_noops(tmp_path: Path) -> None:

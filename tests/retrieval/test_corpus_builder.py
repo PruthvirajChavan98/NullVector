@@ -58,3 +58,15 @@ def test_node_text_is_reconstructed_from_owned_spans(tmp_path: Path) -> None:
 
     assert node_text_unit.text == bundle.expected_node_text
     assert node_text_unit.text != "Appendix A summarizes the alpha and beta body lines."
+
+
+def test_retrieval_run_id_can_be_overridden(tmp_path: Path) -> None:
+    bundle = write_synthetic_bundle(tmp_path)
+    manifest = RetrievalCorpusBuilder().build(
+        acquisition_manifest_path=str(bundle.acquisition_manifest_path),
+        tree_manifest_path=str(bundle.tree_manifest_path),
+        retrieval_run_id="custom-retrieval-run",
+    )
+
+    assert manifest.artifact_root is not None
+    assert Path(manifest.artifact_root).name == "custom-retrieval-run"

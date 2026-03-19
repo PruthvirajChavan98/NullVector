@@ -190,6 +190,13 @@ class TreeSettings(NullVectorModel):
         return self
 
 
+class TreeCompactionSettings(NullVectorModel):
+    """Deterministic controls for serving-tree compaction."""
+
+    max_children_per_node: PositiveInt = 8
+    require_summaries: bool = True
+
+
 class TreeBuildRequest(NullVectorModel):
     """Input contract for a deterministic tree build."""
 
@@ -498,7 +505,7 @@ class SemanticUsage(NullVectorModel):
             msg = "total_tokens must be zero or equal input_tokens + output_tokens"
             raise ValueError(msg)
         if self.total_tokens == 0:
-            return self.model_copy(update={"total_tokens": computed_total})
+            object.__setattr__(self, "total_tokens", computed_total)
         return self
 
 
@@ -781,6 +788,84 @@ class TreeBuildManifest(NullVectorModel):
     unassigned_span_count: NonNegativeInt
 
 
+class TreeCompactionRequest(NullVectorModel):
+    """Input contract for one tree-compaction run."""
+
+    tree_manifest_path: NonEmptyStr
+    compaction_run_id: NonEmptyStr
+    settings: TreeCompactionSettings = Field(default_factory=TreeCompactionSettings)
+    artifact_root: NonEmptyStr | None = None
+
+
+class CompactedTreeNode(NullVectorModel):
+    """Serving-oriented node derived from one or more canonical tree nodes."""
+
+    serving_node_id: NonEmptyStr
+    title: NonEmptyStr
+    level: PositiveInt
+    path: tuple[NonEmptyStr, ...]
+    page_span: PageSpan
+    summary_text: str | None = None
+    child_serving_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    canonical_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+
+    @field_validator("path", "child_serving_node_ids", "canonical_node_ids", mode="before")
+    @classmethod
+    def _coerce_compaction_sequences(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_mapping(self) -> Self:
+        if not self.path:
+            msg = "compacted tree nodes must include a non-empty path"
+            raise ValueError(msg)
+        if not self.canonical_node_ids:
+            msg = "compacted tree nodes must map to at least one canonical node id"
+            raise ValueError(msg)
+        return self
+
+
+class CompactedNodeMapping(NullVectorModel):
+    """Flat serving-node to canonical-node mapping artifact."""
+
+    serving_node_id: NonEmptyStr
+    canonical_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+
+    @field_validator("canonical_node_ids", mode="before")
+    @classmethod
+    def _coerce_mapping_ids(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_canonical_node_ids(self) -> Self:
+        if not self.canonical_node_ids:
+            msg = "compacted node mappings must include at least one canonical node id"
+            raise ValueError(msg)
+        return self
+
+
+class CompactedTreeManifest(NullVectorModel):
+    """Manifest for one persisted serving-tree compaction run."""
+
+    document_id: NonEmptyStr
+    tree_run_id: NonEmptyStr
+    compaction_run_id: NonEmptyStr
+    artifact_root: NonEmptyStr | None = None
+    compacted_tree_path: NonEmptyStr
+    node_mapping_path: NonEmptyStr
+    source_tree_manifest_path: NonEmptyStr
+
+
 class SynthesisTextProjection(NullVectorModel):
     """Projected text surface derived from table-like or non-line blocks."""
 
@@ -859,6 +944,9 @@ class TreeSynthesisView(NullVectorModel):
 
 __all__ = [
     "AnchorSource",
+    "CompactedNodeMapping",
+    "CompactedTreeManifest",
+    "CompactedTreeNode",
     "DecompositionBoundary",
     "DecompositionMethod",
     "DecompositionReport",
@@ -899,6 +987,8 @@ __all__ = [
     "TocReconciliationResult",
     "TreeBuildManifest",
     "TreeBuildRequest",
+    "TreeCompactionRequest",
+    "TreeCompactionSettings",
     "TreeNodeVerificationResult",
     "TreeRunIndex",
     "TreeSettings",

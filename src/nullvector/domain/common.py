@@ -22,6 +22,12 @@ Sha256Hex = Annotated[
 ScalarValue: TypeAlias = str | int | float | bool | None
 
 
+def is_numeric_scalar(value: object) -> bool:
+    """Return whether one scalar value is numeric but not boolean."""
+
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
 class GeometryCoordinateSpace(StrEnum):
     """Canonical coordinate space for persisted geometry artifacts."""
 
@@ -152,4 +158,5 @@ __all__ = [
     "PageSpan",
     "ScalarValue",
     "Sha256Hex",
+    "is_numeric_scalar",
 ]

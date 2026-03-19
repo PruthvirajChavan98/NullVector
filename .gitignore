@@ -1,4 +1,5 @@
 .venv/
+.artifacts/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
@@ -21,3 +22,4 @@ notebooks/artifacts/
 notebooks/.ipynb_checkpoints/
 files_dump*
 CHANGE_DIFF*
+features/

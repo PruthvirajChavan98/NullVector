@@ -56,8 +56,7 @@ def build_metadata_selection_messages(
         LLMMessage(
             role=LLMRole.USER,
             content=(
-                "Return a structured metadata selection plan for the payload below.\n\n"
-                f"{payload}"
+                f"Return a structured metadata selection plan for the payload below.\n\n{payload}"
             ),
         ),
     )

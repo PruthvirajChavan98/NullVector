@@ -796,7 +796,9 @@ class TreePipelineService:
             )
 
         if request.summarize:
-            assert gateway is not None
+            if gateway is None:
+                msg = "tree pipeline requested summarization but no gateway configured"
+                raise RuntimeError(msg)
             summarizer = NodeSummarizer(gateway, logger=self._logger)
             _, node_cards, node_summaries = summarizer.summarize(
                 nodes=committed_nodes,

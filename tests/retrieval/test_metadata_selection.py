@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from nullvector.domain.common import ScalarValue, is_numeric_scalar
 from nullvector.domain.document_selection import (
     DocumentFilterClause,
+    DocumentFilterOperator,
     DocumentMetadataRecord,
     MetadataSelectionPlan,
     MetadataSelectionPlannerRequest,
@@ -21,6 +24,7 @@ from nullvector.llm import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
+from nullvector.llm.types import JSONValue
 from nullvector.retrieval import MetadataSelectionPlanner, MetadataSelectionService
 from nullvector.storage import (
     FilesystemStorageConfig,
@@ -34,7 +38,7 @@ def _record(
     *,
     document_id: str,
     display_name: str,
-    **attributes: object,
+    **attributes: ScalarValue,
 ) -> DocumentMetadataRecord:
     return DocumentMetadataRecord(
         document_id=document_id,
@@ -46,7 +50,7 @@ def _record(
 def _planner_gateway(
     tmp_path: Path,
     *,
-    output_json: dict[str, object],
+    output_json: dict[str, JSONValue],
 ) -> GatewayService:
     return GatewayService(
         GatewayConfig(
@@ -121,8 +125,16 @@ def test_selection_service_filters_and_persists_in_memory_artifacts(tmp_path: Pa
         raw_query="Acme 2024 report",
         normalized_query="acme 2024 report",
         clauses=(
-            DocumentFilterClause(field="company", operator="eq", value="Acme"),
-            DocumentFilterClause(field="year", operator="gte", value=2023),
+            DocumentFilterClause(
+                field="company",
+                operator=DocumentFilterOperator.EQ,
+                value="Acme",
+            ),
+            DocumentFilterClause(
+                field="year",
+                operator=DocumentFilterOperator.GTE,
+                value=2023,
+            ),
         ),
         reasoning_summary="Prefer Acme documents published in or after 2023.",
     )
@@ -162,7 +174,13 @@ def test_selection_service_orders_candidates_deterministically(tmp_path: Path) -
     plan = MetadataSelectionPlan(
         raw_query="all acme docs",
         normalized_query="all acme docs",
-        clauses=(DocumentFilterClause(field="company", operator="eq", value="Acme"),),
+        clauses=(
+            DocumentFilterClause(
+                field="company",
+                operator=DocumentFilterOperator.EQ,
+                value="Acme",
+            ),
+        ),
     )
 
     response = service.select(
@@ -190,7 +208,13 @@ def test_selection_service_returns_empty_candidates_when_nothing_matches(tmp_pat
     plan = MetadataSelectionPlan(
         raw_query="Gamma matters",
         normalized_query="gamma matters",
-        clauses=(DocumentFilterClause(field="company", operator="eq", value="Gamma"),),
+        clauses=(
+            DocumentFilterClause(
+                field="company",
+                operator=DocumentFilterOperator.EQ,
+                value="Gamma",
+            ),
+        ),
     )
 
     response = service.select(
@@ -315,10 +339,15 @@ class _FakePostgresStore:
         def matches(record: DocumentMetadataRecord) -> bool:
             for clause in clauses:
                 value = record.attributes.get(clause.field)
-                if clause.operator.value == "eq" and value != clause.value:
+                if clause.operator is DocumentFilterOperator.EQ and value != clause.value:
                     return False
-                if clause.operator.value == "gte" and value is not None and value < clause.value:
-                    return False
+                if clause.operator is DocumentFilterOperator.GTE:
+                    if value is None:
+                        return False
+                    if not is_numeric_scalar(value) or not is_numeric_scalar(clause.value):
+                        return False
+                    if cast(int | float, value) < cast(int | float, clause.value):
+                        return False
             return True
 
         return [
@@ -387,8 +416,16 @@ def test_selection_service_uses_postgres_metadata_store_path(
         raw_query="Acme 2024",
         normalized_query="acme 2024",
         clauses=(
-            DocumentFilterClause(field="company", operator="eq", value="Acme"),
-            DocumentFilterClause(field="year", operator="gte", value=2024),
+            DocumentFilterClause(
+                field="company",
+                operator=DocumentFilterOperator.EQ,
+                value="Acme",
+            ),
+            DocumentFilterClause(
+                field="year",
+                operator=DocumentFilterOperator.GTE,
+                value=2024,
+            ),
         ),
     )
 

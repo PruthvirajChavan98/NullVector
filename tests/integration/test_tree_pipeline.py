@@ -62,6 +62,12 @@ def load_json(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def require_path(value: str | None, *, label: str) -> str:
+    if value is None:
+        pytest.fail(f"expected {label} path to be populated")
+    return value
+
+
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -281,10 +287,19 @@ def test_tree_build_matches_expected_fixture_outputs(case_name: str, tmp_path: P
         ),
     )
 
-    build_report = load_json(manifest.build_report_path)
-    committed_nodes = cast(list[dict[str, Any]], load_json(manifest.committed_hierarchy_path))
-    node_cards = cast(list[dict[str, Any]], load_json(manifest.node_cards_path))
-    unassigned_spans = cast(list[dict[str, Any]], load_json(manifest.unassigned_spans_path))
+    build_report = load_json(require_path(manifest.build_report_path, label="build_report"))
+    committed_nodes = cast(
+        list[dict[str, Any]],
+        load_json(require_path(manifest.committed_hierarchy_path, label="committed_hierarchy")),
+    )
+    node_cards = cast(
+        list[dict[str, Any]],
+        load_json(require_path(manifest.node_cards_path, label="node_cards")),
+    )
+    unassigned_spans = cast(
+        list[dict[str, Any]],
+        load_json(require_path(manifest.unassigned_spans_path, label="unassigned_spans")),
+    )
 
     assert build_report["outline_trust_mode"] == expected["outline_trust_mode"]
     assert [card["title"] for card in node_cards] == expected["committed_titles"]
@@ -315,11 +330,14 @@ def test_tree_run_index_is_written_and_points_to_manifest(tmp_path: Path) -> Non
             tree_run_id="run-index-check",
         ),
     )
-    run_index = cast(dict[str, Any], load_json(manifest.run_index_path))
+    run_index_path = require_path(manifest.run_index_path, label="run_index")
+    run_index = cast(dict[str, Any], load_json(run_index_path))
 
-    assert Path(manifest.run_index_path).exists()
+    assert Path(run_index_path).exists()
     assert run_index["registry_root"] == manifest.registry_root
-    assert run_index["manifest_path"] == str(Path(manifest.artifact_root) / "manifest.json")
+    assert run_index["manifest_path"] == str(
+        Path(require_path(manifest.artifact_root, label="artifact_root")) / "manifest.json"
+    )
     assert run_index["acquisition_manifest_path"] == str(acquisition_manifest_path.resolve())
     assert run_index["acquisition_artifact_identity"] == str(acquisition_manifest_path.resolve())
     assert run_index["document_id"] == manifest.document_id
@@ -335,17 +353,22 @@ def test_strategy_report_is_persisted_for_default_builds(tmp_path: Path) -> None
             tree_run_id="strategy-default-check",
         ),
     )
-    report = cast(dict[str, Any], load_json(manifest.strategy_execution_report_path or ""))
-    headings = cast(dict[str, Any], load_json(manifest.headings_path))
+    strategy_execution_report_path = require_path(
+        manifest.strategy_execution_report_path,
+        label="strategy_execution_report",
+    )
+    headings_path = require_path(manifest.headings_path, label="headings")
+    report = cast(dict[str, Any], load_json(strategy_execution_report_path))
+    headings = cast(dict[str, Any], load_json(headings_path))
 
     assert manifest.strategy_execution_report_path is not None
-    assert Path(manifest.strategy_execution_report_path).exists()
+    assert Path(strategy_execution_report_path).exists()
     assert report["selected_strategy"] == "outline_only"
     assert report["attempted_strategies"][0] == "outline_only"
     assert headings["strategy"] == "outline_only"
     assert headings["effective_trust_mode"] == "outline_primary"
-    assert "/strategy/attempts/" not in manifest.headings_path
-    assert manifest.headings_path.endswith("/headings/candidates.json")
+    assert "/strategy/attempts/" not in headings_path
+    assert headings_path.endswith("/headings/candidates.json")
 
 
 @pytest.mark.integration
@@ -359,14 +382,23 @@ def test_strategy_attempt_artifacts_are_written(tmp_path: Path) -> None:
         ),
     )
 
-    assert Path(manifest.headings_path).exists()
-    assert Path(manifest.committed_hierarchy_path).exists()
-    assert Path(manifest.verification_report_path).exists()
-    headings = cast(dict[str, Any], load_json(manifest.headings_path))
+    headings_path = require_path(manifest.headings_path, label="headings")
+    committed_hierarchy_path = require_path(
+        manifest.committed_hierarchy_path,
+        label="committed_hierarchy",
+    )
+    verification_report_path = require_path(
+        manifest.verification_report_path,
+        label="verification_report",
+    )
+    assert Path(headings_path).exists()
+    assert Path(committed_hierarchy_path).exists()
+    assert Path(verification_report_path).exists()
+    headings = cast(dict[str, Any], load_json(headings_path))
     assert "strategy" in headings
     assert "effective_trust_mode" in headings
-    assert "/strategy/attempts/" not in manifest.committed_hierarchy_path
-    assert manifest.committed_hierarchy_path.endswith("/hierarchy/committed.json")
+    assert "/strategy/attempts/" not in committed_hierarchy_path
+    assert committed_hierarchy_path.endswith("/hierarchy/committed.json")
 
 
 @pytest.mark.integration
@@ -440,8 +472,14 @@ def test_build_report_counts_follow_reconciled_candidate_sequence(tmp_path: Path
         ),
     )
 
-    headings = cast(dict[str, Any], load_json(manifest.headings_path))
-    build_report = cast(dict[str, Any], load_json(manifest.build_report_path))
+    headings = cast(
+        dict[str, Any],
+        load_json(require_path(manifest.headings_path, label="headings")),
+    )
+    build_report = cast(
+        dict[str, Any],
+        load_json(require_path(manifest.build_report_path, label="build_report")),
+    )
     selected = cast(list[dict[str, Any]], headings["selected"])
 
     assert build_report["candidate_count"] == len(selected)
@@ -469,7 +507,7 @@ def test_tree_build_summarization_is_opt_in(tmp_path: Path) -> None:
     )
     cards_without_summaries = cast(
         list[dict[str, Any]],
-        load_json(manifest_without_summaries.node_cards_path),
+        load_json(require_path(manifest_without_summaries.node_cards_path, label="node_cards")),
     )
     assert manifest_without_summaries.node_summaries_path is None
     assert all(card.get("summary") is None for card in cards_without_summaries)
@@ -483,7 +521,8 @@ def test_tree_build_summarization_is_opt_in(tmp_path: Path) -> None:
         gateway=make_summary_gateway(tmp_path),
     )
     cards_with_summaries = cast(
-        list[dict[str, Any]], load_json(manifest_with_summaries.node_cards_path)
+        list[dict[str, Any]],
+        load_json(require_path(manifest_with_summaries.node_cards_path, label="node_cards")),
     )
 
     assert manifest_with_summaries.node_summaries_path is not None
@@ -587,9 +626,18 @@ def test_build_path_applies_large_leaf_decomposition(tmp_path: Path) -> None:
             settings=TreeSettings(max_pages_per_leaf_node=2),
         ),
     )
-    report = cast(dict[str, Any], load_json(manifest.decomposition_report_path or ""))
-    committed_nodes = cast(list[dict[str, Any]], load_json(manifest.committed_hierarchy_path))
-    node_cards = cast(list[dict[str, Any]], load_json(manifest.node_cards_path))
+    report = cast(
+        dict[str, Any],
+        load_json(require_path(manifest.decomposition_report_path, label="decomposition_report")),
+    )
+    committed_nodes = cast(
+        list[dict[str, Any]],
+        load_json(require_path(manifest.committed_hierarchy_path, label="committed_hierarchy")),
+    )
+    node_cards = cast(
+        list[dict[str, Any]],
+        load_json(require_path(manifest.node_cards_path, label="node_cards")),
+    )
 
     assert manifest.decomposition_report_path is not None
     assert report["decomposition_method"] == "deterministic"
@@ -613,7 +661,10 @@ def test_verification_report_uses_tree_specific_node_results(tmp_path: Path) -> 
         ),
     )
 
-    report = cast(dict[str, Any], load_json(manifest.verification_report_path))
+    report = cast(
+        dict[str, Any],
+        load_json(require_path(manifest.verification_report_path, label="verification_report")),
+    )
 
     assert report["tree_run_id"] == "verification-shape-check"
     assert all("tree_run_id" in result for result in report["node_results"])

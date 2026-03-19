@@ -30,6 +30,7 @@ from nullvector.llm import (
     evaluate_repairs,
 )
 from nullvector.llm.types import (
+    JSONValue,
     ProviderInvocationFailure,
     ProviderInvocationRequest,
     ProviderInvocationResult,
@@ -216,7 +217,7 @@ class RepairProviderAdapter:
         config: GatewayConfig,
     ) -> ProviderInvocationResult:
         del config
-        decision_payload = {
+        decision_payload: dict[str, JSONValue] = {
             "request_id": request.idempotency_key or "repair-request",
             "status": "proposal_generated",
             "message": "normalize title casing",
@@ -288,6 +289,8 @@ def test_evaluate_repairs_emits_typed_decisions_without_breaking_tree_verificati
         repair_engine=repair_engine,
     )
 
+    assert manifest.verification_report_path is not None
+    assert manifest.repair_decisions_path is not None
     verification_report = cast(
         dict[str, Any],
         json.loads(Path(manifest.verification_report_path).read_text(encoding="utf-8")),

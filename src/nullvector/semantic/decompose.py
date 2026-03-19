@@ -347,7 +347,9 @@ class NodeDecomposer:
         node: HierarchyNode,
         pages: tuple[PageArtifacts, ...],
     ) -> tuple[tuple[HierarchyNode, ...], _DecompositionMetadata]:
-        assert self._gateway is not None
+        if self._gateway is None:
+            msg = "LLM decomposition requested but no gateway configured"
+            raise RuntimeError(msg)
         response = self._gateway.invoke(
             GatewayRequest[DecompositionPromptResponse](
                 operation_name="decompose_large_node",

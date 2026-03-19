@@ -22,6 +22,7 @@ from nullvector.llm import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
+from nullvector.llm.types import JSONValue
 from nullvector.retrieval import DocumentDescriptionBuilder
 from nullvector.retrieval.description import (
     _build_deterministic_description,
@@ -57,7 +58,7 @@ def _load_description(path: str) -> DocumentDescription:
 def _make_gateway(
     tmp_path: Path,
     *,
-    output_json: dict[str, object],
+    output_json: dict[str, JSONValue],
 ) -> GatewayService:
     return GatewayService(
         GatewayConfig(

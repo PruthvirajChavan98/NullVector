@@ -8,8 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from nullvector.domain import (
     AcquisitionManifest,
+    AcquisitionRequest,
     AcquisitionRunManifest,
     AcquisitionSettings,
     AnchorSource,
@@ -29,11 +32,13 @@ from nullvector.domain import (
     OutlineSource,
     PageSourceAnchor,
     PageSpan,
+    SourceDocumentKind,
     SourceMetadata,
     SourceTrack,
     StructuredRegionInsight,
     TableArtifact,
     TreeBuildManifest,
+    TreeBuildRequest,
     TreeNodeVerificationResult,
     TreeSettings,
     UnassignedPageSpan,
@@ -44,13 +49,16 @@ from nullvector.domain import (
 from nullvector.domain.common import ContentSpan
 from nullvector.domain.events import ContentAuthoritativeness
 from nullvector.domain.tree import HierarchyOrigin, VerificationStatus
+from nullvector.ingest.acquisition_service import AcquisitionService
 from nullvector.ingest.projection import build_canonical_text_substrate
+from nullvector.retrieval import RetrievalCorpusBuilder
 from nullvector.storage._serialization import (
     canonical_json_bytes,
 )
 from nullvector.storage._serialization import (
     settings_digest as acquisition_settings_digest,
 )
+from nullvector.tree import build_tree
 
 
 def _json_safe(value: Any) -> Any:
@@ -117,12 +125,21 @@ class SyntheticRetrievalBundle:
     document_id: str
 
 
-def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
+def write_synthetic_bundle(
+    tmp_path: Path,
+    *,
+    document_id: str | None = None,
+    bundle_name: str = "synthetic",
+    section_title: str = "Appendix A",
+    body_lines: tuple[str, ...] = ("Alpha body line", "Beta body line"),
+    summary_text: str | None = None,
+    keywords: tuple[str, ...] = ("appendix", "alpha"),
+) -> SyntheticRetrievalBundle:
     """Create a synthetic acquisition + tree artifact bundle for retrieval tests."""
 
-    document_id = "a" * 64
-    acquisition_root = tmp_path / "synthetic-acquisition"
-    tree_root = tmp_path / "synthetic-tree"
+    document_id = document_id or ("a" * 64)
+    acquisition_root = tmp_path / f"{bundle_name}-acquisition"
+    tree_root = tmp_path / f"{bundle_name}-tree"
     source_path = acquisition_root / "source" / "original.pdf"
     source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_bytes(b"%PDF-1.4 synthetic retrieval fixture")
@@ -133,13 +150,9 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
     page_render.write_bytes(b"png-render")
     page_asset.write_bytes(b"png-crop")
 
-    page_one_lines = (
-        "Appendix A",
-        "Alpha body line",
-        "Beta body line",
-    )
+    page_one_lines = (section_title, *body_lines)
     page_one_text = "\n".join(page_one_lines)
-    alpha_start = page_one_text.index("Alpha body line")
+    alpha_start = page_one_text.index(body_lines[0])
     expected_node_text = page_one_text[alpha_start:]
 
     ledger = CanonicalDocumentLedger(
@@ -160,7 +173,7 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
         acquisition_manifest=AcquisitionManifest(
             source_fingerprint_sha256=document_id,
             settings_digest=acquisition_settings_digest(AcquisitionSettings()),
-            acquisition_provider_identity="synthetic-retrieval-fixture",
+            acquisition_provider_identity=f"{bundle_name}-retrieval-fixture",
             selected_outline_source=OutlineSource.NONE,
             ledger_artifact_path=str(
                 acquisition_root / "ledger" / "canonical-document-ledger.json"
@@ -238,7 +251,7 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
         source_fingerprint=ledger.source_fingerprint,
         settings=AcquisitionSettings(),
         settings_digest=acquisition_settings_digest(AcquisitionSettings()),
-        provider_identity="synthetic-retrieval-fixture",
+        provider_identity=f"{bundle_name}-retrieval-fixture",
         ledger_path=str(ledger_path),
         source_copy_path=str(source_path),
         event_stream_path=str(events_path),
@@ -254,19 +267,24 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
     acquisition_manifest_path = acquisition_root / "manifest.json"
     _write_json(acquisition_manifest_path, acquisition_manifest)
 
+    node_id = (
+        "node-appendix-a"
+        if bundle_name == "synthetic" and section_title == "Appendix A"
+        else f"node-{bundle_name}"
+    )
     node = HierarchyNode(
-        node_id="node-appendix-a",
+        node_id=node_id,
         document_id=document_id,
-        path=("Appendix A",),
+        path=(section_title,),
         level=1,
-        title="Appendix A",
-        normalized_title="appendix a",
+        title=section_title,
+        normalized_title=section_title.casefold(),
         page_span=PageSpan(start_page=1, end_page=1),
         heading_anchor=NodeAnchor(
             page=1,
             start_offset=0,
-            end_offset=len("Appendix A"),
-            anchor_text="Appendix A",
+            end_offset=len(section_title),
+            anchor_text=section_title,
             anchor_source=AnchorSource.TEXT,
             occurrence_index=0,
         ),
@@ -285,8 +303,8 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
             PageSourceAnchor(
                 page=1,
                 start_offset=alpha_start,
-                end_offset=alpha_start + len("Alpha body line"),
-                quote="Alpha body line",
+                end_offset=alpha_start + len(body_lines[0]),
+                quote=body_lines[0],
             ),
         ),
         origin=HierarchyOrigin.INFERRED,
@@ -304,8 +322,9 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
     )
     node_summary = NodeSummary(
         node_id=node.node_id,
-        summary="Appendix A summarizes the alpha and beta body lines.",
-        keywords=("appendix", "alpha"),
+        summary=summary_text
+        or f"{section_title} summarizes {' and '.join(line.casefold() for line in body_lines)}.",
+        keywords=keywords,
         summary_method=NodeSummaryMethod.PASSTHROUGH,
         token_count=10,
         estimated_token_count=10,
@@ -394,10 +413,10 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
     _write_json(tree_manifest_path, tree_manifest)
 
     cached_attachment = VisualEnrichmentAttachment(
-        attachment_id="attach-page-0-visual",
+        attachment_id=f"attach-{bundle_name}-page-0-visual",
         document_id=document_id,
         region_id="page-0-visual-0000",
-        provider_identity="cached-fixture",
+        provider_identity=f"cached-{bundle_name}-fixture",
         authoritative=False,
         insight=StructuredRegionInsight(
             summary="A title-page illustration of a pipeline overview.",
@@ -405,7 +424,7 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
             attributes={"kind": "overview"},
             confidence=0.9,
         ),
-        audit_path=str(tmp_path / "cached-attachment-audit.json"),
+        audit_path=str(tmp_path / f"cached-{bundle_name}-attachment-audit.json"),
     )
 
     return SyntheticRetrievalBundle(
@@ -415,3 +434,46 @@ def write_synthetic_bundle(tmp_path: Path) -> SyntheticRetrievalBundle:
         expected_node_text=expected_node_text,
         document_id=document_id,
     )
+
+
+def build_markdown_tree_search_artifacts(
+    tmp_path: Path,
+    *,
+    bundle_name: str,
+    lines: tuple[str, ...],
+) -> tuple[Path, Path]:
+    """Build persisted markdown-backed tree and retrieval artifacts for retrieval tests."""
+
+    source_path = tmp_path / f"{bundle_name}.md"
+    source_path.write_text("\n".join(lines), encoding="utf-8")
+
+    acquisition_manifest = AcquisitionService().acquire(
+        AcquisitionRequest(
+            source_path=str(source_path),
+            acquisition_run_id=f"{bundle_name}-acquire",
+            artifact_root=str(tmp_path / f"{bundle_name}-acquisition"),
+            source_kind=SourceDocumentKind.MARKDOWN,
+            provider_identity="markdown_native",
+        )
+    )
+    if acquisition_manifest.artifact_root is None:
+        pytest.fail("expected acquisition artifact_root for markdown tree-search fixture")
+    acquisition_manifest_path = Path(acquisition_manifest.artifact_root) / "manifest.json"
+    tree_manifest = build_tree(
+        TreeBuildRequest(
+            acquisition_manifest_path=str(acquisition_manifest_path),
+            tree_run_id=f"{bundle_name}-tree",
+            summarize=False,
+        )
+    )
+    if tree_manifest.artifact_root is None:
+        pytest.fail("expected tree artifact_root for markdown tree-search fixture")
+    tree_manifest_path = Path(tree_manifest.artifact_root) / "manifest.json"
+    retrieval_manifest = RetrievalCorpusBuilder().build(
+        acquisition_manifest_path=str(acquisition_manifest_path),
+        tree_manifest_path=str(tree_manifest_path),
+    )
+    if retrieval_manifest.artifact_root is None:
+        pytest.fail("expected retrieval artifact_root for markdown tree-search fixture")
+    retrieval_manifest_path = Path(retrieval_manifest.artifact_root) / "manifest.json"
+    return (tree_manifest_path, retrieval_manifest_path)

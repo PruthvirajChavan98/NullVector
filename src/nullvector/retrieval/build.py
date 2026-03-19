@@ -164,12 +164,8 @@ def _default_retrieval_root(
     acquisition_manifest_path: str,
     acquisition_manifest: AcquisitionRunManifest,
     tree_manifest: TreeBuildManifest | None,
+    retrieval_run_id: str,
 ) -> str:
-    retrieval_run_id = (
-        tree_manifest.tree_run_id
-        if tree_manifest is not None
-        else acquisition_manifest.acquisition_run_id
-    )
     if is_postgres_ref(acquisition_manifest_path):
         return f"retrieval/{retrieval_run_id}"
     return str(Path(acquisition_manifest_path).resolve().parent / "retrieval" / retrieval_run_id)
@@ -459,6 +455,7 @@ class RetrievalCorpusBuilder:
         *,
         acquisition_manifest_path: str,
         tree_manifest_path: str | None = None,
+        retrieval_run_id: str | None = None,
         artifact_root: str | None = None,
     ) -> RetrievalManifest:
         input_store = build_document_store(self._storage, default_filesystem_root=".")
@@ -493,7 +490,7 @@ class RetrievalCorpusBuilder:
             document_id=acquisition_manifest.document_id,
             units=tuple(units),
         )
-        retrieval_run_id = (
+        resolved_retrieval_run_id = retrieval_run_id or (
             tree_manifest.tree_run_id
             if tree_manifest is not None
             else acquisition_manifest.acquisition_run_id
@@ -506,6 +503,7 @@ class RetrievalCorpusBuilder:
                 acquisition_manifest_path=acquisition_manifest_ref,
                 acquisition_manifest=acquisition_manifest,
                 tree_manifest=tree_manifest,
+                retrieval_run_id=resolved_retrieval_run_id,
             )
         )
         _is_postgres = isinstance(self._storage, PostgresStorageConfig)
@@ -520,14 +518,14 @@ class RetrievalCorpusBuilder:
         }
         created, run_record = output_store.reserve_run(
             run_type="retrieval",
-            run_id=retrieval_run_id,
+            run_id=resolved_retrieval_run_id,
             document_id=acquisition_manifest.document_id,
             artifact_root=None if _is_postgres else str(retrieval_root),
             identity=expected_identity,
         )
         run_store = output_store.for_run(
             run_type="retrieval",
-            run_id=retrieval_run_id,
+            run_id=resolved_retrieval_run_id,
             document_id=acquisition_manifest.document_id,
         )
         if not created:

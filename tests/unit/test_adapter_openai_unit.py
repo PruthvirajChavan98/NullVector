@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -27,7 +27,7 @@ def _make_exc(class_name: str, message: str, **attrs: Any) -> Exception:
     exc = exc_cls(message)
     for k, v in attrs.items():
         object.__setattr__(exc, k, v)
-    return exc
+    return cast(Exception, exc)
 
 
 def _make_config() -> GatewayConfig:

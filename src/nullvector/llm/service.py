@@ -117,7 +117,9 @@ def _build_attempt(
             provider_request_id=success.provider_request_id,
             provider_response_id=success.provider_response_id,
         )
-    assert failure is not None
+    if failure is None:
+        msg = "provider result has neither success nor failure (adapter contract violation)"
+        raise RuntimeError(msg)
     return GatewayAttempt(
         attempt_number=attempt_number,
         provider_name=failure.provider_name,
@@ -517,7 +519,9 @@ class GatewayService(StructuredLLMGateway):
                 del redacted
                 return gateway_success.model_copy(update={"audit_path": audit_path})
 
-            assert result.failure is not None
+            if result.failure is None:
+                msg = "provider result has neither success nor failure (adapter contract violation)"
+                raise RuntimeError(msg)
             provider_failure = result.failure
             if should_retry(
                 provider_failure.category,

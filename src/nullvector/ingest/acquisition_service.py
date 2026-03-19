@@ -18,8 +18,10 @@ from nullvector.domain.ledger import (
     OutlineEntry,
     OutlineQualityReport,
     OutlineSource,
+    SourceDocumentKind,
     UnresolvedRegion,
 )
+from nullvector.ingest._markdown import parse_markdown_source
 from nullvector.ingest.errors import (
     ExtractionFailureError,
     ParseConflictError,
@@ -29,6 +31,7 @@ from nullvector.ingest.fingerprint import fingerprint_document
 from nullvector.ingest.outline import (
     extract_pymupdf_outlines,
     extract_pypdf_outlines,
+    score_outline,
     select_outline,
 )
 from nullvector.ingest.pdf_backend import open_document
@@ -37,6 +40,7 @@ from nullvector.ingest.projection import (
     project_ledger_to_tree_synthesis_view,
 )
 from nullvector.ingest.protocols import AcquisitionProvider
+from nullvector.ingest.providers.markdown_native import MarkdownNativeAcquisitionProvider
 from nullvector.ingest.providers.native_pymupdf import NativePyMuPDFAcquisitionProvider
 from nullvector.ingest.visual_assets import materialize_visual_assets
 from nullvector.observability.logging import log_event
@@ -51,10 +55,36 @@ from nullvector.storage.config import PostgresStorageConfig
 
 
 def _default_provider(request: AcquisitionRequest) -> AcquisitionProvider:
-    if request.provider_identity == "native_pymupdf":
+    if (
+        request.source_kind is SourceDocumentKind.PDF
+        and request.provider_identity == "native_pymupdf"
+    ):
         return NativePyMuPDFAcquisitionProvider()
+    if (
+        request.source_kind is SourceDocumentKind.MARKDOWN
+        and request.provider_identity == "markdown_native"
+    ):
+        return MarkdownNativeAcquisitionProvider()
     msg = f"unsupported acquisition provider identity: {request.provider_identity}"
     raise ExtractionFailureError(msg, document_id="unknown")
+
+
+def _validate_request_provider(request: AcquisitionRequest) -> None:
+    expected_provider = (
+        "native_pymupdf" if request.source_kind is SourceDocumentKind.PDF else "markdown_native"
+    )
+    if request.provider_identity != expected_provider:
+        msg = (
+            f"source_kind {request.source_kind.value!r} requires provider_identity "
+            f"{expected_provider!r}"
+        )
+        raise ExtractionFailureError(msg, document_id="unknown")
+
+
+def _source_copy_metadata(request: AcquisitionRequest) -> tuple[str, str]:
+    if request.source_kind is SourceDocumentKind.MARKDOWN:
+        return ("source/original.md", "text/markdown")
+    return ("source/original.pdf", "application/pdf")
 
 
 class AcquisitionService:
@@ -72,11 +102,17 @@ class AcquisitionService:
         self._storage = storage
 
     def acquire(self, request: AcquisitionRequest) -> AcquisitionRunManifest:
-        validate_pdf_runtime_versions(
-            configured_pymupdf_version=request.settings.pymupdf_version,
-            configured_pypdf_version=request.settings.pypdf_version,
+        _validate_request_provider(request)
+        if request.source_kind is SourceDocumentKind.PDF:
+            validate_pdf_runtime_versions(
+                configured_pymupdf_version=request.settings.pymupdf_version,
+                configured_pypdf_version=request.settings.pypdf_version,
+            )
+        fingerprint = fingerprint_document(
+            request.source_path,
+            source_kind=request.source_kind,
+            acquisition_settings=request.settings,
         )
-        fingerprint = fingerprint_document(request.source_path)
         log_event(
             self._logger,
             "SourceFingerprintComputed",
@@ -141,9 +177,10 @@ class AcquisitionService:
                 document_id=fingerprint.document_id,
             )
 
+        source_copy_asset_path, source_copy_content_type = _source_copy_metadata(request)
         source_copy_path = run_store.put_binary(
-            asset_path="source/original.pdf",
-            content_type="application/pdf",
+            asset_path=source_copy_asset_path,
+            content_type=source_copy_content_type,
             data=Path(request.source_path).read_bytes(),
         )
         source_fingerprint_path = run_store.put_json(
@@ -155,12 +192,13 @@ class AcquisitionService:
         try:
             provider = self._provider or _default_provider(request)
             ledger = provider.acquire(request)
-            ledger = materialize_visual_assets(
-                source_path=request.source_path,
-                ledger=ledger,
-                store=run_store,
-                settings=request.settings,
-            )
+            if request.source_kind is SourceDocumentKind.PDF:
+                ledger = materialize_visual_assets(
+                    source_path=request.source_path,
+                    ledger=ledger,
+                    store=run_store,
+                    settings=request.settings,
+                )
             (
                 selected_source,
                 outline_reports,
@@ -168,7 +206,7 @@ class AcquisitionService:
                 pymupdf_entries,
                 pymupdf_rich_outline,
                 pypdf_entries,
-            ) = self._extract_outline_bundle(request.source_path)
+            ) = self._extract_outline_bundle(request)
         except ParseSubstrateError:
             raise
         except Exception as exc:  # pragma: no cover - safety net
@@ -313,7 +351,7 @@ class AcquisitionService:
 
     def _extract_outline_bundle(
         self,
-        source_path: str,
+        request: AcquisitionRequest,
     ) -> tuple[
         OutlineSource,
         tuple[OutlineQualityReport, ...],
@@ -322,8 +360,23 @@ class AcquisitionService:
         list[Any],
         list[OutlineEntry],
     ]:
-        with open_document(source_path) as document:
-            reader = PdfReader(source_path)
+        if request.source_kind is SourceDocumentKind.MARKDOWN:
+            parsed = parse_markdown_source(
+                request.source_path,
+                settings=request.settings.markdown,
+            )
+            outline_entries = list(parsed.outline_entries)
+            markdown_report = score_outline(outline_entries, OutlineSource.MARKDOWN)
+            return (
+                OutlineSource.MARKDOWN,
+                (markdown_report,),
+                tuple(outline_entries),
+                [],
+                [],
+                [],
+            )
+        with open_document(request.source_path) as document:
+            reader = PdfReader(request.source_path)
             pymupdf_rich, pymupdf_entries = extract_pymupdf_outlines(document)
             _, pypdf_entries = extract_pypdf_outlines(reader)
             selected_source, selected_entries, outline_reports = select_outline(

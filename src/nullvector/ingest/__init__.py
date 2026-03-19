@@ -14,6 +14,7 @@ __all__ = [
     "AcquisitionService",
     "ExtractionFailureError",
     "InvalidSourceError",
+    "MarkdownNativeAcquisitionProvider",
     "MissingOcrRuntimeError",
     "NativePyMuPDFAcquisitionProvider",
     "ParseConflictError",
@@ -35,5 +36,9 @@ def __getattr__(name: str) -> object:
         from nullvector.ingest.providers import NativePyMuPDFAcquisitionProvider
 
         return NativePyMuPDFAcquisitionProvider
+    if name == "MarkdownNativeAcquisitionProvider":
+        from nullvector.ingest.providers import MarkdownNativeAcquisitionProvider
+
+        return MarkdownNativeAcquisitionProvider
     msg = f"module 'nullvector.ingest' has no attribute {name!r}"
     raise AttributeError(msg)

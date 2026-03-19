@@ -114,6 +114,28 @@ make typecheck
 make test
 ```
 
+## Quickstart CLI
+
+NullVector stays library-first, but the repository now includes a thin offline quickstart wrapper for
+local smoke workflows:
+
+```bash
+uv run python scripts/nullvector_quickstart.py \
+  --source-path fixtures/pdfs/phase01/born_digital_with_outline.pdf
+```
+
+```bash
+uv run python scripts/nullvector_quickstart.py \
+  --source-path /path/to/authored.md \
+  --source-kind markdown \
+  --build-retrieval \
+  --print-tree-summary
+```
+
+The quickstart script only orchestrates acquisition, non-summarized tree build, and optional
+retrieval corpus construction. Gateway-backed tree summarization and document-description stages
+remain available through the library APIs and notebooks, not this v1 script.
+
 ## Notebook Execution
 
 The canonical runnable notebook is:

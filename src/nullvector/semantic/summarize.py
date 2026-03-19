@@ -201,7 +201,9 @@ class NodeSummarizer:
                     level_summaries[pending_request.index] = summary
 
             for summary in level_summaries:
-                assert summary is not None
+                if summary is None:
+                    msg = "level summary was not populated for node (internal invariant)"
+                    raise RuntimeError(msg)
                 summaries_by_id[summary.node_id] = summary
 
         ordered_summaries = tuple(summaries_by_id[node.node_id] for node in ordered_nodes)

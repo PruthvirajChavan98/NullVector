@@ -66,7 +66,15 @@ class OutlineSource(StrEnum):
 
     PYMUPDF = "pymupdf"
     PYPDF = "pypdf"
+    MARKDOWN = "markdown"
     NONE = "none"
+
+
+class SourceDocumentKind(StrEnum):
+    """Supported source document kinds for deterministic acquisition."""
+
+    PDF = "pdf"
+    MARKDOWN = "markdown"
 
 
 class ParseErrorCode(StrEnum):
@@ -132,6 +140,13 @@ class OutlineQualityReport(NullVectorModel):
     score: int
 
 
+class MarkdownAcquisitionSettings(NullVectorModel):
+    """Deterministic Markdown acquisition settings."""
+
+    max_logical_lines_per_page: PositiveInt = 40
+    split_on_thematic_breaks: bool = True
+
+
 class ParserSettings(NullVectorModel):
     """Deterministic parser settings captured in the manifest and settings digest."""
 
@@ -186,6 +201,7 @@ class AcquisitionSettings(NullVectorModel):
     table_min_columns: PositiveInt = 2
     table_min_rows: PositiveInt = 2
     render_dpi: PositiveInt = 144
+    markdown: MarkdownAcquisitionSettings = Field(default_factory=MarkdownAcquisitionSettings)
 
     @model_validator(mode="after")
     def validate_ranges(self) -> Self:
@@ -320,8 +336,22 @@ class AcquisitionRequest(NullVectorModel):
     source_path: NonEmptyStr
     acquisition_run_id: NonEmptyStr
     artifact_root: NonEmptyStr | None = None
+    source_kind: SourceDocumentKind = SourceDocumentKind.PDF
     provider_identity: NonEmptyStr = "native_pymupdf"
     settings: AcquisitionSettings = Field(default_factory=AcquisitionSettings)
+
+    @model_validator(mode="after")
+    def validate_provider_identity(self) -> Self:
+        expected_provider = (
+            "native_pymupdf" if self.source_kind is SourceDocumentKind.PDF else "markdown_native"
+        )
+        if self.provider_identity != expected_provider:
+            msg = (
+                f"source_kind {self.source_kind.value!r} requires provider_identity "
+                f"{expected_provider!r}"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class AcquisitionManifest(NullVectorModel):
@@ -542,11 +572,13 @@ __all__ = [
     "CanonicalTextSubstrate",
     "DocumentFingerprint",
     "LineBlock",
+    "MarkdownAcquisitionSettings",
     "OcrMode",
     "OutlineEntry",
     "OutlineQualityReport",
     "OutlineSource",
     "PageBlock",
+    "PageEvent",
     "PageExtractionMethod",
     "PageLedgerRow",
     "ParseErrorCode",
@@ -557,6 +589,7 @@ __all__ = [
     "ParseRunIndex",
     "ParseRunManifest",
     "ParserSettings",
+    "SourceDocumentKind",
     "SourceMetadata",
     "TableArtifact",
     "TextBlock",

@@ -92,7 +92,9 @@ class RetrievalService:
     ) -> InMemoryRetrievalIndex | PostgresRetrievalIndex:
         if corpus is not None:
             return InMemoryRetrievalIndex(corpus)
-        assert document_id is not None
+        if document_id is None:
+            msg = "retrieval search requires document_id when corpus is not provided"
+            raise ValueError(msg)
         store = build_document_store(
             self._storage,
             default_filesystem_root=".",
