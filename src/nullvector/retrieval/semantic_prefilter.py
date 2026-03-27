@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from logging import Logger
 from typing import Protocol, cast
 
 from nullvector._hierarchy import document_order_key, path_has_prefix
@@ -15,6 +16,7 @@ from nullvector.domain.document_selection import (
 )
 from nullvector.domain.retrieval import DocumentDescription
 from nullvector.domain.tree import NodeCard, NodeSummary
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval._artifacts import (
     load_node_cards,
     load_node_summaries,
@@ -380,13 +382,24 @@ def _score_proxy(
 class DocumentSemanticProxyBuilder:
     """Build deterministic semantic proxy records from descriptions and tree artifacts."""
 
-    def __init__(self, *, storage: StorageConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        logger: Logger | None = None,
+        storage: StorageConfig | None = None,
+    ) -> None:
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def build(
         self,
         sources: tuple[DocumentSemanticProxySource, ...],
     ) -> tuple[DocumentSemanticProxy, ...]:
+        log_event(
+            self._logger,
+            "SemanticProxyBuildStarted",
+            candidate_count=len(sources),
+        )
         input_store = build_document_store(self._storage, default_filesystem_root=".")
         proxies: list[DocumentSemanticProxy] = []
         for source in sources:
@@ -427,7 +440,14 @@ class DocumentSemanticProxyBuilder:
                     node_summaries=node_summaries,
                 )
             )
-        return tuple(proxies)
+        built = tuple(proxies)
+        log_event(
+            self._logger,
+            "SemanticProxyBuildCompleted",
+            candidate_count=len(sources),
+            proxy_count=len(built),
+        )
+        return built
 
 
 class DocumentPrefilterEngine(Protocol):
@@ -480,12 +500,22 @@ class SemanticPrefilterService:
         self,
         *,
         engine: DocumentPrefilterEngine | None = None,
+        logger: Logger | None = None,
         storage: StorageConfig | None = None,
     ) -> None:
         self._engine = engine or LexicalDocumentPrefilter()
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def select(self, request: DocumentPrefilterRequest) -> DocumentPrefilterResponse:
+        log_event(
+            self._logger,
+            "SemanticPrefilterStarted",
+            collection_id=request.collection_id,
+            selection_run_id=request.selection_run_id,
+            query=request.query,
+            proxy_count=len(request.proxies),
+        )
         artifact_root = selection_artifact_root(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
@@ -520,7 +550,7 @@ class SemanticPrefilterService:
                 "hits": tuple(hit.model_dump(mode="json") for hit in hits),
             },
         )
-        return DocumentPrefilterResponse(
+        response = DocumentPrefilterResponse(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
             hits=hits,
@@ -528,6 +558,17 @@ class SemanticPrefilterService:
             semantic_proxy_index_path=semantic_proxy_index_path,
             semantic_prefilter_results_path=semantic_prefilter_results_path,
         )
+        log_event(
+            self._logger,
+            "SemanticPrefilterCompleted",
+            collection_id=request.collection_id,
+            selection_run_id=request.selection_run_id,
+            query=request.query,
+            proxy_count=len(index_proxies),
+            hit_count=len(hits),
+            results_path=semantic_prefilter_results_path,
+        )
+        return response
 
 
 __all__ = [

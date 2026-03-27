@@ -12,13 +12,44 @@ import pytest
 from nullvector.domain import (
     AcquisitionRequest,
     AcquisitionSettings,
+    DescriptionSelectionRequest,
+    DocumentDescriptionRecord,
+    DocumentDescriptionRequest,
+    DocumentFilterClause,
+    DocumentFilterOperator,
+    DocumentMetadataRecord,
+    DocumentPrefilterRequest,
+    DocumentSemanticProxySource,
     MarkdownAcquisitionSettings,
+    MetadataSelectionPlan,
+    MetadataSelectionRequest,
+    PreferenceAwareTreeSearchRequest,
+    PreferenceScope,
+    PreferenceSnippet,
     SourceDocumentKind,
     TreeBuildRequest,
+    TreeSearchRequest,
 )
 from nullvector.ingest.acquisition_service import acquire_document
 from nullvector.ingest.errors import ParseConflictError
-from nullvector.retrieval import RetrievalCorpusBuilder
+from nullvector.observability import configure_jsonl_logger
+from nullvector.retrieval import (
+    DescriptionSelectionService,
+    DocumentDescriptionBuilder,
+    DocumentSemanticProxyBuilder,
+    MetadataSelectionService,
+    PreferenceAwareTreeSearchService,
+    QueryPlanner,
+    RetrievalCorpusBuilder,
+    RetrievalQAService,
+    RetrievalRanker,
+    RetrievalService,
+    SemanticPrefilterService,
+    TreeSearchService,
+    load_document_description,
+    load_document_description_manifest,
+    load_retrieval_corpus,
+)
 from nullvector.tree import build_tree
 
 PHASE01_FIXTURES = Path("fixtures/pdfs/phase01")
@@ -283,6 +314,234 @@ def test_acquisition_and_tree_build_emit_expected_events(tmp_path: Path) -> None
     assert "ProjectionCreated" in event_names
     assert "HierarchyStrategySelected" in event_names
     assert "NodeCommitted" in event_names
+
+
+@pytest.mark.integration
+def test_retrieval_runtime_emits_selection_search_and_qa_events(tmp_path: Path) -> None:
+    logger = logging.getLogger("nullvector.test.retrieval_runtime")
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    capture = _CaptureHandler()
+    logger.addHandler(capture)
+    configure_jsonl_logger(str(tmp_path / "observability" / "events.jsonl"), logger=logger)
+
+    markdown_path = _write_markdown_fixture(tmp_path / "runtime-observability.md")
+    acquisition_manifest = acquire_document(
+        AcquisitionRequest(
+            source_path=str(markdown_path),
+            acquisition_run_id="runtime-observe-acquisition",
+            artifact_root=str(tmp_path / "acquisition-runs"),
+            source_kind=SourceDocumentKind.MARKDOWN,
+            provider_identity="markdown_native",
+            settings=AcquisitionSettings(
+                markdown=MarkdownAcquisitionSettings(
+                    max_logical_lines_per_page=5,
+                    split_on_thematic_breaks=True,
+                )
+            ),
+        ),
+        logger=logger,
+    )
+    assert acquisition_manifest.artifact_root is not None
+    acquisition_manifest_path = str(Path(acquisition_manifest.artifact_root) / "manifest.json")
+
+    tree_manifest = build_tree(
+        TreeBuildRequest(
+            acquisition_manifest_path=acquisition_manifest_path,
+            tree_run_id="runtime-observe-tree",
+            summarize=False,
+        ),
+        logger=logger,
+    )
+    assert tree_manifest.artifact_root is not None
+    tree_manifest_path = str(Path(tree_manifest.artifact_root) / "manifest.json")
+
+    retrieval_manifest = RetrievalCorpusBuilder(logger=logger).build(
+        acquisition_manifest_path=acquisition_manifest_path,
+        tree_manifest_path=tree_manifest_path,
+        retrieval_run_id="runtime-observe-retrieval",
+    )
+    corpus = load_retrieval_corpus(retrieval_manifest.corpus_path)
+
+    description_manifest = DocumentDescriptionBuilder(logger=logger).build(
+        DocumentDescriptionRequest(
+            acquisition_manifest_path=acquisition_manifest_path,
+            tree_manifest_path=tree_manifest_path,
+            description_run_id="runtime-observe-description",
+        )
+    )
+    description_manifest_loaded = load_document_description_manifest(
+        Path(description_manifest.artifact_root or "") / "manifest.json"
+    )
+    description = load_document_description(description_manifest_loaded.description_path)
+
+    metadata_response = MetadataSelectionService(logger=logger).select(
+        MetadataSelectionRequest(
+            collection_id="runtime-observe-collection",
+            selection_run_id="runtime-observe-metadata",
+            plan=MetadataSelectionPlan(
+                raw_query="markdown appendix",
+                normalized_query="markdown appendix",
+                clauses=(
+                    DocumentFilterClause(
+                        field="source_kind",
+                        operator=DocumentFilterOperator.EQ,
+                        value="markdown",
+                    ),
+                ),
+            ),
+            allowed_fields=("source_kind", "topic"),
+            metadata_records=(
+                DocumentMetadataRecord(
+                    document_id=acquisition_manifest.document_id,
+                    display_name="Runtime Observability Markdown",
+                    attributes={
+                        "source_kind": "markdown",
+                        "topic": "appendix and details",
+                    },
+                ),
+            ),
+            limit=2,
+        )
+    )
+
+    description_response = DescriptionSelectionService(logger=logger).select(
+        DescriptionSelectionRequest(
+            collection_id="runtime-observe-collection",
+            selection_run_id="runtime-observe-description-select",
+            query="appendix details",
+            descriptions=(
+                DocumentDescriptionRecord(
+                    document_id=acquisition_manifest.document_id,
+                    display_name="Runtime Observability Markdown",
+                    description_text=description.description_text,
+                    description_manifest_path=str(
+                        Path(description_manifest.artifact_root or "") / "manifest.json"
+                    ),
+                ),
+            ),
+            limit=2,
+        )
+    )
+
+    semantic_proxies = DocumentSemanticProxyBuilder(logger=logger).build(
+        (
+            DocumentSemanticProxySource(
+                document_id=acquisition_manifest.document_id,
+                display_name="Runtime Observability Markdown",
+                description_manifest_path=str(
+                    Path(description_manifest.artifact_root or "") / "manifest.json"
+                ),
+                tree_manifest_path=tree_manifest_path,
+            ),
+        )
+    )
+    semantic_prefilter_response = SemanticPrefilterService(logger=logger).select(
+        DocumentPrefilterRequest(
+            collection_id="runtime-observe-collection",
+            selection_run_id="runtime-observe-prefilter",
+            query="appendix details",
+            proxies=semantic_proxies,
+            limit=2,
+        )
+    )
+
+    planner = QueryPlanner()
+    retrieval_service = RetrievalService(planner, RetrievalRanker(), logger=logger)
+    retrieval_hits = retrieval_service.search(corpus=corpus, query="appendix", limit=3)
+    tree_search_response = TreeSearchService(
+        planner,
+        retrieval_service,
+        logger=logger,
+    ).search(
+        TreeSearchRequest(
+            query="appendix",
+            tree_manifest_path=tree_manifest_path,
+            retrieval_manifest_path=str(
+                Path(retrieval_manifest.artifact_root or "") / "manifest.json"
+            ),
+            search_run_id="runtime-observe-tree-search",
+            max_selected_nodes=1,
+            retrieval_limit=3,
+        )
+    )
+    preference_response = PreferenceAwareTreeSearchService(
+        planner,
+        retrieval_service,
+        logger=logger,
+    ).search(
+        PreferenceAwareTreeSearchRequest(
+            query="appendix",
+            tree_manifest_path=tree_manifest_path,
+            retrieval_manifest_path=str(
+                Path(retrieval_manifest.artifact_root or "") / "manifest.json"
+            ),
+            search_run_id="runtime-observe-preference-search",
+            max_selected_nodes=1,
+            retrieval_limit=3,
+            preference_snippets=(
+                PreferenceSnippet(
+                    preference_id="prefer-appendix",
+                    scope=PreferenceScope.USER,
+                    text="Prefer appendix sections and appendix details.",
+                    priority=5,
+                ),
+            ),
+        )
+    )
+    qa_response = RetrievalQAService(retrieval_service, logger=logger).answer(
+        corpus=corpus,
+        query="appendix",
+        limit=3,
+    )
+
+    event_names = {str(event["event_name"]) for event in capture.events}
+    jsonl_events = [
+        json.loads(line)
+        for line in (tmp_path / "observability" / "events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    jsonl_event_names = {str(event["event_name"]) for event in jsonl_events}
+
+    assert metadata_response.candidates
+    assert description_response.candidates
+    assert semantic_prefilter_response.hits
+    assert retrieval_hits
+    assert tree_search_response.retrieval_hits
+    assert preference_response.retrieval_hits
+    assert qa_response.answer_mode
+    assert {
+        "AcquisitionCompleted",
+        "TreeBuildCompleted",
+        "RetrievalCorpusBuildStarted",
+        "RetrievalCorpusBuildCompleted",
+        "DocumentDescriptionBuildStarted",
+        "DocumentDescriptionBuildCompleted",
+        "MetadataSelectionStarted",
+        "MetadataSelectionCompleted",
+        "DescriptionSelectionStarted",
+        "DescriptionSelectionCompleted",
+        "SemanticProxyBuildStarted",
+        "SemanticProxyBuildCompleted",
+        "SemanticPrefilterStarted",
+        "SemanticPrefilterCompleted",
+        "RetrievalSearchStarted",
+        "RetrievalSearchCompleted",
+        "TreeSearchStarted",
+        "TreeSearchStepSelected",
+        "TreeSearchCompleted",
+        "PreferenceSelectionStarted",
+        "PreferenceSelectionCompleted",
+        "PreferenceAwareTreeSearchCompleted",
+        "RetrievalQAStarted",
+        "RetrievalQACompleted",
+    }.issubset(event_names)
+    assert {"RetrievalQACompleted", "TreeSearchCompleted", "MetadataSelectionCompleted"}.issubset(
+        jsonl_event_names
+    )
 
 
 @pytest.mark.integration

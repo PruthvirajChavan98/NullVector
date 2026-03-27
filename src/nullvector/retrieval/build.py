@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from logging import Logger
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,6 +35,7 @@ from nullvector.domain.tree import (
     UnassignedPageSpan,
     VisualRegionReference,
 )
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval._artifacts import (
     load_acquisition_manifest,
     load_committed_nodes,
@@ -447,7 +449,13 @@ def _build_unassigned_units(
 class RetrievalCorpusBuilder:
     """Build and persist a retrieval corpus from acquisition and optional tree artifacts."""
 
-    def __init__(self, *, storage: StorageConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        logger: Logger | None = None,
+        storage: StorageConfig | None = None,
+    ) -> None:
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def build(
@@ -466,6 +474,18 @@ class RetrievalCorpusBuilder:
         tree_manifest_ref = normalize_artifact_ref(tree_manifest_path)
         acquisition_manifest = load_acquisition_manifest(input_store, acquisition_manifest_ref)
         tree_manifest = load_tree_manifest(input_store, tree_manifest_ref)
+        resolved_retrieval_run_id = retrieval_run_id or (
+            tree_manifest.tree_run_id
+            if tree_manifest is not None
+            else acquisition_manifest.acquisition_run_id
+        )
+        log_event(
+            self._logger,
+            "RetrievalCorpusBuildStarted",
+            document_id=acquisition_manifest.document_id,
+            retrieval_run_id=resolved_retrieval_run_id,
+            tree_run_id=tree_manifest.tree_run_id if tree_manifest is not None else None,
+        )
         ledger = load_ledger(input_store, acquisition_manifest)
         text_substrate = load_text_substrate(input_store, acquisition_manifest)
         committed_nodes = load_committed_nodes(input_store, tree_manifest)
@@ -490,12 +510,6 @@ class RetrievalCorpusBuilder:
             document_id=acquisition_manifest.document_id,
             units=tuple(units),
         )
-        resolved_retrieval_run_id = retrieval_run_id or (
-            tree_manifest.tree_run_id
-            if tree_manifest is not None
-            else acquisition_manifest.acquisition_run_id
-        )
-
         retrieval_root = (
             artifact_root
             if artifact_root is not None
@@ -590,6 +604,17 @@ class RetrievalCorpusBuilder:
         run_store.complete(
             manifest_ref=manifest_ref,
             manifest=manifest,
+        )
+        log_event(
+            self._logger,
+            "RetrievalCorpusBuildCompleted",
+            document_id=corpus.document_id,
+            retrieval_run_id=resolved_retrieval_run_id,
+            tree_run_id=tree_manifest.tree_run_id if tree_manifest is not None else None,
+            unit_count=len(corpus.units),
+            manifest_ref=manifest_ref,
+            corpus_path=corpus_path,
+            stats_path=stats_path,
         )
         return manifest
 

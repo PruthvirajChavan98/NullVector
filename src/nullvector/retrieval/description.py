@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from logging import Logger
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,6 +22,7 @@ from nullvector.llm.prompts.document_description import (
 )
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval._artifacts import (
     load_acquisition_manifest,
     load_node_cards,
@@ -275,7 +277,13 @@ def _default_description_root(
 class DocumentDescriptionBuilder:
     """Build and persist document-description artifacts from tree outputs."""
 
-    def __init__(self, *, storage: StorageConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        logger: Logger | None = None,
+        storage: StorageConfig | None = None,
+    ) -> None:
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def build(
@@ -303,6 +311,13 @@ class DocumentDescriptionBuilder:
         if tree_manifest.document_id != acquisition_manifest.document_id:
             msg = "tree and acquisition manifests must reference the same document_id"
             raise ValueError(msg)
+        log_event(
+            self._logger,
+            "DocumentDescriptionBuildStarted",
+            document_id=acquisition_manifest.document_id,
+            description_run_id=request.description_run_id,
+            tree_run_id=tree_manifest.tree_run_id,
+        )
 
         node_cards = load_node_cards(input_store, tree_manifest)
         node_summaries = load_node_summaries(input_store, tree_manifest)
@@ -442,6 +457,16 @@ class DocumentDescriptionBuilder:
             payload=manifest,
         )
         run_store.complete(manifest_ref=manifest_ref, manifest=manifest)
+        log_event(
+            self._logger,
+            "DocumentDescriptionBuildCompleted",
+            document_id=acquisition_manifest.document_id,
+            description_run_id=request.description_run_id,
+            tree_run_id=tree_manifest.tree_run_id,
+            description_method=method.value,
+            source_node_count=len(source_node_ids),
+            manifest_ref=manifest_ref,
+        )
         return manifest
 
 

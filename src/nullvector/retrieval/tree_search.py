@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from logging import Logger
+
 from nullvector.domain.retrieval import (
     TreeSearchFrontierNode,
     TreeSearchMode,
@@ -15,6 +17,7 @@ from nullvector.llm.prompts.tree_search import (
 )
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval._tree_search_runtime import (
     FrontierSelectionDecision,
     artifact_path,
@@ -96,10 +99,12 @@ class TreeSearchService:
         planner: QueryPlanner,
         retrieval_service: RetrievalService,
         *,
+        logger: Logger | None = None,
         storage: StorageConfig | None = None,
     ) -> None:
         self._planner = planner
         self._retrieval_service = retrieval_service
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def search(
@@ -114,6 +119,16 @@ class TreeSearchService:
             storage=self._storage,
         )
         search_mode = TreeSearchMode.LLM if gateway is not None else TreeSearchMode.DETERMINISTIC
+        log_event(
+            self._logger,
+            "TreeSearchStarted",
+            document_id=state.tree_manifest.document_id,
+            tree_run_id=state.tree_manifest.tree_run_id,
+            search_run_id=request.search_run_id,
+            query=request.query,
+            search_mode=search_mode.value,
+            max_depth=request.max_depth,
+        )
         execution = execute_tree_search(
             state=state,
             request=request,
@@ -154,6 +169,20 @@ class TreeSearchService:
             )
             for step in execution.trace_steps
         )
+        for step in trace_steps:
+            log_event(
+                self._logger,
+                "TreeSearchStepSelected",
+                document_id=state.tree_manifest.document_id,
+                tree_run_id=state.tree_manifest.tree_run_id,
+                search_run_id=request.search_run_id,
+                step_index=step.step_index,
+                frontier_node_ids=step.frontier_node_ids,
+                selected_node_ids=step.selected_node_ids,
+                termination_signal=(
+                    step.termination_signal.value if step.termination_signal is not None else None
+                ),
+            )
 
         store = build_document_store(self._storage, default_filesystem_root=".")
         trace_path = store.put_json_artifact(
@@ -188,7 +217,7 @@ class TreeSearchService:
                 ),
             },
         )
-        return TreeSearchResponse(
+        response = TreeSearchResponse(
             tree_run_id=state.tree_manifest.tree_run_id,
             document_id=state.tree_manifest.document_id,
             trace=trace_steps,
@@ -199,6 +228,19 @@ class TreeSearchService:
             trace_path=trace_path,
             results_path=results_path,
         )
+        log_event(
+            self._logger,
+            "TreeSearchCompleted",
+            document_id=state.tree_manifest.document_id,
+            tree_run_id=state.tree_manifest.tree_run_id,
+            search_run_id=request.search_run_id,
+            search_mode=execution.search_mode.value,
+            selected_node_count=len(execution.selected_nodes),
+            retrieval_hit_count=len(execution.retrieval_hits),
+            trace_path=trace_path,
+            results_path=results_path,
+        )
+        return response
 
 
 __all__ = ["TreeSearchService"]

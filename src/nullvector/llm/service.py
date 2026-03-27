@@ -39,7 +39,7 @@ from nullvector.llm.types import (
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
-from nullvector.observability.logging import log_event
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.runtime_validation import (
     validate_attachment_path,
     validate_writable_root,
@@ -346,7 +346,7 @@ class GatewayService(StructuredLLMGateway):
         self._provider_adapter = provider_adapter
         self._redaction_hooks = redaction_hooks
         self._sleep_fn = sleep_fn
-        self._logger = logger
+        self._logger = resolve_runtime_logger(logger)
         self._audit_store: DocumentStore | None = None
         if storage is not None or config.audit.persist_root is not None:
             self._audit_store = build_document_store(

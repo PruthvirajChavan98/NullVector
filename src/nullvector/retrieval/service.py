@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from logging import Logger
+
 from nullvector.domain.common import PageSpan
 from nullvector.domain.retrieval import (
     QueryPlan,
@@ -10,6 +12,7 @@ from nullvector.domain.retrieval import (
     RetrievalHit,
     RetrievalUnitType,
 )
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval.index import InMemoryRetrievalIndex, PostgresRetrievalIndex
 from nullvector.retrieval.planner import QueryPlanner
 from nullvector.retrieval.rank import RetrievalRanker
@@ -43,10 +46,12 @@ class RetrievalService:
         planner: QueryPlanner,
         ranker: RetrievalRanker,
         *,
+        logger: Logger | None = None,
         storage: StorageConfig | None = None,
     ) -> None:
         self._planner = planner
         self._ranker = ranker
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def plan(self, *, corpus: RetrievalCorpus, query: str) -> QueryPlan:
@@ -69,20 +74,62 @@ class RetrievalService:
         if corpus is None and document_id is None:
             msg = "retrieval search requires either a corpus or a document_id"
             raise ValueError(msg)
+        resolved_document_id = corpus.document_id if corpus is not None else document_id or ""
+        log_event(
+            self._logger,
+            "RetrievalSearchStarted",
+            document_id=resolved_document_id,
+            query=query,
+            limit=limit,
+            using_loaded_corpus=corpus is not None,
+        )
         if corpus is not None:
             plan = self.plan(corpus=corpus, query=query)
         else:
             plan = self._planner.plan(query)
         index = self._index(corpus=corpus, document_id=document_id)
         candidates = index.filter_units(plan)
+        used_widening = False
         if not candidates:
             if corpus is None:
+                log_event(
+                    self._logger,
+                    "RetrievalSearchCompleted",
+                    document_id=resolved_document_id,
+                    query=query,
+                    limit=limit,
+                    candidate_count=0,
+                    hit_count=0,
+                    used_widening=False,
+                )
                 return ()
+            used_widening = True
             candidates = self._widen_candidates(corpus=corpus, plan=plan)
         if not candidates:
+            log_event(
+                self._logger,
+                "RetrievalSearchCompleted",
+                document_id=resolved_document_id,
+                query=query,
+                limit=limit,
+                candidate_count=0,
+                hit_count=0,
+                used_widening=used_widening,
+            )
             return ()
         ranked = self._ranker.rank(query=query, plan=plan, candidates=candidates)
-        return ranked[:limit]
+        hits = ranked[:limit]
+        log_event(
+            self._logger,
+            "RetrievalSearchCompleted",
+            document_id=resolved_document_id,
+            query=query,
+            limit=limit,
+            candidate_count=len(candidates),
+            hit_count=len(hits),
+            used_widening=used_widening,
+        )
+        return hits
 
     def _index(
         self,

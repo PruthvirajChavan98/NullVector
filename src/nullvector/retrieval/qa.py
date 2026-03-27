@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from logging import Logger
 
 from nullvector._text import normalize_text
 from nullvector.domain.common import NonEmptyStr, NullVectorModel, PageSpan
@@ -16,6 +17,7 @@ from nullvector.domain.tree import VisualEnrichmentRequest
 from nullvector.llm.errors import GatewayError
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.visual import enrich_visual_region
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval.service import RetrievalService
 
 
@@ -63,9 +65,11 @@ class RetrievalQAService:
         self,
         retrieval_service: RetrievalService,
         gateway: StructuredLLMGateway | None = None,
+        logger: Logger | None = None,
     ) -> None:
         self._retrieval_service = retrieval_service
         self._gateway = gateway
+        self._logger = resolve_runtime_logger(logger)
 
     def answer(
         self,
@@ -74,15 +78,23 @@ class RetrievalQAService:
         query: str,
         limit: int = 5,
     ) -> QAResponse:
+        log_event(
+            self._logger,
+            "RetrievalQAStarted",
+            document_id=corpus.document_id,
+            query=query,
+            limit=limit,
+        )
         plan = self._retrieval_service.plan(corpus=corpus, query=query)
         hits = self._retrieval_service.search(corpus=corpus, query=query, limit=limit)
         if not hits:
-            return QAResponse(
+            response = QAResponse(
                 answer="No grounded evidence was found in the current corpus.",
                 citations=(),
                 retrieval_hits=(),
                 answer_mode="no_hits",
             )
+            return self._log_response(corpus.document_id, query, response)
 
         if plan.visual_query:
             visual_hits = tuple(
@@ -95,21 +107,23 @@ class RetrievalQAService:
                 }
             )
             if not visual_hits:
-                return QAResponse(
+                response = QAResponse(
                     answer="No visual evidence was found for the requested scope.",
                     citations=(),
                     retrieval_hits=hits,
                     answer_mode="visual_no_hits",
                 )
+                return self._log_response(corpus.document_id, query, response)
             top_visual = visual_hits[0]
             if top_visual.unit.text and top_visual.unit.interpretive:
                 citation = self._citation_for_hit(top_visual, query=query)
-                return QAResponse(
+                response = QAResponse(
                     answer=top_visual.unit.text,
                     citations=(citation,),
                     retrieval_hits=hits,
                     answer_mode="cached_visual_attachment",
                 )
+                return self._log_response(corpus.document_id, query, response)
             if self._gateway is not None and top_visual.unit.visual_region is not None:
                 try:
                     enriched = self._enrich_visual_hit(hit=top_visual, query=query)
@@ -118,12 +132,13 @@ class RetrievalQAService:
                 except Exception:
                     enriched = None
                 if enriched is not None:
-                    return enriched
-            return self._visual_interpretation_unavailable_response(
+                    return self._log_response(corpus.document_id, query, enriched)
+            response = self._visual_interpretation_unavailable_response(
                 hit=top_visual,
                 query=query,
                 retrieval_hits=hits,
             )
+            return self._log_response(corpus.document_id, query, response)
 
         authoritative_hits = tuple(
             hit
@@ -144,12 +159,13 @@ class RetrievalQAService:
             or "Grounded evidence was found, but no answerable text excerpt is available."
         )
         citations_source = authoritative_hits[:3] if authoritative_hits else hits[:1]
-        return QAResponse(
+        response = QAResponse(
             answer=answer,
             citations=tuple(self._citation_for_hit(hit, query=query) for hit in citations_source),
             retrieval_hits=hits,
             answer_mode="authoritative_text" if authoritative_hits else "interpretive_fallback",
         )
+        return self._log_response(corpus.document_id, query, response)
 
     def _citation_for_hit(self, hit: RetrievalHit, *, query: str) -> AnswerCitation:
         return AnswerCitation(
@@ -196,6 +212,7 @@ class RetrievalQAService:
                 node_id=hit.unit.node_id,
                 metadata={"query": query},
             ),
+            logger=self._logger,
         )
         return QAResponse(
             answer=attachment.insight.summary,
@@ -213,6 +230,23 @@ class RetrievalQAService:
             retrieval_hits=(hit,),
             answer_mode="live_multimodal_enrichment",
         )
+
+    def _log_response(
+        self,
+        document_id: str,
+        query: str,
+        response: QAResponse,
+    ) -> QAResponse:
+        log_event(
+            self._logger,
+            "RetrievalQACompleted",
+            document_id=document_id,
+            query=query,
+            answer_mode=response.answer_mode,
+            retrieval_hit_count=len(response.retrieval_hits),
+            citation_count=len(response.citations),
+        )
+        return response
 
 
 __all__ = [

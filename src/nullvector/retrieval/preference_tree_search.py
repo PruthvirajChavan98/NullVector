@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from logging import Logger
 from typing import Protocol
 
 from nullvector._text import normalize_text, tokenize
@@ -25,6 +26,7 @@ from nullvector.llm.prompts.preference_tree_search import (
 )
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval._tree_search_runtime import (
     FrontierSelectionDecision,
     artifact_path,
@@ -170,6 +172,7 @@ class PreferenceAwareTreeSearchService:
         *,
         preference_repository: PreferenceRepository | None = None,
         preference_selection_service: PreferenceSelectionService | None = None,
+        logger: Logger | None = None,
         storage: StorageConfig | None = None,
     ) -> None:
         self._planner = planner
@@ -178,10 +181,12 @@ class PreferenceAwareTreeSearchService:
         self._preference_selection_service = (
             preference_selection_service or PreferenceSelectionService()
         )
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
         self._tree_search_service = TreeSearchService(
             planner,
             retrieval_service,
+            logger=self._logger,
             storage=storage,
         )
 
@@ -200,12 +205,28 @@ class PreferenceAwareTreeSearchService:
                 else ()
             )
         )
+        log_event(
+            self._logger,
+            "PreferenceSelectionStarted",
+            query=request.query,
+            search_run_id=request.search_run_id,
+            candidate_count=len(candidate_snippets),
+            limit=request.max_preference_snippets,
+        )
         selection_result = self._preference_selection_service.select(
             PreferenceSelectionRequest(
                 query=request.query,
                 snippets=candidate_snippets,
                 limit=request.max_preference_snippets,
             )
+        )
+        log_event(
+            self._logger,
+            "PreferenceSelectionCompleted",
+            query=request.query,
+            search_run_id=request.search_run_id,
+            candidate_count=len(candidate_snippets),
+            selected_snippet_count=len(selection_result.selected_snippets),
         )
 
         base_request = _base_tree_search_request(request)
@@ -238,6 +259,16 @@ class PreferenceAwareTreeSearchService:
             request=base_request,
             planner=self._planner,
             storage=self._storage,
+        )
+        log_event(
+            self._logger,
+            "PreferenceAwareTreeSearchStarted",
+            document_id=state.tree_manifest.document_id,
+            tree_run_id=state.tree_manifest.tree_run_id,
+            search_run_id=request.search_run_id,
+            query=request.query,
+            selected_snippet_count=len(selection_result.selected_snippets),
+            max_depth=request.max_depth,
         )
         selected_snippets = selection_result.selected_snippets
 
@@ -414,6 +445,21 @@ class PreferenceAwareTreeSearchService:
             )
             for step in execution.trace_steps
         )
+        for step in trace_steps:
+            log_event(
+                self._logger,
+                "PreferenceAwareTreeSearchStepSelected",
+                document_id=state.tree_manifest.document_id,
+                tree_run_id=state.tree_manifest.tree_run_id,
+                search_run_id=request.search_run_id,
+                step_index=step.step_index,
+                frontier_node_ids=step.frontier_node_ids,
+                selected_node_ids=step.selected_node_ids,
+                applied_preference_ids=step.applied_preference_ids,
+                termination_signal=(
+                    step.termination_signal.value if step.termination_signal is not None else None
+                ),
+            )
         return self._persist_wrapped_response(
             request=request,
             selection_result=selection_result,
@@ -494,7 +540,7 @@ class PreferenceAwareTreeSearchService:
                 "retrieval_hits": tuple(hit.model_dump(mode="json") for hit in retrieval_hits),
             },
         )
-        return PreferenceAwareTreeSearchResponse(
+        response = PreferenceAwareTreeSearchResponse(
             tree_run_id=tree_run_id,
             document_id=document_id,
             preference_selection=selection_result,
@@ -508,6 +554,20 @@ class PreferenceAwareTreeSearchService:
             results_path=results_path,
             fell_back_to_base_tree_search=fell_back_to_base_tree_search,
         )
+        log_event(
+            self._logger,
+            "PreferenceAwareTreeSearchCompleted",
+            document_id=document_id,
+            tree_run_id=tree_run_id,
+            search_run_id=request.search_run_id,
+            search_mode=search_mode.value,
+            selected_snippet_count=len(selection_result.selected_snippets),
+            selected_node_count=len(selected_nodes),
+            retrieval_hit_count=len(retrieval_hits),
+            fell_back_to_base_tree_search=fell_back_to_base_tree_search,
+            results_path=results_path,
+        )
+        return response
 
 
 __all__ = [

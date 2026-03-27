@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from logging import Logger
+
 from nullvector._text import normalize_text, tokenize
 from nullvector.domain.document_selection import (
     DescriptionSelectionCandidate,
@@ -16,6 +18,7 @@ from nullvector.llm.prompts.description_selection import (
 )
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval._selection_artifacts import (
     selection_artifact_path,
     selection_artifact_root,
@@ -183,7 +186,13 @@ def _merge_gateway_candidates(
 class DescriptionSelectionService:
     """Execute description-based document selection before retrieval."""
 
-    def __init__(self, *, storage: StorageConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        logger: Logger | None = None,
+        storage: StorageConfig | None = None,
+    ) -> None:
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def select(
@@ -192,6 +201,14 @@ class DescriptionSelectionService:
         *,
         gateway: StructuredLLMGateway | None = None,
     ) -> DescriptionSelectionResponse:
+        log_event(
+            self._logger,
+            "DescriptionSelectionStarted",
+            collection_id=request.collection_id,
+            selection_run_id=request.selection_run_id,
+            query=request.query,
+            description_count=len(request.descriptions),
+        )
         artifact_root = selection_artifact_root(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
@@ -253,7 +270,7 @@ class DescriptionSelectionService:
                 "candidates": tuple(candidate.model_dump(mode="json") for candidate in candidates),
             },
         )
-        return DescriptionSelectionResponse(
+        response = DescriptionSelectionResponse(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
             candidates=candidates,
@@ -262,6 +279,18 @@ class DescriptionSelectionService:
             description_index_path=description_index_path,
             selection_results_path=selection_results_path,
         )
+        log_event(
+            self._logger,
+            "DescriptionSelectionCompleted",
+            collection_id=request.collection_id,
+            selection_run_id=request.selection_run_id,
+            query=request.query,
+            description_count=len(index_records),
+            selection_mode=selection_mode.value,
+            candidate_count=len(candidates),
+            results_path=selection_results_path,
+        )
+        return response
 
 
 __all__ = [

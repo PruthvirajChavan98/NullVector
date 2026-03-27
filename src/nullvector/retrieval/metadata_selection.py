@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from logging import Logger
 from typing import cast
 
 from nullvector.domain.common import ScalarValue, is_numeric_scalar
@@ -21,6 +22,7 @@ from nullvector.llm.prompts.metadata_selection import (
 )
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval._selection_artifacts import (
     selection_artifact_path,
     selection_artifact_root,
@@ -179,11 +181,25 @@ class MetadataSelectionPlanner:
 class MetadataSelectionService:
     """Execute typed metadata selection before document retrieval."""
 
-    def __init__(self, *, storage: StorageConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        logger: Logger | None = None,
+        storage: StorageConfig | None = None,
+    ) -> None:
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def select(self, request: MetadataSelectionRequest) -> MetadataSelectionResponse:
         _validate_plan_fields(request.plan, allowed_fields=request.allowed_fields)
+        log_event(
+            self._logger,
+            "MetadataSelectionStarted",
+            collection_id=request.collection_id,
+            selection_run_id=request.selection_run_id,
+            clause_count=len(request.plan.clauses),
+            metadata_record_count=len(request.metadata_records),
+        )
 
         artifact_root = selection_artifact_root(
             collection_id=request.collection_id,
@@ -271,7 +287,7 @@ class MetadataSelectionService:
                 "candidates": tuple(candidate.model_dump(mode="json") for candidate in candidates),
             },
         )
-        return MetadataSelectionResponse(
+        response = MetadataSelectionResponse(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
             candidates=candidates,
@@ -280,6 +296,17 @@ class MetadataSelectionService:
             selection_plan_path=selection_plan_path,
             selection_results_path=selection_results_path,
         )
+        log_event(
+            self._logger,
+            "MetadataSelectionCompleted",
+            collection_id=request.collection_id,
+            selection_run_id=request.selection_run_id,
+            clause_count=len(request.plan.clauses),
+            metadata_record_count=len(index_records),
+            candidate_count=len(candidates),
+            results_path=selection_results_path,
+        )
+        return response
 
 
 __all__ = [

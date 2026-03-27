@@ -37,7 +37,7 @@ from nullvector.domain.tree import (
 )
 from nullvector.llm.errors import GatewayAuthError, GatewayConfigurationError
 from nullvector.llm.protocols import StructuredLLMGateway
-from nullvector.observability.logging import log_event
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.runtime_validation import validate_canonical_text_substrate_contract
 from nullvector.storage import StorageBackend, StorageConfig, build_document_store
 from nullvector.storage._serialization import (
@@ -566,7 +566,7 @@ class TreePipelineService:
         logger: Logger | None = None,
         storage: StorageConfig | None = None,
     ) -> None:
-        self._logger = logger
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def build(
@@ -966,6 +966,15 @@ class TreePipelineService:
                 manifest_ref=manifest_ref,
                 manifest=manifest,
             )
+        log_event(
+            self._logger,
+            "TreeBuildCompleted",
+            document_id=input_bundle.document_id,
+            tree_run_id=request.tree_run_id,
+            committed_node_count=committed_node_count,
+            unassigned_span_count=unassigned_span_count,
+            manifest_ref=manifest_ref,
+        )
         return manifest
 
     def _emit_verification_events(

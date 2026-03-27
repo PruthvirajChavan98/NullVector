@@ -43,7 +43,7 @@ from nullvector.ingest.protocols import AcquisitionProvider
 from nullvector.ingest.providers.markdown_native import MarkdownNativeAcquisitionProvider
 from nullvector.ingest.providers.native_pymupdf import NativePyMuPDFAcquisitionProvider
 from nullvector.ingest.visual_assets import materialize_visual_assets
-from nullvector.observability.logging import log_event
+from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.runtime_validation import validate_pdf_runtime_versions
 from nullvector.storage import StorageConfig, build_document_store
 from nullvector.storage._serialization import (
@@ -98,7 +98,7 @@ class AcquisitionService:
         storage: StorageConfig | None = None,
     ) -> None:
         self._provider = provider
-        self._logger = logger
+        self._logger = resolve_runtime_logger(logger)
         self._storage = storage
 
     def acquire(self, request: AcquisitionRequest) -> AcquisitionRunManifest:
@@ -272,6 +272,7 @@ class AcquisitionService:
             artifact_path="ledger/canonical-document-ledger.json",
             payload=persisted_ledger,
         )
+        total_unresolved_regions = 0
         for page in persisted_ledger.pages:
             log_event(
                 self._logger,
@@ -281,6 +282,7 @@ class AcquisitionService:
                 block_count=len(page.blocks),
             )
             unresolved = [block for block in page.blocks if isinstance(block, UnresolvedRegion)]
+            total_unresolved_regions += len(unresolved)
             log_event(
                 self._logger,
                 "PageProfiled",
@@ -346,6 +348,15 @@ class AcquisitionService:
         run_store.complete(
             manifest_ref=manifest_path,
             manifest=manifest,
+        )
+        log_event(
+            self._logger,
+            "AcquisitionCompleted",
+            document_id=fingerprint.document_id,
+            acquisition_run_id=request.acquisition_run_id,
+            page_count=manifest.page_count,
+            unresolved_region_count=total_unresolved_regions,
+            manifest_ref=manifest_path,
         )
         return manifest
 
