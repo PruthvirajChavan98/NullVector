@@ -28,6 +28,32 @@ class FilesystemDocumentStore:
     def __init__(self, root: str) -> None:
         self._root = Path(root)
 
+    @property
+    def supports_metadata_persistence(self) -> bool:
+        return False
+
+    @property
+    def supports_retrieval_unit_queries(self) -> bool:
+        return False
+
+    def resolve_artifact_root(
+        self,
+        *,
+        run_type: str,
+        run_id: str,
+        document_id: str,
+        configured_root: str | None = None,
+    ) -> str | None:
+        del run_type, run_id, document_id
+        if configured_root is None:
+            return str(self._root)
+        path = Path(configured_root)
+        if path.is_absolute():
+            return str(path)
+        if path == self._root:
+            return str(self._root)
+        return str(self._path(configured_root))
+
     def register_document(self, fingerprint: DocumentFingerprint) -> str:
         return fingerprint.document_id
 
@@ -69,8 +95,12 @@ class FilesystemDocumentStore:
         manifest_ref: str,
         manifest: BaseModel,
     ) -> None:
-        run_root = Path(manifest_ref).parent.parent
-        record_path = run_root / "run-index.json"
+        manifest_path = Path(manifest_ref)
+        candidate_paths = (
+            manifest_path.parent.parent / "run-index.json",
+            manifest_path.parent / "run-index.json",
+        )
+        record_path = next((path for path in candidate_paths if path.exists()), candidate_paths[0])
         payload = cast(dict[str, Any], self._read_json_path(record_path))
         completed_payload = {
             **payload,
@@ -219,7 +249,7 @@ class FilesystemDocumentStore:
         unit_types: tuple[str, ...] = (),
         modalities: tuple[str, ...] = (),
         text_query: str | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> list[dict[str, Any]]:
         del document_id, page_start, page_end, unit_types, modalities, text_query, limit
         return []

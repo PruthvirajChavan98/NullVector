@@ -15,6 +15,15 @@ def _intersects(left: PageSpan, right: PageSpan) -> bool:
     return not (left.end_page < right.start_page or right.end_page < left.start_page)
 
 
+def _retrieval_evidence_sort_key(unit: RetrievalEvidence) -> tuple[int, int, str, str]:
+    return (
+        unit.page_span.start_page,
+        unit.page_span.end_page,
+        (unit.title or "").lower(),
+        unit.unit_id,
+    )
+
+
 class InMemoryRetrievalIndex:
     """Simple postings-based index over one retrieval corpus."""
 
@@ -45,7 +54,7 @@ class InMemoryRetrievalIndex:
         if plan.modality_filters:
             allowed_modalities = set(plan.modality_filters)
             candidates = tuple(unit for unit in candidates if unit.modality in allowed_modalities)
-        return candidates
+        return tuple(sorted(candidates, key=_retrieval_evidence_sort_key))
 
     def postings(self, token: str) -> tuple[str, ...]:
         return self._token_postings.get(normalize_text(token), ())
@@ -114,8 +123,8 @@ class PostgresRetrievalIndex:
             page_end=page_end,
             unit_types=tuple(unit_type.value for unit_type in plan.unit_types),
             modalities=tuple(modality.value for modality in plan.modality_filters),
-            text_query=plan.normalized_query if plan.normalized_query else None,
-            limit=250,
+            text_query=None,
+            limit=None,
         )
         return tuple(
             # strict=False required: JSONB round-trip deserialises tuple fields as

@@ -154,10 +154,11 @@ class TreeSearchService:
                 )
             ),
         )
+        store = build_document_store(self._storage, default_filesystem_root=".")
         artifact_root = tree_search_artifact_root(
             request=request,
             tree_run_id=state.tree_manifest.tree_run_id,
-            storage=self._storage,
+            store=store,
         )
         trace_steps = tuple(
             TreeSearchTraceStep(

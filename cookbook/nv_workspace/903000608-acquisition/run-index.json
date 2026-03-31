@@ -1,0 +1,77 @@
+{
+  "artifact_root": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+  "document_id": "798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+  "identity": {
+    "document_id": "798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+    "fingerprint_sha256": "798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+    "settings_digest": "3e4405ae6a4f570f41d38b9ebeafcddb4c346ef5c698fcbda7e22f3ea6a52314"
+  },
+  "manifest": {
+    "acquisition_run_id": "903000608-acquisition",
+    "artifact_root": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+    "canonical_text_substrate_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/projection/canonical-text-substrate.json",
+    "document_id": "798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+    "event_stream_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/events/document-events.jsonl",
+    "ledger_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/ledger/canonical-document-ledger.json",
+    "outline_quality_reports": [
+      {
+        "empty_title_count": 0,
+        "entry_count": 16,
+        "invalid_level_count": 0,
+        "max_depth": 2,
+        "non_monotonic_count": 0,
+        "null_destination_count": 0,
+        "score": 1600,
+        "source": "pymupdf"
+      },
+      {
+        "empty_title_count": 0,
+        "entry_count": 16,
+        "invalid_level_count": 0,
+        "max_depth": 2,
+        "non_monotonic_count": 0,
+        "null_destination_count": 2,
+        "score": 1520,
+        "source": "pypdf"
+      }
+    ],
+    "page_count": 148,
+    "projection_view_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/projection/tree-synthesis-view.json",
+    "provider_identity": "native_pymupdf",
+    "pymupdf_outline_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/outline/pymupdf.normalized.json",
+    "pymupdf_rich_outline_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/outline/pymupdf.rich.json",
+    "pypdf_outline_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/outline/pypdf.normalized.json",
+    "selected_outline_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/outline/selected.json",
+    "selected_outline_source": "pymupdf",
+    "settings": {
+      "dense_vector_threshold": 2000,
+      "detect_tables": true,
+      "emit_line_blocks": true,
+      "image_region_warning_threshold": 0.65,
+      "markdown": {
+        "max_logical_lines_per_page": 40,
+        "split_on_thematic_breaks": true
+      },
+      "pymupdf_version": "1.27.2",
+      "pypdf_version": "6.8.0",
+      "render_dpi": 144,
+      "small_vector_max_area_ratio": 0.0005,
+      "table_min_columns": 2,
+      "table_min_rows": 2,
+      "vector_scan_limit": 5000
+    },
+    "settings_digest": "3e4405ae6a4f570f41d38b9ebeafcddb4c346ef5c698fcbda7e22f3ea6a52314",
+    "source_copy_path": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/source/original.pdf",
+    "source_fingerprint": {
+      "document_id": "798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+      "file_size_bytes": 6254823,
+      "page_count": 148,
+      "sha256": "798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896",
+      "source_path": "/home/pruthvi/projects/NullVector/cookbook/903000608.pdf"
+    }
+  },
+  "manifest_ref": "/home/pruthvi/projects/NullVector/cookbook/nv_workspace/903000608-acquisition/798d2f27d45d2ccda3694005c2ed60bc0b413b8b299f3a5d4ade7c5867094896/manifest.json",
+  "run_id": "903000608-acquisition",
+  "run_type": "acquisition",
+  "status": "succeeded"
+}

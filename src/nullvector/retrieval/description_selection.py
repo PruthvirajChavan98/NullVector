@@ -76,6 +76,7 @@ def _fallback_candidates(
     *,
     query: str,
     limit: int,
+    include_zero_score_fillers: bool,
 ) -> tuple[DescriptionSelectionCandidate, ...]:
     ordered_records = tuple(sorted(records, key=_description_sort_key))
     query_tokens = tokenize(query)
@@ -97,7 +98,7 @@ def _fallback_candidates(
             key=lambda candidate: _candidate_sort_key(candidate, records_by_id),
         )
     )
-    if len(ranked_positive) >= limit:
+    if len(ranked_positive) >= limit or not include_zero_score_fillers:
         return ranked_positive[:limit]
     remaining = max(limit - len(ranked_positive), 0)
     return ranked_positive + zero_score[:remaining]
@@ -162,6 +163,7 @@ def _merge_gateway_candidates(
     *,
     records_by_id: dict[str, DocumentDescriptionRecord],
     limit: int,
+    include_zero_score_fillers: bool,
 ) -> tuple[DescriptionSelectionCandidate, ...]:
     best_by_document_id: dict[str, DescriptionSelectionCandidate] = {}
     for candidate in candidates:
@@ -180,7 +182,9 @@ def _merge_gateway_candidates(
             key=lambda candidate: _candidate_sort_key(candidate, records_by_id),
         )
     )
-    return merged[:limit]
+    if include_zero_score_fillers:
+        return merged[:limit]
+    return tuple(candidate for candidate in merged if candidate.score > 0.0)[:limit]
 
 
 class DescriptionSelectionService:
@@ -208,14 +212,15 @@ class DescriptionSelectionService:
             selection_run_id=request.selection_run_id,
             query=request.query,
             description_count=len(request.descriptions),
+            include_zero_score_fillers=request.include_zero_score_fillers,
         )
+        store = build_document_store(self._storage, default_filesystem_root=".")
         artifact_root = selection_artifact_root(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
             artifact_root=request.artifact_root,
-            storage=self._storage,
+            store=store,
         )
-        store = build_document_store(self._storage, default_filesystem_root=".")
         index_records = tuple(sorted(request.descriptions, key=_description_sort_key))
         records_by_id = {record.document_id: record for record in index_records}
 
@@ -233,6 +238,7 @@ class DescriptionSelectionService:
                 index_records,
                 query=request.query,
                 limit=request.limit,
+                include_zero_score_fillers=request.include_zero_score_fillers,
             )
             selection_mode = DescriptionSelectionMode.DETERMINISTIC_FALLBACK
         else:
@@ -249,6 +255,7 @@ class DescriptionSelectionService:
                 tuple(shard_candidates),
                 records_by_id=records_by_id,
                 limit=request.limit,
+                include_zero_score_fillers=request.include_zero_score_fillers,
             )
             selection_mode = DescriptionSelectionMode.LLM
 
@@ -288,6 +295,7 @@ class DescriptionSelectionService:
             description_count=len(index_records),
             selection_mode=selection_mode.value,
             candidate_count=len(candidates),
+            include_zero_score_fillers=request.include_zero_score_fillers,
             results_path=selection_results_path,
         )
         return response

@@ -18,7 +18,12 @@ Usage::
     adapter = LiteLLMAdapter()
 """
 
-from nullvector.llm.adapters._litellm import LiteLLMAdapter
-from nullvector.llm.adapters._openai import OpenAIAdapter
+from nullvector.llm.adapters._litellm import AsyncLiteLLMAdapter, LiteLLMAdapter
+from nullvector.llm.adapters._openai import AsyncOpenAIAdapter, OpenAIAdapter
 
-__all__ = ["LiteLLMAdapter", "OpenAIAdapter"]
+__all__ = [
+    "AsyncLiteLLMAdapter",
+    "AsyncOpenAIAdapter",
+    "LiteLLMAdapter",
+    "OpenAIAdapter",
+]

@@ -1,15 +1,33 @@
-"""Authoritative domain contracts for NullVector."""
+"""Authoritative domain contracts for NullVector.
 
+Types are organised into four tiers:
+
+* **User-facing** -- appear in ``NullVectorClient`` and service return values.
+  These are the types application developers interact with directly.
+* **Pipeline requests & config** -- inputs to pipeline services (acquisition,
+  tree build, retrieval, search, QA).
+* **Internal processing** -- intermediate representations used by the service
+  layer.  Rarely needed outside NullVector's own codebase.
+* **Diagnostics & verification** -- debugging, auditing, and tree-repair types.
+  Useful for deep inspection but not for normal application workflows.
+"""
+
+# ── User-facing types (appear in client & service return values) ──────
+
+# ── Internal processing types (service layer implementation) ──────────
 from nullvector.domain.common import (
     BatchItemFailure,
     BatchResult,
     BoundingBox,
+    CoerceTuple,
     ContentSpan,
     GeometryCoordinateSpace,
     NodeOwnedSpan,
     PageSourceAnchor,
     PageSpan,
 )
+
+# ── Pipeline request / config types ──────────────────────────────────
 from nullvector.domain.document_selection import (
     DescriptionSelectionCandidate,
     DescriptionSelectionMode,
@@ -94,6 +112,7 @@ from nullvector.domain.retrieval import (
     PreferenceSelectionRequest,
     PreferenceSelectionResult,
     PreferenceSnippet,
+    QueryIntent,
     QueryPlan,
     RetrievalCorpus,
     RetrievalEvidence,
@@ -109,6 +128,8 @@ from nullvector.domain.retrieval import (
     TreeSearchTerminationSignal,
     TreeSearchTraceStep,
 )
+
+# ── Diagnostics & verification (debugging, auditing, repair) ─────────
 from nullvector.domain.tree import (
     AnchorSource,
     CompactedNodeMapping,
@@ -172,12 +193,15 @@ from nullvector.domain.tree import (
 )
 
 __all__ = [
+    # ── Pipeline request / config ────────────────────────────────────
     "AcquisitionManifest",
     "AcquisitionRequest",
     "AcquisitionRunIndex",
     "AcquisitionRunManifest",
     "AcquisitionSettings",
+    # ── Internal processing ──────────────────────────────────────────
     "AnchorSource",
+    # ── User-facing ──────────────────────────────────────────────────
     "AnswerCitation",
     "BatchItemFailure",
     "BatchResult",
@@ -187,6 +211,7 @@ __all__ = [
     "CanonicalTextLine",
     "CanonicalTextPage",
     "CanonicalTextSubstrate",
+    "CoerceTuple",
     "CompactedNodeMapping",
     "CompactedTreeManifest",
     "CompactedTreeNode",
@@ -228,6 +253,7 @@ __all__ = [
     "HierarchyNode",
     "HierarchyOrigin",
     "HierarchyStrategy",
+    # ── Diagnostics & verification ───────────────────────────────────
     "LLMVerificationAssistRecord",
     "LineBlock",
     "MarkdownAcquisitionSettings",
@@ -267,6 +293,7 @@ __all__ = [
     "PreferenceSelectionRequest",
     "PreferenceSelectionResult",
     "PreferenceSnippet",
+    "QueryIntent",
     "QueryPlan",
     "RepairDecision",
     "RepairKind",

@@ -4,20 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pypdf import PdfReader
-
 from nullvector.domain.events import DocumentEvent, EventSeverity
 from nullvector.domain.ledger import (
     AcquisitionManifest,
     AcquisitionRequest,
     CanonicalDocumentLedger,
+    DocumentFingerprint,
     SourceMetadata,
-)
-from nullvector.ingest.fingerprint import fingerprint_document
-from nullvector.ingest.outline import (
-    extract_pymupdf_outlines,
-    extract_pypdf_outlines,
-    select_outline,
 )
 from nullvector.ingest.pdf_backend import open_document
 from nullvector.ingest.profiling import profile_page
@@ -29,22 +22,21 @@ class NativePyMuPDFAcquisitionProvider:
 
     provider_identity = "native_pymupdf"
 
+    def __init__(
+        self,
+        *,
+        source_fingerprint: DocumentFingerprint | None = None,
+    ) -> None:
+        self._source_fingerprint = source_fingerprint
+
     def acquire(self, request: AcquisitionRequest) -> CanonicalDocumentLedger:
-        fingerprint = fingerprint_document(
-            request.source_path,
-            source_kind=request.source_kind,
-            acquisition_settings=request.settings,
-        )
+        if self._source_fingerprint is None:
+            msg = "native acquisition provider requires a precomputed source fingerprint"
+            raise ValueError(msg)
+        fingerprint = self._source_fingerprint
         source = Path(request.source_path)
 
         with open_document(request.source_path) as document:
-            reader = PdfReader(request.source_path)
-            _, pymupdf_entries = extract_pymupdf_outlines(document)
-            _, pypdf_entries = extract_pypdf_outlines(reader)
-            selected_source, selected_entries, outline_reports = select_outline(
-                pymupdf_entries, pypdf_entries
-            )
-
             pages = []
             for page_index in range(document.page_count):
                 profiled = profile_page(
@@ -70,9 +62,6 @@ class NativePyMuPDFAcquisitionProvider:
             source_fingerprint_sha256=fingerprint.sha256,
             settings_digest=settings_digest(request.settings),
             acquisition_provider_identity=self.provider_identity,
-            selected_outline_source=selected_source,
-            outline_quality_reports=outline_reports,
-            selected_outline_entries=tuple(selected_entries),
         )
         document_events = (
             DocumentEvent(

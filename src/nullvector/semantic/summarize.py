@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from nullvector.domain.tree import (
     HierarchyNode,
@@ -19,6 +19,12 @@ from nullvector.llm.prompts import SummarizationPromptResponse, build_summarizat
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest, GatewayUsage
 from nullvector.observability.logging import log_event
+from nullvector.semantic._text_spans import (
+    _TextPage,
+    bounded_fragments,
+    text_for_node,
+    text_fragments_for_node,
+)
 from nullvector.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
 from nullvector.storage._serialization import write_json_file
 from nullvector.tree.headings import PageArtifacts
@@ -63,22 +69,16 @@ def _pages_for_node(
 
 
 def _node_raw_text(node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]) -> str:
-    return "\n".join(page.text for page in _pages_for_node(node, pages_by_index)).strip()
+    return text_for_node(node, cast(Mapping[int, _TextPage], pages_by_index))
 
 
 def _bounded_leaf_excerpts(
     node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]
 ) -> tuple[str, ...]:
-    excerpts: list[str] = []
-    remaining_chars = 1600
-    for page in _pages_for_node(node, pages_by_index):
-        if remaining_chars <= 0:
-            break
-        excerpt = page.text[:remaining_chars].strip()
-        if excerpt:
-            excerpts.append(excerpt)
-            remaining_chars -= len(excerpt)
-    return tuple(excerpts)
+    return bounded_fragments(
+        text_fragments_for_node(node, cast(Mapping[int, _TextPage], pages_by_index)),
+        max_chars=1600,
+    )
 
 
 def _parent_prefix_text(

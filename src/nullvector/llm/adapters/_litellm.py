@@ -122,6 +122,19 @@ def _get_default_completion() -> Any:
     return litellm.completion
 
 
+def _get_default_acompletion() -> Any:
+    """Lazily import and return litellm.acompletion at runtime."""
+    try:
+        import litellm
+    except ImportError:
+        msg = (
+            "litellm is required for AsyncLiteLLMAdapter but is not installed. "
+            "Install it with: pip install litellm>=1.79.0"
+        )
+        raise ImportError(msg) from None
+    return litellm.acompletion
+
+
 class LiteLLMAdapter:
     """Optional convenience adapter wrapping the ``litellm.completion`` callable.
 
@@ -299,4 +312,127 @@ def _safe_request_dump(request: ProviderInvocationRequest) -> JSONValue:
     return request.model_dump(mode="json")
 
 
-__all__ = ["LiteLLMAdapter"]
+class AsyncLiteLLMAdapter:
+    """Async convenience adapter wrapping ``litellm.acompletion``."""
+
+    provider_name: str = "litellm"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        acompletion_fn: Any | None = None,
+        **completion_kwargs: Any,
+    ) -> None:
+        self._acompletion_fn: Any | None = acompletion_fn
+        self._extra_kwargs: dict[str, Any] = completion_kwargs
+        if api_key is not None:
+            self._extra_kwargs["api_key"] = api_key
+
+    def _get_acompletion_fn(self) -> Any:
+        if self._acompletion_fn is not None:
+            return self._acompletion_fn
+        self._acompletion_fn = _get_default_acompletion()
+        return self._acompletion_fn
+
+    async def invoke(
+        self,
+        request: ProviderInvocationRequest,
+        config: GatewayConfig,
+    ) -> ProviderInvocationResult:
+        """Invoke the LiteLLM completion API asynchronously."""
+        del config
+        if request.structured_output_mode == StructuredOutputMode.PROVIDER_NATIVE:
+            return ProviderInvocationResult(
+                failure=ProviderInvocationFailure(
+                    provider_name="litellm",
+                    model_name=request.model_name,
+                    assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+                    structured_output_mode=StructuredOutputMode.PROVIDER_NATIVE,
+                    category=GatewayFailureCategory.UNSUPPORTED_CAPABILITY,
+                    message=(
+                        "AsyncLiteLLMAdapter only supports TRANSPORT_COMPATIBLE mode. "
+                        "Use AsyncOpenAIAdapter for PROVIDER_NATIVE structured output."
+                    ),
+                    retryable=False,
+                ),
+            )
+
+        try:
+            acompletion_fn = self._get_acompletion_fn()
+            kwargs: dict[str, Any] = {
+                "model": request.model_name,
+                "messages": _build_messages(request),
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": request.response_schema_name,
+                        "schema": request.response_schema,
+                        "strict": True,
+                    },
+                },
+            }
+            if request.temperature is not None:
+                kwargs["temperature"] = request.temperature
+            if request.max_output_tokens is not None:
+                kwargs["max_tokens"] = request.max_output_tokens
+            if request.timeout_seconds:
+                kwargs["timeout"] = request.timeout_seconds
+            kwargs.update(self._extra_kwargs)
+
+            response = await acompletion_fn(**kwargs)
+        except ImportError:
+            raise
+        except Exception as exc:
+            return _build_failure(request, exc)
+
+        raw_payload = _safe_dump(response)
+        choices = getattr(response, "choices", []) or []
+        if not choices:
+            return ProviderInvocationResult(
+                failure=ProviderInvocationFailure(
+                    provider_name="litellm",
+                    model_name=request.model_name,
+                    assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+                    structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+                    category=GatewayFailureCategory.UNKNOWN_PROVIDER_FAILURE,
+                    message="response contained no choices",
+                    retryable=False,
+                    raw_response_payload=raw_payload,
+                ),
+            )
+
+        choice = choices[0]
+        message = getattr(choice, "message", None)
+        content = getattr(message, "content", None) if message else None
+        usage = getattr(response, "usage", None)
+        gateway_usage = _extract_usage(usage) if usage is not None else None
+
+        structured_json: JSONValue | None = None
+        structured_text = content
+        if content:
+            try:
+                structured_json = json.loads(content)
+                structured_text = None
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return ProviderInvocationResult(
+            success=ProviderInvocationSuccess(
+                provider_name="litellm",
+                model_name=request.model_name,
+                assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+                structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+                raw_request_payload=_safe_request_dump(request),
+                raw_response_payload=raw_payload,
+                structured_output_json=structured_json,
+                structured_output_text=structured_text,
+                usage=gateway_usage,
+                status_code=200,
+                provider_request_id=getattr(response, "_hidden_params", {}).get("unique_id", None),
+                provider_response_id=getattr(response, "id", None),
+            ),
+        )
+
+
+__all__ = ["AsyncLiteLLMAdapter", "LiteLLMAdapter"]

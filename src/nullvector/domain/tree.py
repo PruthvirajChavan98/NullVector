@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import (
     Field,
+    NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
-    field_validator,
     model_validator,
 )
 
 from nullvector.domain.common import (
     BoundingBox,
+    CoerceTuple,
     GeometryCoordinateSpace,
     NodeOwnedSpan,
     NonEmptyStr,
@@ -163,6 +164,33 @@ class TreeSettings(NullVectorModel):
     outline_low_agreement_threshold: PositiveFloat = 0.30
     heading_score_keep_threshold: NonNegativeInt = 30
     heading_score_high_confidence_threshold: NonNegativeInt = 50
+    heading_numbering_signal: NonNegativeInt = 22
+    heading_sparse_page_isolation_signal: NonNegativeInt = 12
+    heading_first_occurrence_isolation_signal: NonNegativeInt = 6
+    heading_sparse_page_line_count: PositiveInt = 4
+    heading_short_line_signal: NonNegativeInt = 14
+    heading_medium_line_signal: NonNegativeInt = 8
+    heading_short_line_max_words: PositiveInt = 8
+    heading_medium_line_max_words: PositiveInt = 12
+    heading_title_case_signal: NonNegativeInt = 10
+    heading_uppercase_signal: NonNegativeInt = 8
+    heading_uppercase_max_words: PositiveInt = 6
+    heading_punctuation_penalty: NonNegativeInt = 20
+    heading_figure_like_penalty: NonNegativeInt = 25
+    heading_repeated_header_footer_penalty: NonNegativeInt = 60
+    heading_toc_overlap_signal: NonNegativeInt = 20
+    heading_layout_signal: NonNegativeInt = 12
+    heading_top_margin_threshold: PositiveFloat = 120.0
+    heading_min_font_size: PositiveFloat = 14.0
+    toc_scan_page_limit: PositiveInt = 20
+    toc_deterministic_high_threshold: PositiveFloat = 0.70
+    toc_deterministic_low_threshold: PositiveFloat = 0.45
+    toc_pattern_match_weight: NonNegativeFloat = 0.35
+    toc_leader_dot_weight: NonNegativeFloat = 0.20
+    toc_numbering_weight: NonNegativeFloat = 0.15
+    toc_font_uniformity_weight: NonNegativeFloat = 0.10
+    toc_consecutive_page_weight: NonNegativeFloat = 0.20
+    toc_repeated_header_penalty_weight: NonNegativeFloat = 0.25
     max_pages_per_leaf_node: PositiveInt = 10
     max_tokens_per_leaf_node: PositiveInt = 20000
     max_decomposition_depth: PositiveInt = 2
@@ -185,6 +213,32 @@ class TreeSettings(NullVectorModel):
             msg = (
                 "heading_score_high_confidence_threshold must be greater than or equal to "
                 "heading_score_keep_threshold"
+            )
+            raise ValueError(msg)
+        toc_bounded_values = {
+            "toc_deterministic_high_threshold": self.toc_deterministic_high_threshold,
+            "toc_deterministic_low_threshold": self.toc_deterministic_low_threshold,
+            "toc_pattern_match_weight": self.toc_pattern_match_weight,
+            "toc_leader_dot_weight": self.toc_leader_dot_weight,
+            "toc_numbering_weight": self.toc_numbering_weight,
+            "toc_font_uniformity_weight": self.toc_font_uniformity_weight,
+            "toc_consecutive_page_weight": self.toc_consecutive_page_weight,
+            "toc_repeated_header_penalty_weight": self.toc_repeated_header_penalty_weight,
+        }
+        for field_name, value in toc_bounded_values.items():
+            if not 0 <= value <= 1:
+                msg = f"{field_name} must be between 0 and 1"
+                raise ValueError(msg)
+        if self.toc_deterministic_high_threshold < self.toc_deterministic_low_threshold:
+            msg = (
+                "toc_deterministic_high_threshold must be greater than or equal to "
+                "toc_deterministic_low_threshold"
+            )
+            raise ValueError(msg)
+        if self.heading_medium_line_max_words < self.heading_short_line_max_words:
+            msg = (
+                "heading_medium_line_max_words must be greater than or equal to "
+                "heading_short_line_max_words"
             )
             raise ValueError(msg)
         return self
@@ -372,27 +426,19 @@ class HierarchyNode(NullVectorModel):
     node_id: NonEmptyStr
     document_id: NonEmptyStr
     parent_id: NonEmptyStr | None = None
-    path: tuple[NonEmptyStr, ...]
+    path: Annotated[tuple[NonEmptyStr, ...], CoerceTuple]
     level: PositiveInt
     title: NonEmptyStr
     normalized_title: NonEmptyStr
     page_span: PageSpan
     heading_anchor: NodeAnchor
-    owned_spans: tuple[NodeOwnedSpan, ...] = Field(default_factory=tuple)
-    source_anchors: tuple[PageSourceAnchor, ...] = Field(default_factory=tuple)
+    owned_spans: Annotated[tuple[NodeOwnedSpan, ...], CoerceTuple] = Field(default_factory=tuple)
+    source_anchors: Annotated[tuple[PageSourceAnchor, ...], CoerceTuple] = Field(
+        default_factory=tuple
+    )
     origin: HierarchyOrigin
     confidence: float = 0.0
     verification_match_tier: TitleMatchTier = TitleMatchTier.NONE
-
-    @field_validator("path", "owned_spans", "source_anchors", mode="before")
-    @classmethod
-    def _coerce_sequence_fields(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
 
     @model_validator(mode="after")
     def validate_hierarchy_node(self) -> Self:
@@ -459,26 +505,18 @@ class NodeCard(NullVectorModel):
 
     node_id: NonEmptyStr
     document_id: NonEmptyStr
-    path: tuple[NonEmptyStr, ...]
+    path: Annotated[tuple[NonEmptyStr, ...], CoerceTuple]
     level: PositiveInt
     title: NonEmptyStr
     page_span: PageSpan
-    owned_spans: tuple[NodeOwnedSpan, ...] = Field(default_factory=tuple)
+    owned_spans: Annotated[tuple[NodeOwnedSpan, ...], CoerceTuple] = Field(default_factory=tuple)
     summary: str | None = None
-    keywords: tuple[NonEmptyStr, ...] = ()
+    keywords: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = ()
     summary_method: NodeSummaryMethod | None = None
     summary_token_count: NonNegativeInt | None = None
-    source_anchors: tuple[PageSourceAnchor, ...] = Field(default_factory=tuple)
-
-    @field_validator("path", "owned_spans", "keywords", "source_anchors", mode="before")
-    @classmethod
-    def _coerce_sequence_fields(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
+    source_anchors: Annotated[tuple[PageSourceAnchor, ...], CoerceTuple] = Field(
+        default_factory=tuple
+    )
 
     @model_validator(mode="after")
     def validate_path_and_anchors(self) -> Self:
@@ -514,7 +552,7 @@ class NodeSummary(NullVectorModel):
 
     node_id: NonEmptyStr
     summary: NonEmptyStr
-    keywords: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
+    keywords: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(default_factory=tuple)
     summary_method: NodeSummaryMethod
     token_count: NonNegativeInt
     estimated_token_count: NonNegativeInt
@@ -524,16 +562,6 @@ class NodeSummary(NullVectorModel):
     gateway_assurance_mode: NonEmptyStr | None = None
     gateway_audit_path: NonEmptyStr | None = None
     gateway_usage: SemanticUsage | None = None
-
-    @field_validator("keywords", mode="before")
-    @classmethod
-    def _coerce_keywords(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
 
 
 class DecompositionReport(NullVectorModel):
@@ -643,19 +671,9 @@ class TreeNodeVerificationResult(NullVectorModel):
     tree_run_id: NonEmptyStr
     subject_id: NonEmptyStr
     status: VerificationStatus
-    issues: tuple[VerificationIssue, ...] = Field(default_factory=tuple)
+    issues: Annotated[tuple[VerificationIssue, ...], CoerceTuple] = Field(default_factory=tuple)
     covered_page_span: PageSpan | None = None
-    notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-    @field_validator("issues", "notes", mode="before")
-    @classmethod
-    def _coerce_result_sequences(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
+    notes: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:
@@ -675,26 +693,16 @@ class VerificationReport(NullVectorModel):
     document_id: NonEmptyStr
     tree_run_id: NonEmptyStr
     status: VerificationStatus
-    node_results: tuple[TreeNodeVerificationResult, ...] = Field(default_factory=tuple)
-    document_issues: tuple[VerificationIssue, ...] = Field(default_factory=tuple)
-    unassigned_spans: tuple[UnassignedPageSpan, ...] = Field(default_factory=tuple)
-    notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-    @field_validator(
-        "node_results",
-        "document_issues",
-        "unassigned_spans",
-        "notes",
-        mode="before",
+    node_results: Annotated[tuple[TreeNodeVerificationResult, ...], CoerceTuple] = Field(
+        default_factory=tuple
     )
-    @classmethod
-    def _coerce_report_sequences(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
+    document_issues: Annotated[tuple[VerificationIssue, ...], CoerceTuple] = Field(
+        default_factory=tuple
+    )
+    unassigned_spans: Annotated[tuple[UnassignedPageSpan, ...], CoerceTuple] = Field(
+        default_factory=tuple
+    )
+    notes: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
     def validate_report(self) -> Self:
@@ -716,19 +724,9 @@ class VerificationResult(NullVectorModel):
     parse_run_id: NonEmptyStr
     subject_id: NonEmptyStr
     status: VerificationStatus
-    issues: tuple[VerificationIssue, ...] = Field(default_factory=tuple)
+    issues: Annotated[tuple[VerificationIssue, ...], CoerceTuple] = Field(default_factory=tuple)
     covered_page_span: PageSpan | None = None
-    notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-    @field_validator("issues", "notes", mode="before")
-    @classmethod
-    def _coerce_result_sequences(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
+    notes: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:
@@ -803,21 +801,15 @@ class CompactedTreeNode(NullVectorModel):
     serving_node_id: NonEmptyStr
     title: NonEmptyStr
     level: PositiveInt
-    path: tuple[NonEmptyStr, ...]
+    path: Annotated[tuple[NonEmptyStr, ...], CoerceTuple]
     page_span: PageSpan
     summary_text: str | None = None
-    child_serving_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-    canonical_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-    @field_validator("path", "child_serving_node_ids", "canonical_node_ids", mode="before")
-    @classmethod
-    def _coerce_compaction_sequences(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
+    child_serving_node_ids: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(
+        default_factory=tuple
+    )
+    canonical_node_ids: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(
+        default_factory=tuple
+    )
 
     @model_validator(mode="after")
     def validate_mapping(self) -> Self:
@@ -834,17 +826,9 @@ class CompactedNodeMapping(NullVectorModel):
     """Flat serving-node to canonical-node mapping artifact."""
 
     serving_node_id: NonEmptyStr
-    canonical_node_ids: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-    @field_validator("canonical_node_ids", mode="before")
-    @classmethod
-    def _coerce_mapping_ids(
-        cls,
-        value: object,
-    ) -> object:
-        if isinstance(value, list):
-            return tuple(value)
-        return value
+    canonical_node_ids: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(
+        default_factory=tuple
+    )
 
     @model_validator(mode="after")
     def validate_canonical_node_ids(self) -> Self:

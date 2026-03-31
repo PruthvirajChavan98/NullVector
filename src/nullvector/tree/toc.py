@@ -26,17 +26,6 @@ from nullvector.tree.headings import (
     split_text_lines_with_offsets,
 )
 
-MAX_TOC_SCAN_PAGES = 20
-DETERMINISTIC_HIGH_THRESHOLD = 0.70
-DETERMINISTIC_LOW_THRESHOLD = 0.45
-
-PATTERN_MATCH_WEIGHT = 0.35
-LEADER_DOT_WEIGHT = 0.20
-NUMBERING_WEIGHT = 0.15
-FONT_UNIFORMITY_WEIGHT = 0.10
-CONSECUTIVE_PAGE_WEIGHT = 0.20
-REPEATED_HEADER_PENALTY_WEIGHT = 0.25
-
 LEADER_DOTS_PATTERN = re.compile(r"\.{2,}\s*\d{1,4}\s*$")
 TRAILING_PAGE_PATTERN = re.compile(r"\d{1,4}\s*$")
 NUMBERED_TOC_PATTERN = re.compile(
@@ -47,12 +36,22 @@ SPACED_PAGE_PATTERN = re.compile(r"^.+\s{2,}\d{1,4}\s*$")
 TRAILING_NUMERIC_REFERENCE_PATTERN = re.compile(
     r"^(?:.+?)(?:\.{2,}\s*|\s{2,})\d{1,4}\s*$",
 )
+_DEFAULT_TOC_SETTINGS = TreeSettings()
+
+# Backward-compatible module-level aliases for callers and tests that imported
+# the historical deterministic thresholds directly before they moved under
+# TreeSettings.
+DETERMINISTIC_HIGH_THRESHOLD = _DEFAULT_TOC_SETTINGS.toc_deterministic_high_threshold
+DETERMINISTIC_LOW_THRESHOLD = _DEFAULT_TOC_SETTINGS.toc_deterministic_low_threshold
 
 
-def max_toc_scan_pages(page_count: int) -> int:
+def max_toc_scan_pages(page_count: int, settings: TreeSettings | None = None) -> int:
     """Return the conservative leading-page cap for TOC detection."""
 
-    return min(page_count, MAX_TOC_SCAN_PAGES)
+    scan_limit = (
+        settings.toc_scan_page_limit if settings is not None else TreeSettings().toc_scan_page_limit
+    )
+    return min(page_count, scan_limit)
 
 
 def extract_toc_like_lines(page: PageArtifacts) -> tuple[str, ...]:
@@ -165,6 +164,7 @@ def _classification_reason(
 
 def _base_final_score(
     *,
+    settings: TreeSettings,
     pattern_match_count: int,
     leader_dot_density_value: float,
     numbering_density_value: float,
@@ -173,22 +173,26 @@ def _base_final_score(
 ) -> float:
     pattern_density = min(1.0, pattern_match_count / 3.0)
     weighted_score = (
-        (pattern_density * PATTERN_MATCH_WEIGHT)
-        + (leader_dot_density_value * LEADER_DOT_WEIGHT)
-        + (numbering_density_value * NUMBERING_WEIGHT)
-        + (font_uniformity_value * FONT_UNIFORMITY_WEIGHT)
-        - (repeated_penalty * REPEATED_HEADER_PENALTY_WEIGHT)
+        (pattern_density * settings.toc_pattern_match_weight)
+        + (leader_dot_density_value * settings.toc_leader_dot_weight)
+        + (numbering_density_value * settings.toc_numbering_weight)
+        + (font_uniformity_value * settings.toc_font_uniformity_weight)
+        - (repeated_penalty * settings.toc_repeated_header_penalty_weight)
     )
     return min(1.0, max(0.0, weighted_score))
 
 
-def _apply_consecutive_page_bonus(base_scores: list[TocPageScore]) -> list[TocPageScore]:
+def _apply_consecutive_page_bonus(
+    base_scores: list[TocPageScore],
+    *,
+    settings: TreeSettings,
+) -> list[TocPageScore]:
     updated_scores: list[TocPageScore] = []
     previous_confident = False
     for score in base_scores:
         bonus = 0.0
-        if previous_confident and score.final_score >= DETERMINISTIC_LOW_THRESHOLD:
-            bonus = CONSECUTIVE_PAGE_WEIGHT
+        if previous_confident and score.final_score >= settings.toc_deterministic_low_threshold:
+            bonus = settings.toc_consecutive_page_weight
         final_score = min(1.0, score.final_score + bonus)
         updated = score.model_copy(
             update={
@@ -197,7 +201,7 @@ def _apply_consecutive_page_bonus(base_scores: list[TocPageScore]) -> list[TocPa
             }
         )
         updated_scores.append(updated)
-        previous_confident = final_score >= DETERMINISTIC_HIGH_THRESHOLD
+        previous_confident = final_score >= settings.toc_deterministic_high_threshold
     return updated_scores
 
 
@@ -219,7 +223,7 @@ class TocDetector:
         artifact_root: str | None = None,
         artifact_writer: Callable[[str, Any], str] | None = None,
     ) -> TocDetectionResult:
-        inspected_pages = pages[: max_toc_scan_pages(len(pages))]
+        inspected_pages = pages[: max_toc_scan_pages(len(pages), self._settings)]
         repeated_lines = find_repeated_header_footer_lines(inspected_pages, self._settings)
         base_scores: list[TocPageScore] = []
 
@@ -233,6 +237,7 @@ class TocDetector:
             numbering_density_value = numbering_density(page)
             font_signal = font_uniformity_signal(page)
             final_score = _base_final_score(
+                settings=self._settings,
                 pattern_match_count=len(toc_lines),
                 leader_dot_density_value=leader_density,
                 numbering_density_value=numbering_density_value,
@@ -260,7 +265,7 @@ class TocDetector:
                 )
             )
 
-        scored_pages = _apply_consecutive_page_bonus(base_scores)
+        scored_pages = _apply_consecutive_page_bonus(base_scores, settings=self._settings)
         final_scores: list[TocPageScore] = []
         llm_calls = 0
         llm_positive_pages = 0
@@ -269,11 +274,11 @@ class TocDetector:
         for page, score in zip(inspected_pages, scored_pages, strict=True):
             reasons = list(score.classification_reason)
             classified_as_toc = False
-            if score.final_score >= DETERMINISTIC_HIGH_THRESHOLD:
+            if score.final_score >= self._settings.toc_deterministic_high_threshold:
                 classified_as_toc = True
                 deterministic_positive_pages += 1
                 reasons.append("deterministic_high_threshold")
-            elif score.final_score < DETERMINISTIC_LOW_THRESHOLD:
+            elif score.final_score < self._settings.toc_deterministic_low_threshold:
                 reasons.append("deterministic_low_threshold")
             elif self._gateway is not None:
                 llm_calls += 1
@@ -311,7 +316,7 @@ class TocDetector:
                 toc_page_indices.append(page.page_index)
                 toc_pages.append(page.text)
                 continue
-            if in_toc_run and score.final_score < DETERMINISTIC_LOW_THRESHOLD:
+            if in_toc_run and score.final_score < self._settings.toc_deterministic_low_threshold:
                 break
 
         toc_content = "\n\n".join(toc_pages) if toc_pages else None

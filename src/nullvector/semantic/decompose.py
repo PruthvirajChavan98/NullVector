@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -23,6 +23,7 @@ from nullvector.domain.tree import (
 from nullvector.llm.prompts import build_decomposition_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest, GatewayUsage
+from nullvector.semantic._text_spans import _TextPage, text_for_node
 from nullvector.semantic.tokens import Tokenizer, resolve_tokenizer
 from nullvector.storage._serialization import write_json_file
 from nullvector.tree.anchors import node_anchor_to_source_anchor
@@ -110,17 +111,13 @@ def _is_credible_subheading(candidate: Any) -> bool:
     )
 
 
-def _bounded_llm_page_text(pages: tuple[PageArtifacts, ...]) -> str:
-    parts: list[str] = []
-    remaining = _MAX_LLM_PAGE_TEXT_CHARS
-    for page in pages:
-        if remaining <= 0:
-            break
-        body = page.text[:remaining].strip()
-        marker = f"<page_{page.page_index}>"
-        parts.append(f"{marker}\n{body}")
-        remaining -= len(marker) + len(body) + 2
-    return "\n\n".join(parts).strip()
+def _bounded_llm_node_text(
+    node: HierarchyNode,
+    pages_by_index: dict[int, PageArtifacts],
+) -> str:
+    return text_for_node(node, cast(Mapping[int, _TextPage], pages_by_index))[
+        :_MAX_LLM_PAGE_TEXT_CHARS
+    ].strip()
 
 
 def _owned_spans_are_empty(node: HierarchyNode) -> bool:
@@ -292,7 +289,11 @@ class NodeDecomposer:
         if self._gateway is None:
             return None
 
-        llm_children, metadata = self._llm_children(node=node, pages=pages)
+        llm_children, metadata = self._llm_children(
+            node=node,
+            pages=pages,
+            pages_by_index=pages_by_index,
+        )
         if len(llm_children) < 2:
             return None
         truncated_parent = self._refine_parent_owned_spans(node, llm_children)
@@ -346,6 +347,7 @@ class NodeDecomposer:
         *,
         node: HierarchyNode,
         pages: tuple[PageArtifacts, ...],
+        pages_by_index: dict[int, PageArtifacts],
     ) -> tuple[tuple[HierarchyNode, ...], _DecompositionMetadata]:
         if self._gateway is None:
             msg = "LLM decomposition requested but no gateway configured"
@@ -355,7 +357,7 @@ class NodeDecomposer:
                 operation_name="decompose_large_node",
                 messages=build_decomposition_messages(
                     node_title=node.title,
-                    page_text=_bounded_llm_page_text(pages),
+                    page_text=_bounded_llm_node_text(node, pages_by_index),
                 ),
                 response_model=DecompositionPromptResponse,
             )
@@ -511,7 +513,7 @@ def _token_count_for_node(
     tokenizer: Tokenizer,
 ) -> int:
     return tokenizer.count_tokens(
-        "\n".join(page.text for page in _node_pages(node, pages_by_index)).strip()
+        text_for_node(node, cast(Mapping[int, _TextPage], pages_by_index))
     )
 
 

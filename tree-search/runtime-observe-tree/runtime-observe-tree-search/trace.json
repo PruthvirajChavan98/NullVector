@@ -1,0 +1,18 @@
+{
+  "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
+  "search_mode": "deterministic",
+  "trace": [
+    {
+      "frontier_node_ids": [
+        "af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba"
+      ],
+      "selected_node_ids": [
+        "af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba"
+      ],
+      "selection_reason": "Advanced through the single available frontier node despite low lexical score: af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba=0.00",
+      "step_index": 0,
+      "termination_signal": "evidence_sufficient"
+    }
+  ],
+  "tree_run_id": "runtime-observe-tree"
+}

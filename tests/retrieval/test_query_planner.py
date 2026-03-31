@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nullvector.domain.retrieval import RetrievalModality, RetrievalUnitType
+from nullvector.domain.retrieval import QueryIntent, RetrievalModality, RetrievalUnitType
 from nullvector.retrieval import QueryPlanner
 
 
@@ -42,5 +42,15 @@ def test_query_planner_extracts_quoted_title_phrases() -> None:
     plan = QueryPlanner().plan('where is "Safety Overview" discussed?')
 
     assert plan.structural_query is True
+    assert plan.query_intent is QueryIntent.QUOTE_LOOKUP
     assert plan.quoted_phrases == ("safety overview",)
     assert "safety overview" in plan.title_like_phrases
+
+
+def test_query_planner_detects_document_summary_queries() -> None:
+    plan = QueryPlanner().plan("what is this book about?")
+
+    assert plan.query_intent is QueryIntent.DOCUMENT_SUMMARY
+    assert plan.structural_query is False
+    assert plan.page_filter is None
+    assert RetrievalUnitType.NODE_SUMMARY in plan.unit_types

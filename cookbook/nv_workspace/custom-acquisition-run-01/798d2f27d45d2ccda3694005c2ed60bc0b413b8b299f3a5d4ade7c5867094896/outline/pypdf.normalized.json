@@ -1,0 +1,98 @@
+[
+  {
+    "level": 1,
+    "page_index": 0,
+    "source": "pypdf",
+    "title": "COVER ENGLISH 9"
+  },
+  {
+    "level": 2,
+    "page_index": 0,
+    "source": "pypdf",
+    "title": "Page 1"
+  },
+  {
+    "level": 1,
+    "page_index": 1,
+    "source": "pypdf",
+    "title": "COVER NO. 2"
+  },
+  {
+    "level": 1,
+    "page_index": 2,
+    "source": "pypdf",
+    "title": "PRILIM"
+  },
+  {
+    "level": 2,
+    "page_index": null,
+    "source": "pypdf",
+    "title": "Page 1"
+  },
+  {
+    "level": 2,
+    "page_index": 3,
+    "source": "pypdf",
+    "title": "Page 2"
+  },
+  {
+    "level": 2,
+    "page_index": 4,
+    "source": "pypdf",
+    "title": "Page 3"
+  },
+  {
+    "level": 2,
+    "page_index": 5,
+    "source": "pypdf",
+    "title": "Page 4"
+  },
+  {
+    "level": 2,
+    "page_index": 6,
+    "source": "pypdf",
+    "title": "Page 5"
+  },
+  {
+    "level": 2,
+    "page_index": 7,
+    "source": "pypdf",
+    "title": "Page 6"
+  },
+  {
+    "level": 2,
+    "page_index": 8,
+    "source": "pypdf",
+    "title": "Page 7"
+  },
+  {
+    "level": 2,
+    "page_index": 9,
+    "source": "pypdf",
+    "title": "Page 8"
+  },
+  {
+    "level": 1,
+    "page_index": 10,
+    "source": "pypdf",
+    "title": "TEXT"
+  },
+  {
+    "level": 1,
+    "page_index": 146,
+    "source": "pypdf",
+    "title": "COVER NO. 3"
+  },
+  {
+    "level": 1,
+    "page_index": 147,
+    "source": "pypdf",
+    "title": "COVER ENGLISH 9"
+  },
+  {
+    "level": 2,
+    "page_index": null,
+    "source": "pypdf",
+    "title": "Page 1"
+  }
+]

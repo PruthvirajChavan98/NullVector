@@ -5,54 +5,52 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
-from nullvector.domain import AcquisitionRequest, NodeCard, SourceDocumentKind, TreeBuildRequest
-from nullvector.ingest.acquisition_service import AcquisitionService
-from nullvector.retrieval import RetrievalCorpusBuilder
-from nullvector.storage import PostgresStorageConfig, StorageConfig, build_document_store
-from nullvector.storage._serialization import (
-    build_postgres_artifact_ref,
-    canonical_json_text,
-    is_postgres_ref,
+from nullvector._client_utils import (
+    default_run_id as _default_run_id,
 )
-from nullvector.tree import build_tree
-
-_RUN_ID_SAFE = re.compile(r"[^a-z0-9]+")
-_MARKDOWN_SUFFIXES = {".md", ".markdown"}
+from nullvector._client_utils import (
+    infer_source_kind as _infer_source_kind,
+)
+from nullvector._client_utils import (
+    load_model_artifact,
+)
+from nullvector._client_utils import (
+    manifest_ref as _manifest_ref,
+)
+from nullvector._client_utils import (
+    provider_identity_for as _provider_identity_for,
+)
+from nullvector.client import NullVectorClient
+from nullvector.constants import DEFAULT_ACQUISITION_ARTIFACT_ROOT
+from nullvector.domain import (
+    AcquisitionRunManifest,
+    NodeCard,
+    SourceDocumentKind,
+    TreeBuildManifest,
+)
+from nullvector.retrieval import load_retrieval_manifest
+from nullvector.storage import PostgresStorageConfig, StorageConfig, build_document_store
+from nullvector.storage._serialization import canonical_json_text, is_postgres_ref
 
 
 def infer_source_kind(
     source_path: str | Path,
-    explicit_kind: str | None,
+    explicit_kind: str | SourceDocumentKind | None,
 ) -> SourceDocumentKind:
     """Resolve the source kind from an explicit flag or the source-path suffix."""
 
-    if explicit_kind is not None:
-        return SourceDocumentKind(explicit_kind)
-    suffix = Path(source_path).suffix.casefold()
-    if suffix == ".pdf":
-        return SourceDocumentKind.PDF
-    if suffix in _MARKDOWN_SUFFIXES:
-        return SourceDocumentKind.MARKDOWN
-    msg = (
-        "--source-kind is required when the source path suffix does not identify "
-        "a supported kind"
-    )
-    raise ValueError(msg)
+    return _infer_source_kind(source_path, explicit_kind)
 
 
 def default_run_id(source_path: str | Path, stage: str) -> str:
     """Generate a readable run identifier from the source stem and stage."""
 
-    stem = Path(source_path).stem.casefold()
-    normalized = _RUN_ID_SAFE.sub("-", stem).strip("-")
-    prefix = normalized or "source"
-    return f"{prefix}-{stage}"
+    return _default_run_id(source_path, stage)
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -94,9 +92,7 @@ def build_storage_config(args: argparse.Namespace) -> StorageConfig | None:
 def provider_identity_for(source_kind: SourceDocumentKind) -> str:
     """Map source kinds to the framework-owned provider identities."""
 
-    if source_kind is SourceDocumentKind.MARKDOWN:
-        return "markdown_native"
-    return "native_pymupdf"
+    return _provider_identity_for(source_kind)
 
 
 def manifest_ref(
@@ -108,14 +104,12 @@ def manifest_ref(
 ) -> str:
     """Build the persisted manifest ref for either backend."""
 
-    if artifact_root is None:
-        return build_postgres_artifact_ref(
-            run_type=run_type,
-            run_id=run_id,
-            document_id=document_id,
-            artifact_path="manifest.json",
-        )
-    return str(Path(artifact_root) / "manifest.json")
+    return _manifest_ref(
+        run_type=run_type,
+        run_id=run_id,
+        document_id=document_id,
+        artifact_root=artifact_root,
+    )
 
 
 def load_node_cards(
@@ -129,10 +123,7 @@ def load_node_cards(
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     else:
         if storage is None:
-            msg = (
-                f"node-card ref {path!r} requires storage=<PostgresStorageConfig> "
-                "to be loaded"
-            )
+            msg = f"node-card ref {path!r} requires storage=<PostgresStorageConfig> to be loaded"
             raise ValueError(msg)
         store = build_document_store(storage)
         payload = cast(list[dict[str, Any]], store.read_json_artifact(path))
@@ -224,59 +215,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_path = Path(args.source_path)
         source_kind = infer_source_kind(source_path, args.source_kind)
         storage = build_storage_config(args)
+        workspace_root = Path(args.artifact_root or DEFAULT_ACQUISITION_ARTIFACT_ROOT)
+        client = NullVectorClient(storage_path=workspace_root, storage=storage)
 
         acquisition_run_id = args.acquisition_run_id or default_run_id(source_path, "acquisition")
         tree_run_id = args.tree_run_id or default_run_id(source_path, "tree")
         retrieval_run_id = args.retrieval_run_id or default_run_id(source_path, "retrieval")
 
-        acquisition_manifest = AcquisitionService(storage=storage).acquire(
-            AcquisitionRequest(
-                source_path=str(source_path),
-                acquisition_run_id=acquisition_run_id,
-                artifact_root=args.artifact_root,
-                source_kind=source_kind,
-                provider_identity=provider_identity_for(source_kind),
-            )
-        )
-        acquisition_manifest_path = manifest_ref(
-            run_type="acquisition",
-            run_id=acquisition_run_id,
-            document_id=acquisition_manifest.document_id,
-            artifact_root=acquisition_manifest.artifact_root,
-        )
-
-        tree_manifest = build_tree(
-            TreeBuildRequest(
-                acquisition_manifest_path=acquisition_manifest_path,
-                tree_run_id=tree_run_id,
-                summarize=False,
-            ),
-            storage=storage,
-        )
-        tree_manifest_path = manifest_ref(
-            run_type="tree",
-            run_id=tree_run_id,
-            document_id=tree_manifest.document_id,
-            artifact_root=tree_manifest.artifact_root,
-        )
-
-        retrieval_summary: dict[str, Any] | None = None
         if args.build_retrieval:
-            retrieval_manifest = RetrievalCorpusBuilder(storage=storage).build(
-                acquisition_manifest_path=acquisition_manifest_path,
-                tree_manifest_path=tree_manifest_path,
+            result = client.ingest(
+                source_path,
+                source_kind=source_kind,
+                preset="general_document",
+                acquisition_run_id=acquisition_run_id,
+                tree_run_id=tree_run_id,
                 retrieval_run_id=retrieval_run_id,
             )
-            retrieval_summary = {
+            acquisition_manifest_path = result.acquisition_manifest_path
+            tree_manifest_path = result.tree_manifest_path
+            retrieval_manifest_path = result.retrieval_manifest_path
+            acquisition_manifest = load_model_artifact(
+                AcquisitionRunManifest,
+                acquisition_manifest_path,
+                storage=storage,
+            )
+            tree_manifest = load_model_artifact(
+                TreeBuildManifest,
+                tree_manifest_path,
+                storage=storage,
+            )
+            retrieval_manifest = load_retrieval_manifest(
+                retrieval_manifest_path,
+                storage=storage,
+            )
+            retrieval_summary: dict[str, Any] | None = {
                 "run_id": retrieval_run_id,
-                "manifest_path": manifest_ref(
-                    run_type="retrieval",
-                    run_id=retrieval_run_id,
-                    document_id=retrieval_manifest.document_id,
-                    artifact_root=retrieval_manifest.artifact_root,
-                ),
+                "manifest_path": retrieval_manifest_path,
                 "unit_count": retrieval_manifest.unit_count,
             }
+        else:
+            acquisition_manifest, acquisition_manifest_path = client.acquire(
+                source_path,
+                source_kind=source_kind,
+                preset="general_document",
+                acquisition_run_id=acquisition_run_id,
+            )
+            tree_manifest = client.build_tree(
+                acquisition_manifest_path,
+                tree_run_id=tree_run_id,
+                preset="general_document",
+                summarize=False,
+            )
+            tree_manifest_path = manifest_ref(
+                run_type="tree",
+                run_id=tree_run_id,
+                document_id=tree_manifest.document_id,
+                artifact_root=tree_manifest.artifact_root,
+            )
+            retrieval_summary = None
 
         summary: dict[str, Any] = {
             "storage_backend": args.storage_backend,

@@ -13,7 +13,12 @@ dependencies = [
   "PyMuPDF==1.27.2",
   "pypdf==6.8.0",
   "pydantic>=2.11.0,<3.0.0",
+  "typer==0.24.1",
 ]
+
+[project.scripts]
+nullvector = "nullvector.cli:main"
+nv = "nullvector.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -22,6 +27,7 @@ dev = [
   "nbformat>=5.10.0,<6.0.0",
   "mypy>=1.16.0,<2.0.0",
   "pytest>=8.4.0,<9.0.0",
+  "pytest-asyncio==1.3.0",
   "ruff>=0.11.0,<0.12.0",
 ]
 postgres = [
@@ -73,8 +79,11 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["error::DeprecationWarning"]
 markers = [
+    "asyncio: async tests requiring pytest-asyncio",
     "integration: tests requiring real filesystem or infrastructure",
     "slow: tests exceeding 500ms",
 ]

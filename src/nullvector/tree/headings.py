@@ -388,24 +388,52 @@ def score_heading_line(
     """Score a candidate heading line using explicit deterministic signals."""
 
     word_count = len(line.text.split())
-    numbering_signal = 22 if numbering_depth(line.text) is not None else 0
-    isolation_signal = 12 if page_line_count <= 4 else 6 if line.occurrence_index == 0 else 0
-    short_line_signal = 14 if 1 <= word_count <= 8 else 8 if word_count <= 12 else 0
-    title_case_signal = 10 if _is_title_case_heading(line.text) else 0
-    uppercase_signal = 8 if _is_uppercase_heading(line.text) and word_count <= 6 else 0
-    punctuation_penalty = -20 if line.text.endswith((".", ",", ";", "?", "!")) else 0
+    numbering_signal = (
+        settings.heading_numbering_signal if numbering_depth(line.text) is not None else 0
+    )
+    isolation_signal = (
+        settings.heading_sparse_page_isolation_signal
+        if page_line_count <= settings.heading_sparse_page_line_count
+        else settings.heading_first_occurrence_isolation_signal
+        if line.occurrence_index == 0
+        else 0
+    )
+    short_line_signal = (
+        settings.heading_short_line_signal
+        if 1 <= word_count <= settings.heading_short_line_max_words
+        else settings.heading_medium_line_signal
+        if word_count <= settings.heading_medium_line_max_words
+        else 0
+    )
+    title_case_signal = (
+        settings.heading_title_case_signal if _is_title_case_heading(line.text) else 0
+    )
+    uppercase_signal = (
+        settings.heading_uppercase_signal
+        if _is_uppercase_heading(line.text) and word_count <= settings.heading_uppercase_max_words
+        else 0
+    )
+    punctuation_penalty = (
+        -settings.heading_punctuation_penalty
+        if line.text.endswith((".", ",", ";", "?", "!"))
+        else 0
+    )
     if line.normalized_text.startswith(("figure ", "table ", "appendix marker ")):
-        punctuation_penalty -= 25
-    repeated_header_footer_penalty = -60 if line.normalized_text in repeated_lines else 0
+        punctuation_penalty -= settings.heading_figure_like_penalty
+    repeated_header_footer_penalty = (
+        -settings.heading_repeated_header_footer_penalty
+        if line.normalized_text in repeated_lines
+        else 0
+    )
     toc_overlap, outline_level_hint = _matches_outline_title(line, outline_entries, settings)
-    toc_overlap_signal = 20 if toc_overlap else 0
+    toc_overlap_signal = settings.heading_toc_overlap_signal if toc_overlap else 0
     layout_cues_available = line.anchor_source == AnchorSource.RAWDICT
     layout_signal = 0
     if layout_cues_available and (
-        (line.top_y is not None and line.top_y <= 120.0)
-        or (line.font_size is not None and line.font_size >= 14.0)
+        (line.top_y is not None and line.top_y <= settings.heading_top_margin_threshold)
+        or (line.font_size is not None and line.font_size >= settings.heading_min_font_size)
     ):
-        layout_signal = 12
+        layout_signal = settings.heading_layout_signal
 
     final_score = (
         numbering_signal

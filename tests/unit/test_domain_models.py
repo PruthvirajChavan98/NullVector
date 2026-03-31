@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
 from nullvector.domain.common import (
     BoundingBox,
+    CoerceTuple,
     ContentSpan,
     NodeOwnedSpan,
     PageSourceAnchor,
     PageSpan,
 )
+from nullvector.domain.document_selection import DocumentFilterClause
 from nullvector.domain.events import (
     ContentAuthoritativeness,
     DocumentEvent,
@@ -48,6 +52,7 @@ from nullvector.domain.ledger import (
     UnresolvedRegion,
     VisualArtifact,
 )
+from nullvector.domain.retrieval import TreeSearchFrontierNode
 from nullvector.domain.tree import (
     AnchorSource,
     DecompositionMethod,
@@ -107,6 +112,15 @@ def make_grounding() -> GroundingEvidence:
         has_layout_anchor=True,
         supporting_native_refs=("page-0001:line-0003",),
     )
+
+
+def test_coerce_tuple_type_adapter_handles_lists_and_passthroughs() -> None:
+    adapter: TypeAdapter[tuple[str, ...]] = TypeAdapter(Annotated[tuple[str, ...], CoerceTuple])
+
+    assert adapter.validate_python(["alpha", "beta"]) == ("alpha", "beta")
+    assert adapter.validate_python(("alpha", "beta")) == ("alpha", "beta")
+    with pytest.raises(ValidationError):
+        adapter.validate_python("alpha")
 
 
 def test_page_span_rejects_inverted_bounds() -> None:
@@ -669,6 +683,65 @@ def test_models_accept_valid_phase02_payloads() -> None:
     assert repair_decision.status is RepairStatus.NOT_REQUESTED
     assert decomposition_report.empty_parent_count == 0
     assert unassigned_span.page_span.start_page == 0
+
+
+def test_models_accept_list_backed_tuple_fields_from_json_payloads() -> None:
+    node_card = NodeCard.model_validate(
+        {
+            "node_id": "node-001",
+            "document_id": "doc-001",
+            "path": ["Root", "Section 1"],
+            "level": 2,
+            "title": "Section 1",
+            "page_span": {"start_page": 0, "end_page": 0},
+            "owned_spans": [
+                {
+                    "kind": "body",
+                    "span": {
+                        "start_page": 0,
+                        "start_offset": 0,
+                        "end_page": 0,
+                        "end_offset": 12,
+                    },
+                }
+            ],
+            "keywords": ["deterministic", "tree"],
+            "source_anchors": [
+                {
+                    "page": 0,
+                    "start_offset": 0,
+                    "end_offset": 8,
+                    "quote": "Overview",
+                }
+            ],
+        },
+        strict=False,
+    )
+    frontier = TreeSearchFrontierNode.model_validate(
+        {
+            "node_id": "node-001",
+            "title": "Section 1",
+            "path": ["Root", "Section 1"],
+            "level": 2,
+            "page_span": {"start_page": 0, "end_page": 0},
+            "keywords": ["deterministic", "tree"],
+        },
+        strict=False,
+    )
+    clause = DocumentFilterClause.model_validate(
+        {
+            "field": "category",
+            "operator": "in",
+            "value": ["spec", "manual"],
+        },
+        strict=False,
+    )
+
+    assert node_card.path == ("Root", "Section 1")
+    assert node_card.keywords == ("deterministic", "tree")
+    assert frontier.path == ("Root", "Section 1")
+    assert frontier.keywords == ("deterministic", "tree")
+    assert clause.value == ("spec", "manual")
 
 
 def test_tree_build_request_requires_acquisition_manifest_input() -> None:

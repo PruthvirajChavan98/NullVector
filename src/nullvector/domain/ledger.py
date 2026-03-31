@@ -411,6 +411,7 @@ class TextBlock(NullVectorModel):
     bbox: BoundingBox
     content: NonEmptyStr
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     line_count: NonNegativeInt
     word_count: NonNegativeInt
     provenance: ExtractionProvenance
@@ -425,6 +426,7 @@ class LineBlock(NullVectorModel):
     bbox: BoundingBox
     content: NonEmptyStr
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     occurrence_index: NonNegativeInt
     top_y: float | None = None
     font_size: float | None = None
@@ -439,6 +441,7 @@ class TableArtifact(NullVectorModel):
     table_id: NonEmptyStr
     bbox: BoundingBox
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     rows: tuple[tuple[str, ...], ...] = Field(default_factory=tuple)
     markdown_projection: str | None = None
     provenance: ExtractionProvenance
@@ -459,6 +462,7 @@ class VisualArtifact(NullVectorModel):
     visual_id: NonEmptyStr
     bbox: BoundingBox
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     kind_hint: NonEmptyStr
     image_ref: NonEmptyStr
     asset_path: NonEmptyStr | None = None
@@ -479,6 +483,7 @@ class UnresolvedRegion(NullVectorModel):
     severity: EventSeverity
     recommended_fallback: NonEmptyStr
     reading_index: NonNegativeInt | None = None
+    family_reading_index: NonNegativeInt | None = None
     asset_path: NonEmptyStr | None = None
     page_render_path: NonEmptyStr | None = None
     render_dpi: PositiveInt | None = None

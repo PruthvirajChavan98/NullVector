@@ -1,11 +1,11 @@
-"""Shared artifact-root helpers for collection-scoped selection services."""
+"""Shared artifact-path helpers for collection-scoped selection services."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from nullvector.storage import StorageConfig
-from nullvector.storage.config import FilesystemStorageConfig, PostgresStorageConfig
+from nullvector.storage.artifact_roots import resolve_selection_artifact_root
+from nullvector.storage.protocol import DocumentStore
 
 
 def selection_artifact_root(
@@ -13,24 +13,16 @@ def selection_artifact_root(
     collection_id: str,
     selection_run_id: str,
     artifact_root: str | None,
-    storage: StorageConfig | None,
+    store: DocumentStore,
 ) -> str:
     """Resolve the stable artifact root for one collection-selection run."""
 
-    if isinstance(storage, PostgresStorageConfig):
-        return artifact_root or f"document-selection/{collection_id}/{selection_run_id}"
-
-    base_root = (
-        Path(storage.root)
-        if isinstance(storage, FilesystemStorageConfig) and storage.root is not None
-        else Path()
+    return resolve_selection_artifact_root(
+        store,
+        collection_id=collection_id,
+        selection_run_id=selection_run_id,
+        configured_root=artifact_root,
     )
-    configured_root = Path(
-        artifact_root or str(Path("document-selection") / collection_id / selection_run_id)
-    )
-    if not configured_root.is_absolute():
-        configured_root = (base_root / configured_root).resolve()
-    return str(configured_root)
 
 
 def selection_artifact_path(artifact_root: str, filename: str) -> str:

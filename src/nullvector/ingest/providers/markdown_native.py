@@ -18,8 +18,8 @@ from nullvector.domain.ledger import (
     AcquisitionRequest,
     CanonicalDocumentLedger,
     CanonicalPage,
+    DocumentFingerprint,
     LineBlock,
-    OutlineSource,
     SourceMetadata,
 )
 from nullvector.ingest._markdown import (
@@ -27,8 +27,6 @@ from nullvector.ingest._markdown import (
     synthetic_heading_font_size,
     synthetic_line_top_y,
 )
-from nullvector.ingest.fingerprint import fingerprint_document
-from nullvector.ingest.outline import score_outline
 from nullvector.storage._serialization import settings_digest
 
 
@@ -47,12 +45,18 @@ class MarkdownNativeAcquisitionProvider:
 
     provider_identity = "markdown_native"
 
+    def __init__(
+        self,
+        *,
+        source_fingerprint: DocumentFingerprint | None = None,
+    ) -> None:
+        self._source_fingerprint = source_fingerprint
+
     def acquire(self, request: AcquisitionRequest) -> CanonicalDocumentLedger:
-        fingerprint = fingerprint_document(
-            request.source_path,
-            source_kind=request.source_kind,
-            acquisition_settings=request.settings,
-        )
+        if self._source_fingerprint is None:
+            msg = "markdown acquisition provider requires a precomputed source fingerprint"
+            raise ValueError(msg)
+        fingerprint = self._source_fingerprint
         source = Path(request.source_path)
         parsed = parse_markdown_source(
             request.source_path,
@@ -106,7 +110,6 @@ class MarkdownNativeAcquisitionProvider:
                 )
             )
 
-        outline_report = score_outline(list(parsed.outline_entries), OutlineSource.MARKDOWN)
         source_metadata = SourceMetadata(
             source_path=str(source.resolve()),
             file_size_bytes=source.stat().st_size,
@@ -118,9 +121,6 @@ class MarkdownNativeAcquisitionProvider:
             source_fingerprint_sha256=fingerprint.sha256,
             settings_digest=settings_digest(request.settings),
             acquisition_provider_identity=self.provider_identity,
-            selected_outline_source=outline_report.source,
-            outline_quality_reports=(outline_report,),
-            selected_outline_entries=parsed.outline_entries,
         )
         document_events = (
             DocumentEvent(

@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pytest
 
+from nullvector import async_acquire_batch, async_build_tree_batch
 from nullvector.domain import (
     AcquisitionRequest,
     AcquisitionSettings,
@@ -222,6 +223,47 @@ def test_tree_build_accepts_acquisition_manifest(tmp_path: Path) -> None:
     assert [issue["code"] for issue in verification_report["document_issues"]] == [
         "page-present-but-title-not-visible"
     ]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_async_acquisition_and_tree_batch_succeed_on_pdf_fixture(tmp_path: Path) -> None:
+    pdf_path = PHASE01_FIXTURES / "born_digital_with_outline.pdf"
+
+    acquisition_result = await async_acquire_batch(
+        (
+            AcquisitionRequest(
+                source_path=str(pdf_path),
+                acquisition_run_id="async-acquisition-batch",
+                artifact_root=str(tmp_path / "acquisition-runs"),
+            ),
+        ),
+        max_workers=1,
+    )
+
+    assert acquisition_result.failed == ()
+    assert len(acquisition_result.successful) == 1
+    acquisition_manifest = acquisition_result.successful[0]
+    assert acquisition_manifest.artifact_root is not None
+
+    tree_result = await async_build_tree_batch(
+        (
+            TreeBuildRequest(
+                acquisition_manifest_path=str(
+                    Path(acquisition_manifest.artifact_root) / "manifest.json"
+                ),
+                tree_run_id="async-tree-build-batch",
+                summarize=False,
+            ),
+        ),
+        max_workers=1,
+    )
+
+    assert tree_result.failed == ()
+    assert len(tree_result.successful) == 1
+    tree_manifest = tree_result.successful[0]
+    assert tree_manifest.node_cards_path is not None
+    assert Path(tree_manifest.node_cards_path).exists()
 
 
 @pytest.mark.integration

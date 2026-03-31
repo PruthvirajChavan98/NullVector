@@ -395,4 +395,212 @@ def _safe_request_dump(request: ProviderInvocationRequest) -> JSONValue:
     return request.model_dump(mode="json")
 
 
-__all__ = ["OpenAIAdapter"]
+class AsyncOpenAIAdapter:
+    """Async convenience adapter wrapping an ``openai.AsyncOpenAI`` client."""
+
+    provider_name: str = "openai"
+
+    def __init__(self, *, client: Any) -> None:
+        self._client: Any = client
+
+    async def invoke(
+        self,
+        request: ProviderInvocationRequest,
+        config: GatewayConfig,
+    ) -> ProviderInvocationResult:
+        """Invoke the OpenAI API asynchronously and return a normalized result."""
+        del config
+        if request.structured_output_mode == StructuredOutputMode.PROVIDER_NATIVE:
+            return await self._invoke_responses_api(request)
+        return await self._invoke_chat_completions(request)
+
+    async def _invoke_responses_api(
+        self,
+        request: ProviderInvocationRequest,
+    ) -> ProviderInvocationResult:
+        assurance = GatewayAssuranceMode.PROVIDER_NATIVE_STRICT
+        mode = StructuredOutputMode.PROVIDER_NATIVE
+        try:
+            kwargs: dict[str, Any] = {
+                "model": request.model_name,
+                "input": _responses_api_messages(request),
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": request.response_schema_name,
+                        "schema": request.response_schema,
+                        "strict": True,
+                    },
+                },
+            }
+            if request.temperature is not None:
+                kwargs["temperature"] = request.temperature
+            if request.max_output_tokens is not None:
+                kwargs["max_output_tokens"] = request.max_output_tokens
+            if request.timeout_seconds:
+                kwargs["timeout"] = request.timeout_seconds
+
+            response = await self._client.responses.create(**kwargs)
+        except Exception as exc:
+            return _build_failure(
+                request,
+                exc,
+                structured_output_mode=mode,
+                assurance_mode=assurance,
+            )
+
+        raw_payload = _safe_dump(response)
+        output_items: list[Any] = getattr(response, "output", []) or []
+        for item in output_items:
+            content_list = getattr(item, "content", None) or []
+            for content_item in content_list:
+                item_type = getattr(content_item, "type", "")
+                if item_type == "refusal":
+                    refusal_text = getattr(content_item, "refusal", "provider refused request")
+                    return ProviderInvocationResult(
+                        failure=ProviderInvocationFailure(
+                            provider_name="openai",
+                            model_name=request.model_name,
+                            assurance_mode=assurance,
+                            structured_output_mode=mode,
+                            category=GatewayFailureCategory.PROVIDER_REFUSAL,
+                            message=refusal_text,
+                            retryable=False,
+                            raw_response_payload=raw_payload,
+                            provider_response_id=getattr(response, "id", None),
+                        ),
+                    )
+
+        output_text = getattr(response, "output_text", None)
+        usage = getattr(response, "usage", None)
+        gateway_usage = _extract_usage(usage) if usage is not None else None
+        request_id_header = getattr(response, "_request_id", None)
+        response_id = getattr(response, "id", None)
+
+        structured_json: JSONValue | None = None
+        structured_text = output_text
+        if output_text:
+            try:
+                structured_json = json.loads(output_text)
+                structured_text = None
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return ProviderInvocationResult(
+            success=ProviderInvocationSuccess(
+                provider_name="openai",
+                model_name=request.model_name,
+                assurance_mode=assurance,
+                structured_output_mode=mode,
+                raw_request_payload=_safe_request_dump(request),
+                raw_response_payload=raw_payload,
+                structured_output_json=structured_json,
+                structured_output_text=structured_text,
+                usage=gateway_usage,
+                status_code=200,
+                provider_request_id=request_id_header,
+                provider_response_id=response_id,
+            ),
+        )
+
+    async def _invoke_chat_completions(
+        self,
+        request: ProviderInvocationRequest,
+    ) -> ProviderInvocationResult:
+        assurance = GatewayAssuranceMode.TRANSPORT_COMPATIBLE
+        mode = StructuredOutputMode.TRANSPORT_COMPATIBLE
+        try:
+            kwargs: dict[str, Any] = {
+                "model": request.model_name,
+                "messages": _chat_api_messages(request),
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": request.response_schema_name,
+                        "schema": request.response_schema,
+                        "strict": True,
+                    },
+                },
+            }
+            if request.temperature is not None:
+                kwargs["temperature"] = request.temperature
+            if request.max_output_tokens is not None:
+                kwargs["max_tokens"] = request.max_output_tokens
+            if request.timeout_seconds:
+                kwargs["timeout"] = request.timeout_seconds
+
+            response = await self._client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            return _build_failure(
+                request,
+                exc,
+                structured_output_mode=mode,
+                assurance_mode=assurance,
+            )
+
+        raw_payload = _safe_dump(response)
+        choices = getattr(response, "choices", []) or []
+        if not choices:
+            return ProviderInvocationResult(
+                failure=ProviderInvocationFailure(
+                    provider_name="openai",
+                    model_name=request.model_name,
+                    assurance_mode=assurance,
+                    structured_output_mode=mode,
+                    category=GatewayFailureCategory.UNKNOWN_PROVIDER_FAILURE,
+                    message="response contained no choices",
+                    retryable=False,
+                    raw_response_payload=raw_payload,
+                ),
+            )
+
+        choice = choices[0]
+        message = getattr(choice, "message", None)
+        refusal = getattr(message, "refusal", None) if message else None
+        if refusal:
+            return ProviderInvocationResult(
+                failure=ProviderInvocationFailure(
+                    provider_name="openai",
+                    model_name=request.model_name,
+                    assurance_mode=assurance,
+                    structured_output_mode=mode,
+                    category=GatewayFailureCategory.PROVIDER_REFUSAL,
+                    message=refusal,
+                    retryable=False,
+                    raw_response_payload=raw_payload,
+                    provider_response_id=getattr(response, "id", None),
+                ),
+            )
+
+        content = getattr(message, "content", None) if message else None
+        usage = getattr(response, "usage", None)
+        gateway_usage = _extract_usage(usage) if usage is not None else None
+
+        structured_json: JSONValue | None = None
+        structured_text = content
+        if content:
+            try:
+                structured_json = json.loads(content)
+                structured_text = None
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return ProviderInvocationResult(
+            success=ProviderInvocationSuccess(
+                provider_name="openai",
+                model_name=request.model_name,
+                assurance_mode=assurance,
+                structured_output_mode=mode,
+                raw_request_payload=_safe_request_dump(request),
+                raw_response_payload=raw_payload,
+                structured_output_json=structured_json,
+                structured_output_text=structured_text,
+                usage=gateway_usage,
+                status_code=200,
+                provider_request_id=getattr(response, "_request_id", None),
+                provider_response_id=getattr(response, "id", None),
+            ),
+        )
+
+
+__all__ = ["AsyncOpenAIAdapter", "OpenAIAdapter"]

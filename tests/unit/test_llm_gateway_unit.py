@@ -10,15 +10,20 @@ import pytest
 from pydantic import BaseModel
 
 from nullvector.llm import (
+    CircuitBreakerConfig,
     GatewayAssuranceMode,
     GatewayAuditConfig,
     GatewayAuditRecord,
+    GatewayCircuitOpenError,
     GatewayConfig,
     GatewayConfigurationError,
     GatewayFailureCategory,
+    GatewayRateLimitError,
     GatewayRequest,
+    GatewayRetryPolicy,
     GatewayService,
     GatewaySuccess,
+    GatewayTimeoutError,
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
     LLMMessage,
@@ -77,6 +82,32 @@ class SequencedAdapter:
         return result
 
 
+class ModelAwareAdapter:
+    """Provider adapter that returns scripted results per requested model."""
+
+    provider_name = "model-aware"
+
+    def __init__(self, results_by_model: dict[str, Sequence[ProviderInvocationResult]]) -> None:
+        self._results_by_model = {
+            model: list(results) for model, results in results_by_model.items()
+        }
+        self._calls_by_model = {model: 0 for model in results_by_model}
+        self.requested_models: list[str] = []
+
+    def invoke(
+        self,
+        request: ProviderInvocationRequest,
+        config: GatewayConfig,
+    ) -> ProviderInvocationResult:
+        del config
+        self.requested_models.append(request.model_name)
+        results = self._results_by_model[request.model_name]
+        call_count = self._calls_by_model[request.model_name]
+        result = results[min(call_count, len(results) - 1)]
+        self._calls_by_model[request.model_name] += 1
+        return result
+
+
 def make_request(
     *,
     operation_name: str = "echo",
@@ -96,6 +127,40 @@ def make_config(tmp_path: Path) -> GatewayConfig:
     return GatewayConfig(
         default_model="test-model",
         audit=GatewayAuditConfig(persist_root=str(tmp_path / "audit")),
+    )
+
+
+def make_success_result(*, model_name: str, message: str) -> ProviderInvocationResult:
+    return ProviderInvocationResult(
+        success=ProviderInvocationSuccess(
+            provider_name="model-aware",
+            model_name=model_name,
+            assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+            structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+            structured_output_json={"message": message},
+            status_code=200,
+            provider_response_id=f"{model_name}-response",
+        ),
+    )
+
+
+def make_failure_result(
+    *,
+    model_name: str,
+    category: GatewayFailureCategory,
+    message: str,
+    retryable: bool = True,
+) -> ProviderInvocationResult:
+    return ProviderInvocationResult(
+        failure=ProviderInvocationFailure(
+            provider_name="model-aware",
+            model_name=model_name,
+            assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+            structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+            category=category,
+            message=message,
+            retryable=retryable,
+        ),
     )
 
 
@@ -204,6 +269,143 @@ def test_gateway_retries_retryable_failures_and_records_delays(tmp_path: Path) -
     assert success.attempts[0].failure_category is GatewayFailureCategory.TIMEOUT
 
 
+def test_gateway_uses_fallback_model_when_primary_circuit_is_open(tmp_path: Path) -> None:
+    adapter = ModelAwareAdapter(
+        {
+            "test-model": [
+                make_failure_result(
+                    model_name="test-model",
+                    category=GatewayFailureCategory.TIMEOUT,
+                    message="primary timed out",
+                )
+            ],
+            "fallback-model": [
+                make_success_result(model_name="fallback-model", message="from fallback")
+            ],
+        }
+    )
+    gateway = GatewayService(
+        make_config(tmp_path).model_copy(
+            update={
+                "retry_policy": GatewayRetryPolicy(max_attempts=1),
+                "fallback_models": ("fallback-model",),
+                "circuit_breaker": CircuitBreakerConfig(
+                    failure_threshold=1,
+                    recovery_timeout_seconds=60.0,
+                    half_open_max_calls=1,
+                ),
+            }
+        ),
+        provider_adapter=adapter,
+    )
+
+    with pytest.raises(GatewayTimeoutError):
+        gateway.invoke(make_request(idempotency_key="primary-open"))
+
+    success = gateway.invoke(make_request(idempotency_key="fallback-success"))
+
+    assert success.model_name == "fallback-model"
+    assert success.output.message == "from fallback"
+    assert adapter.requested_models == ["test-model", "fallback-model"]
+
+
+def test_gateway_raises_circuit_open_when_all_candidate_circuits_are_open(tmp_path: Path) -> None:
+    adapter = ModelAwareAdapter(
+        {
+            "test-model": [
+                make_failure_result(
+                    model_name="test-model",
+                    category=GatewayFailureCategory.TIMEOUT,
+                    message="primary timed out",
+                )
+            ],
+            "fallback-model": [
+                make_failure_result(
+                    model_name="fallback-model",
+                    category=GatewayFailureCategory.TIMEOUT,
+                    message="fallback timed out",
+                )
+            ],
+        }
+    )
+    gateway = GatewayService(
+        make_config(tmp_path).model_copy(
+            update={
+                "retry_policy": GatewayRetryPolicy(max_attempts=1),
+                "fallback_models": ("fallback-model",),
+                "circuit_breaker": CircuitBreakerConfig(
+                    failure_threshold=1,
+                    recovery_timeout_seconds=60.0,
+                    half_open_max_calls=1,
+                ),
+            }
+        ),
+        provider_adapter=adapter,
+    )
+
+    with pytest.raises(GatewayTimeoutError):
+        gateway.invoke(make_request(idempotency_key="primary-open"))
+
+    with pytest.raises(GatewayTimeoutError):
+        gateway.invoke(
+            make_request(
+                operation_name="echo",
+                idempotency_key="fallback-open",
+            ).model_copy(update={"model_name": "fallback-model"})
+        )
+
+    with pytest.raises(GatewayCircuitOpenError) as exc_info:
+        gateway.invoke(make_request(idempotency_key="all-open"))
+
+    assert exc_info.value.failure.category is GatewayFailureCategory.CIRCUIT_OPEN
+    assert exc_info.value.failure.details["open_models"] == ["test-model", "fallback-model"]
+    assert adapter.requested_models == ["test-model", "fallback-model"]
+
+
+def test_gateway_rate_limit_failures_do_not_trip_primary_circuit(tmp_path: Path) -> None:
+    adapter = ModelAwareAdapter(
+        {
+            "test-model": [
+                make_failure_result(
+                    model_name="test-model",
+                    category=GatewayFailureCategory.RATE_LIMIT,
+                    message="slow down",
+                ),
+                make_failure_result(
+                    model_name="test-model",
+                    category=GatewayFailureCategory.RATE_LIMIT,
+                    message="still slow down",
+                ),
+            ],
+            "fallback-model": [
+                make_success_result(model_name="fallback-model", message="unused fallback")
+            ],
+        }
+    )
+    gateway = GatewayService(
+        make_config(tmp_path).model_copy(
+            update={
+                "retry_policy": GatewayRetryPolicy(max_attempts=1),
+                "fallback_models": ("fallback-model",),
+                "circuit_breaker": CircuitBreakerConfig(
+                    failure_threshold=1,
+                    recovery_timeout_seconds=60.0,
+                    half_open_max_calls=1,
+                ),
+            }
+        ),
+        provider_adapter=adapter,
+    )
+
+    with pytest.raises(GatewayRateLimitError):
+        gateway.invoke(make_request(idempotency_key="rate-limit-1"))
+
+    with pytest.raises(GatewayRateLimitError):
+        gateway.invoke(make_request(idempotency_key="rate-limit-2"))
+
+    assert adapter.requested_models == ["test-model", "test-model"]
+
+
 def test_invoke_many_preserves_input_order(tmp_path: Path) -> None:
     gateway = GatewayService(
         make_config(tmp_path),
@@ -261,6 +463,41 @@ def test_noop_adapter_rejects_unknown_operations(tmp_path: Path) -> None:
 
     with pytest.raises(GatewayUnsupportedCapabilityError):
         gateway.invoke(make_request(operation_name="missing-script", idempotency_key="missing"))
+
+
+def test_enforce_all_required_adds_missing_keys_to_required() -> None:
+    """Schema normalizer makes every property required for strict-mode providers."""
+    from nullvector.llm.service import _enforce_all_required
+
+    schema: dict[str, object] = {
+        "properties": {"title": {"type": "string"}, "level_hint": {"type": "integer"}},
+        "required": ["title"],
+        "$defs": {
+            "Boundary": {
+                "properties": {"name": {"type": "string"}, "optional_field": {"type": "integer"}},
+                "required": ["name"],
+            }
+        },
+    }
+    result = _enforce_all_required(schema)
+    assert result["required"] == ["level_hint", "title"]
+    defs = result["$defs"]
+    assert isinstance(defs, dict)
+    boundary = defs["Boundary"]
+    assert isinstance(boundary, dict)
+    assert boundary["required"] == ["name", "optional_field"]
+
+
+def test_enforce_all_required_handles_schema_without_defs() -> None:
+    """Schema normalizer works on flat schemas without $defs."""
+    from nullvector.llm.service import _enforce_all_required
+
+    schema: dict[str, object] = {
+        "properties": {"a": {"type": "string"}, "b": {"type": "integer"}},
+    }
+    result = _enforce_all_required(schema)
+    assert result["required"] == ["a", "b"]
+    assert "$defs" not in result
 
 
 def test_unsupported_structured_output_mode_rejected(tmp_path: Path) -> None:

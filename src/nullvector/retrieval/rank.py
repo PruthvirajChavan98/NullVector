@@ -144,16 +144,34 @@ class RetrievalRanker:
             if token_overlap:
                 breakdown["token_overlap"] = 1.5 * token_overlap
 
-            if candidate.authoritative:
+            matched_query_signal = any(
+                value > 0.0
+                for key, value in breakdown.items()
+                if key
+                in {
+                    "page_exact",
+                    "page_overlap",
+                    "modality_match",
+                    "visual_intent_match",
+                    "table_intent_match",
+                    "quoted_phrase_match",
+                    "title_match",
+                    "keyword_overlap",
+                    "token_overlap",
+                }
+            )
+
+            if candidate.authoritative and matched_query_signal:
                 breakdown["authoritative_bonus"] = 2.0
             if (
                 candidate.unit_type is RetrievalUnitType.NODE_TEXT
                 and candidate.metadata.get("verified") is True
+                and matched_query_signal
             ):
                 breakdown["verified_node_bonus"] = 1.5
-            if candidate.unit_type is RetrievalUnitType.NODE_SUMMARY:
+            if candidate.unit_type is RetrievalUnitType.NODE_SUMMARY and matched_query_signal:
                 breakdown["summary_penalty"] = -2.5
-            if candidate.interpretive and not plan.visual_query:
+            if candidate.interpretive and not plan.visual_query and matched_query_signal:
                 breakdown["interpretive_penalty"] = -5.0
             if candidate.unit_type is RetrievalUnitType.UNRESOLVED_VISUAL and not candidate.text:
                 breakdown["unresolved_visual_penalty"] = -3.0

@@ -44,7 +44,6 @@ from nullvector.storage._serialization import (
     run_identity_matches,
     settings_digest,
 )
-from nullvector.storage.config import PostgresStorageConfig
 from nullvector.storage.protocol import RunScopedStore
 
 
@@ -71,15 +70,20 @@ class ParserSubstrateService:
         )
         fingerprint = fingerprint_document(request.source_path)
         digest = settings_digest(request.settings)
-        _is_postgres = isinstance(self._storage, PostgresStorageConfig)
-        if _is_postgres:
-            artifact_root: str | None = None
-        else:
-            _base = request.artifact_root or DEFAULT_ARTIFACT_ROOT
-            artifact_root = str(Path(_base) / request.parse_run_id / fingerprint.document_id)
+        configured_artifact_root = str(
+            Path(request.artifact_root or DEFAULT_ARTIFACT_ROOT)
+            / request.parse_run_id
+            / fingerprint.document_id
+        )
         store = build_document_store(
             self._storage,
-            default_filesystem_root=artifact_root,
+            default_filesystem_root=configured_artifact_root,
+        )
+        artifact_root = store.resolve_artifact_root(
+            run_type="parse",
+            run_id=request.parse_run_id,
+            document_id=fingerprint.document_id,
+            configured_root=configured_artifact_root,
         )
         store.register_document(fingerprint)
         expected_identity = {

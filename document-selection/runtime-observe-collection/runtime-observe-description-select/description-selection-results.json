@@ -1,0 +1,14 @@
+{
+  "candidate_count": 1,
+  "candidates": [
+    {
+      "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
+      "reason": "matched 1/2 query tokens in description",
+      "score": 0.5
+    }
+  ],
+  "collection_id": "runtime-observe-collection",
+  "query": "appendix details",
+  "selection_mode": "deterministic_fallback",
+  "selection_run_id": "runtime-observe-description-select"
+}

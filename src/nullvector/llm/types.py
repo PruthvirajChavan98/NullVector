@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Generic, TypeVar
+from typing import Annotated, Generic, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -19,8 +19,9 @@ from pydantic import (
     JsonValue as PydanticJsonValue,
 )
 
-from nullvector.domain.common import NonEmptyStr, NullVectorModel
+from nullvector.domain.common import CoerceTuple, NonEmptyStr, NullVectorModel
 from nullvector.domain.tree import StructuredRegionInsight, VisualRegionReference
+from nullvector.llm.circuit_breaker import CircuitBreakerConfig
 
 T = TypeVar("T", bound=BaseModel)
 JSONValue = PydanticJsonValue
@@ -61,6 +62,7 @@ class GatewayFailureCategory(StrEnum):
     AUTH_FAILURE = "auth_failure"
     UNSUPPORTED_CAPABILITY = "unsupported_capability"
     UNKNOWN_PROVIDER_FAILURE = "unknown_provider_failure"
+    CIRCUIT_OPEN = "circuit_open"
 
 
 class LLMMessage(NullVectorModel):
@@ -102,6 +104,8 @@ class GatewayConfig(NullVectorModel):
     timeout_seconds: PositiveFloat = 30.0
     retry_policy: GatewayRetryPolicy = Field(default_factory=GatewayRetryPolicy)
     audit: GatewayAuditConfig = Field(default_factory=GatewayAuditConfig)
+    fallback_models: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(default_factory=tuple)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     structured_output_mode_preference: StructuredOutputMode | None = None
     supported_structured_output_modes: tuple[StructuredOutputMode, ...] = (
         StructuredOutputMode.TRANSPORT_COMPATIBLE,

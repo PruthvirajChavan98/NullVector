@@ -172,8 +172,7 @@ def test_description_selection_fallback_ranks_and_persists_artifacts(tmp_path: P
     )
 
     assert response.selection_mode is DescriptionSelectionMode.DETERMINISTIC_FALLBACK
-    assert tuple(candidate.document_id for candidate in response.candidates) == ("1" * 64, "2" * 64)
-    assert response.candidates[0].score > response.candidates[1].score
+    assert tuple(candidate.document_id for candidate in response.candidates) == ("1" * 64,)
 
     index_payload = Path(response.description_index_path).read_text(encoding="utf-8").splitlines()
     results_payload = json.loads(Path(response.selection_results_path).read_text(encoding="utf-8"))
@@ -254,7 +253,7 @@ def test_description_selection_orders_ties_deterministically(tmp_path: Path) -> 
     )
 
 
-def test_description_selection_keeps_zero_score_candidates_only_when_needed(
+def test_description_selection_omits_zero_score_candidates_by_default(
     tmp_path: Path,
 ) -> None:
     service = DescriptionSelectionService(
@@ -266,6 +265,42 @@ def test_description_selection_keeps_zero_score_candidates_only_when_needed(
             collection_id="collection-zero-score",
             selection_run_id="selection-004",
             query="alpha revenue",
+            descriptions=(
+                _description_record(
+                    document_id="doc-match",
+                    display_name="Alpha File",
+                    description_text="Revenue summary for alpha.",
+                ),
+                _description_record(
+                    document_id="doc-zero-a",
+                    display_name="Bravo File",
+                    description_text="Completely unrelated memo.",
+                ),
+                _description_record(
+                    document_id="doc-zero-b",
+                    display_name="Charlie File",
+                    description_text="Completely unrelated brief.",
+                ),
+            ),
+            limit=2,
+        )
+    )
+
+    assert tuple(candidate.document_id for candidate in response.candidates) == ("doc-match",)
+    assert len(response.candidates) == 1
+
+
+def test_description_selection_zero_score_fillers_are_opt_in(tmp_path: Path) -> None:
+    service = DescriptionSelectionService(
+        storage=FilesystemStorageConfig(root=str(tmp_path / "artifacts"))
+    )
+
+    response = service.select(
+        DescriptionSelectionRequest(
+            collection_id="collection-zero-score-fillers",
+            selection_run_id="selection-004b",
+            query="alpha revenue",
+            include_zero_score_fillers=True,
             descriptions=(
                 _description_record(
                     document_id="doc-match",

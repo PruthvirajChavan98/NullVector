@@ -8,6 +8,8 @@ from typing import cast
 from nullvector.domain import (
     AnswerCitation,
     BoundingBox,
+    DocumentDescription,
+    DocumentDescriptionMethod,
     PageSpan,
     VisualRegionReference,
 )
@@ -39,11 +41,13 @@ from .support import write_synthetic_bundle
 def _services(
     *,
     gateway: object | None = None,
+    document_description: DocumentDescription | None = None,
 ) -> tuple[RetrievalService, RetrievalQAService]:
     retrieval_service = RetrievalService(QueryPlanner(), RetrievalRanker())
     return retrieval_service, RetrievalQAService(
         retrieval_service,
         gateway=cast(StructuredLLMGateway | None, gateway),
+        document_description=document_description,
     )
 
 
@@ -198,6 +202,55 @@ def test_text_query_returns_citations_from_authoritative_units(tmp_path: Path) -
     assert response.citations[0].quote is not None
     assert response.citations[0].page_label == "2"
     assert "Alpha body line" in (response.citations[0].quote or "")
+
+
+def test_document_summary_query_prefers_grounded_document_description(tmp_path: Path) -> None:
+    bundle = write_synthetic_bundle(tmp_path)
+    manifest = RetrievalCorpusBuilder().build(
+        acquisition_manifest_path=str(bundle.acquisition_manifest_path),
+        tree_manifest_path=str(bundle.tree_manifest_path),
+    )
+    corpus = load_retrieval_corpus(manifest.corpus_path)
+    _, qa_service = _services(
+        document_description=DocumentDescription(
+            document_id=bundle.document_id,
+            tree_run_id="synthetic-tree-run",
+            source_manifest_paths=(
+                str(bundle.acquisition_manifest_path),
+                str(bundle.tree_manifest_path),
+            ),
+            description_text="This document explains appendix-level policy guidance.",
+            description_method=DocumentDescriptionMethod.DETERMINISTIC_FALLBACK,
+            source_node_ids=("node-appendix-a",),
+            settings_digest="d" * 64,
+        )
+    )
+
+    response = qa_service.answer(corpus=corpus, query="what is this document about?")
+
+    assert response.answer_mode == "document_summary_description"
+    assert response.answer_strategy == "document_description"
+    assert response.answer == "This document explains appendix-level policy guidance."
+    assert response.citations == ()
+
+
+def test_low_signal_text_query_returns_low_evidence_instead_of_forced_excerpt(
+    tmp_path: Path,
+) -> None:
+    bundle = write_synthetic_bundle(tmp_path)
+    manifest = RetrievalCorpusBuilder().build(
+        acquisition_manifest_path=str(bundle.acquisition_manifest_path),
+        tree_manifest_path=str(bundle.tree_manifest_path),
+    )
+    corpus = load_retrieval_corpus(manifest.corpus_path)
+    _, qa_service = _services()
+
+    response = qa_service.answer(corpus=corpus, query="zebra invoice compliance")
+
+    assert response.answer_mode == "low_evidence"
+    assert response.answer_strategy == "grounded_low_evidence"
+    assert response.citations == ()
+    assert response.retrieval_hits
 
 
 def test_answer_citation_formats_multi_page_labels() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 import json
 import shutil
@@ -12,7 +13,7 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, cast
 
-from nullvector.domain.common import BatchItemFailure, BatchResult
+from nullvector.domain.common import BatchItemFailure, BatchResult, ScalarValue
 from nullvector.domain.ledger import (
     AcquisitionRunManifest,
     CanonicalTextSubstrate,
@@ -22,14 +23,17 @@ from nullvector.domain.ledger import (
 )
 from nullvector.domain.tree import (
     DecompositionMethod,
+    DecompositionReport,
     HeadingCandidate,
     HierarchyBuildReport,
     HierarchyNode,
     HierarchyStrategy,
+    NodeCard,
     OutlineAnchorRecord,
     OutlineTrustMode,
     RepairDecision,
     RepairStatus,
+    StrategyExecutionReport,
     TreeBuildManifest,
     TreeBuildRequest,
     TreeRunIndex,
@@ -38,8 +42,9 @@ from nullvector.domain.tree import (
 from nullvector.llm.errors import GatewayAuthError, GatewayConfigurationError
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.observability.logging import log_event, resolve_runtime_logger
+from nullvector.runtime import RunContext
 from nullvector.runtime_validation import validate_canonical_text_substrate_contract
-from nullvector.storage import StorageBackend, StorageConfig, build_document_store
+from nullvector.storage import StorageConfig, build_document_store, reservation_artifact_root
 from nullvector.storage._serialization import (
     canonical_json_text,
     run_identity_matches,
@@ -103,6 +108,34 @@ class TreeInputBundle:
     outline_anchor_records: tuple[OutlineAnchorRecord, ...]
     outline_quality_reports: tuple[OutlineQualityReport, ...]
     pages: tuple[PageArtifacts, ...]
+
+
+@dataclass(frozen=True)
+class _HierarchyPhaseResult:
+    """Internal result of hierarchy construction before post-processing."""
+
+    selected_attempt: StrategyAttemptResult
+    strategy_report: StrategyExecutionReport
+    committed_nodes: tuple[HierarchyNode, ...]
+    outline_anchor_records: tuple[OutlineAnchorRecord, ...]
+
+
+@dataclass(frozen=True)
+class _PostProcessPhaseResult:
+    """Internal result of verification, decomposition, and summarization phases."""
+
+    selected_attempt: StrategyAttemptResult
+    strategy_report: StrategyExecutionReport
+    committed_nodes: tuple[HierarchyNode, ...]
+    node_cards: tuple[NodeCard, ...]
+    verification_report_payload: Any
+    unassigned_spans_payload: Any
+    build_report: HierarchyBuildReport
+    committed_node_count: int
+    unassigned_span_count: int
+    llm_verification_assists_source: str | None
+    node_summaries_payload: tuple[dict[str, Any], ...] | None
+    decomposition_report: DecompositionReport
 
 
 def _read_json(path: Path) -> Any:
@@ -292,18 +325,6 @@ def _persist_tree_json(
     )
 
 
-def _tree_manifest_artifact_root(
-    *,
-    backend: StorageBackend,
-    tree_root: Path | None,
-    run_id: str,
-    document_id: str,
-) -> str | None:
-    if backend is StorageBackend.POSTGRES:
-        return None
-    return str(tree_root) if tree_root is not None else None
-
-
 def _cleanup_attempt_artifacts(tree_root: Path) -> None:
     shutil.rmtree(tree_root / "strategy" / "attempts", ignore_errors=True)
 
@@ -314,8 +335,9 @@ def _persist_tree_run_index(
     *,
     run_index_path: Path,
     run_index: TreeRunIndex,
+    manifest_artifact_root: str | None,
 ) -> str:
-    if store.backend is StorageBackend.POSTGRES:
+    if manifest_artifact_root is None:
         return run_store.put_json(
             artifact_kind="run_index",
             artifact_path="registry/run-index.json",
@@ -579,29 +601,88 @@ class TreePipelineService:
         if request.summarize and gateway is None:
             raise TreePipelineError("summarize=True requires a configured gateway")
 
+        input_bundle = self._resolve_input_bundle(request)
+        ctx, run_index, expected_identity, run_index_path, tree_root = self._prepare_run_context(
+            request,
+            input_bundle,
+        )
+        existing_manifest = self._reserve_or_reuse(
+            ctx,
+            request,
+            expected_identity,
+            run_index_path,
+            run_index,
+        )
+        if existing_manifest is not None:
+            return existing_manifest
+
+        effective_tree_root = (
+            tree_root if tree_root is not None else Path(f".tree_tmp/{request.tree_run_id}")
+        )
+        hierarchy_result = self._run_hierarchy_pipeline(
+            ctx,
+            request,
+            input_bundle,
+            repair_engine,
+            gateway,
+            effective_tree_root,
+        )
+        postprocess_result = self._run_verification_and_summarization(
+            ctx,
+            request,
+            input_bundle,
+            hierarchy_result,
+            gateway,
+        )
+        return self._persist_and_finalize(
+            ctx,
+            request,
+            input_bundle,
+            run_index,
+            postprocess_result,
+            effective_tree_root,
+        )
+
+    def _resolve_input_bundle(self, request: TreeBuildRequest) -> TreeInputBundle:
         input_store = build_document_store(self._storage, default_filesystem_root=".")
-        input_bundle = _load_tree_input_bundle(request, store=input_store)
-        tree_root: Path | None = (
+        return _load_tree_input_bundle(request, store=input_store)
+
+    def _prepare_run_context(
+        self,
+        request: TreeBuildRequest,
+        input_bundle: TreeInputBundle,
+    ) -> tuple[RunContext, TreeRunIndex, dict[str, ScalarValue], Path, Path | None]:
+        tree_root = (
             input_bundle.artifact_root / "tree" / request.tree_run_id
             if input_bundle.artifact_root is not None
             else None
         )
-        registry_root = input_bundle.registry_root
-        run_index_path = registry_root / request.tree_run_id / "run-index.json"
+        run_index_path = input_bundle.registry_root / request.tree_run_id / "run-index.json"
         digest = settings_digest(request.settings)
         output_store = build_document_store(
             self._storage,
             default_filesystem_root=str(tree_root) if tree_root is not None else None,
+        )
+        resolved_tree_root = output_store.resolve_artifact_root(
+            run_type="tree",
+            run_id=request.tree_run_id,
+            document_id=input_bundle.document_id,
+            configured_root=str(tree_root) if tree_root is not None else None,
         )
         run_store = output_store.for_run(
             run_type="tree",
             run_id=request.tree_run_id,
             document_id=input_bundle.document_id,
         )
-        manifest_ref: str | None = run_store.artifact_ref("manifest.json")
-        expected_identity = {
+        ctx = RunContext(
+            store=output_store,
+            run_store=run_store,
+            artifact_root=resolved_tree_root,
+            logger=cast(Logger, self._logger),
+        )
+        expected_identity: dict[str, ScalarValue] = {
             "document_id": input_bundle.document_id,
-            "registry_root": str(registry_root),
+            "registry_root": str(input_bundle.registry_root),
             "acquisition_manifest_path": input_bundle.manifest_path,
             "acquisition_artifact_identity": input_bundle.input_identity,
             "fingerprint_sha256": input_bundle.fingerprint_sha256,
@@ -610,36 +691,24 @@ class TreePipelineService:
         run_index = TreeRunIndex(
             tree_run_id=request.tree_run_id,
             document_id=input_bundle.document_id,
-            registry_root=str(registry_root),
+            registry_root=str(input_bundle.registry_root),
             acquisition_manifest_path=str(input_bundle.manifest_path),
             acquisition_artifact_identity=input_bundle.input_identity,
             acquisition_fingerprint_sha256=input_bundle.fingerprint_sha256,
             settings_digest=digest,
-            manifest_path=manifest_ref,
+            manifest_path=run_store.artifact_ref("manifest.json"),
         )
+        return (ctx, run_index, expected_identity, run_index_path, tree_root)
 
-        if output_store.backend is StorageBackend.POSTGRES:
-            created, run_record = output_store.reserve_run(
-                run_type="tree",
-                run_id=request.tree_run_id,
-                document_id=input_bundle.document_id,
-                artifact_root=None,
-                identity=expected_identity,
-            )
-            if not created:
-                if run_identity_matches(run_record, expected_identity):
-                    manifest_ref = cast(
-                        str | None,
-                        run_record.get("manifest_ref") or run_record.get("manifest_path"),
-                    )
-                    if manifest_ref is None:
-                        msg = "tree_run_id index points to a missing manifest"
-                        raise TreePipelineError(msg)
-                    return _load_tree_manifest_from_ref(output_store, manifest_ref)
-                raise TreeConflictError(
-                    "tree_run_id already exists with a different source manifest or settings",
-                )
-        elif run_index_path.exists():
+    def _reserve_or_reuse(
+        self,
+        ctx: RunContext,
+        request: TreeBuildRequest,
+        expected_identity: dict[str, ScalarValue],
+        run_index_path: Path,
+        run_index: TreeRunIndex,
+    ) -> TreeBuildManifest | None:
+        if ctx.artifact_root is not None and run_index_path.exists():
             existing_index = _load_tree_run_index(run_index_path)
             existing_manifest_path = existing_index.manifest_path
             if (
@@ -647,12 +716,46 @@ class TreePipelineService:
                 and existing_manifest_path is not None
                 and Path(existing_manifest_path).exists()
             ):
-                return _load_tree_manifest_from_ref(output_store, existing_manifest_path)
+                return _load_tree_manifest_from_ref(ctx.store, existing_manifest_path)
             raise TreeConflictError(
                 "tree_run_id already exists with a different source manifest or settings",
             )
-        pages = input_bundle.pages
 
+        created, run_record = ctx.store.reserve_run(
+            run_type="tree",
+            run_id=request.tree_run_id,
+            document_id=run_index.document_id,
+            artifact_root=reservation_artifact_root(
+                ctx.artifact_root,
+                marker_name=run_index.document_id,
+            ),
+            identity=expected_identity,
+        )
+        if created:
+            return None
+        if run_identity_matches(run_record, expected_identity):
+            manifest_ref = cast(
+                str | None,
+                run_record.get("manifest_ref") or run_record.get("manifest_path"),
+            )
+            if manifest_ref is None:
+                msg = "tree_run_id index points to a missing manifest"
+                raise TreePipelineError(msg)
+            return _load_tree_manifest_from_ref(ctx.store, manifest_ref)
+        raise TreeConflictError(
+            "tree_run_id already exists with a different source manifest or settings",
+        )
+
+    def _run_hierarchy_pipeline(
+        self,
+        ctx: RunContext,
+        request: TreeBuildRequest,
+        input_bundle: TreeInputBundle,
+        repair_engine: RepairEngine | None,
+        gateway: StructuredLLMGateway | None,
+        effective_tree_root: Path,
+    ) -> _HierarchyPhaseResult:
+        pages = input_bundle.pages
         outline_candidates, outline_anchor_records = extract_outline_candidates_with_records(
             input_bundle.document_id,
             pages,
@@ -675,12 +778,6 @@ class TreePipelineService:
             settings=request.settings,
         )
         engine = repair_engine or NoopRepairEngine()
-        # Strategy attempts always use local filesystem even for Postgres backends.
-        # When tree_root is None (Postgres mode), use a run-scoped temp path that
-        # will be cleaned up after the run.
-        effective_tree_root: Path = (
-            tree_root if tree_root is not None else Path(f".tree_tmp/{request.tree_run_id}")
-        )
         toc_detector = TocDetector(request.settings, gateway=gateway)
         toc_result = toc_detector.detect(pages=pages)
         toc_reconciliation = TocReconciler(request.settings, gateway=gateway).reconcile(
@@ -713,42 +810,62 @@ class TreePipelineService:
             ),
         )
         log_event(
-            self._logger,
+            ctx.logger,
             "HierarchyStrategySelected",
             document_id=input_bundle.document_id,
             tree_run_id=request.tree_run_id,
             strategy=strategy_report.selected_strategy.value,
         )
+        return _HierarchyPhaseResult(
+            selected_attempt=selected_attempt,
+            strategy_report=strategy_report,
+            committed_nodes=_load_hierarchy_nodes(selected_attempt.committed_hierarchy_path),
+            outline_anchor_records=outline_anchor_records,
+        )
 
-        committed_nodes = _load_hierarchy_nodes(selected_attempt.committed_hierarchy_path)
+    def _run_verification_and_summarization(
+        self,
+        ctx: RunContext,
+        request: TreeBuildRequest,
+        input_bundle: TreeInputBundle,
+        hierarchy_result: _HierarchyPhaseResult,
+        gateway: StructuredLLMGateway | None,
+    ) -> _PostProcessPhaseResult:
+        committed_nodes = hierarchy_result.committed_nodes
         node_cards = project_node_cards(committed_nodes)
         decomposer = NodeDecomposer(request.settings, gateway=gateway)
         decomposed_nodes, decomposition_report = decomposer.decompose(
             nodes=committed_nodes,
-            pages=pages,
+            pages=input_bundle.pages,
             tree_run_id=request.tree_run_id,
-            artifact_root=selected_attempt.artifact_root,
+            artifact_root=hierarchy_result.selected_attempt.artifact_root,
         )
         verification_report_payload: Any = _read_json(
-            Path(selected_attempt.verification_report_path)
+            Path(hierarchy_result.selected_attempt.verification_report_path)
         )
-        unassigned_spans_payload: Any = _read_json(Path(selected_attempt.unassigned_spans_path))
-        build_report = _load_build_report(selected_attempt.build_report_path)
-        committed_node_count = selected_attempt.committed_node_count
-        unassigned_span_count = selected_attempt.unassigned_span_count
-        llm_verification_assists_source = selected_attempt.llm_verification_assists_path
-        node_summaries_payload = _load_node_summaries_payload(selected_attempt.node_summaries_path)
+        unassigned_spans_payload: Any = _read_json(
+            Path(hierarchy_result.selected_attempt.unassigned_spans_path)
+        )
+        build_report = _load_build_report(hierarchy_result.selected_attempt.build_report_path)
+        committed_node_count = hierarchy_result.selected_attempt.committed_node_count
+        unassigned_span_count = hierarchy_result.selected_attempt.unassigned_span_count
+        llm_verification_assists_source = (
+            hierarchy_result.selected_attempt.llm_verification_assists_path
+        )
+        node_summaries_payload = _load_node_summaries_payload(
+            hierarchy_result.selected_attempt.node_summaries_path
+        )
 
         if decomposition_report.decomposition_method is not DecompositionMethod.NONE:
             final_verification_assistant = (
                 LLMVerificationAssistant(
                     gateway,
-                    artifact_root=selected_attempt.artifact_root,
+                    artifact_root=hierarchy_result.selected_attempt.artifact_root,
                 )
                 if gateway is not None
                 else None
             )
-            final_enriched_nodes = attach_content_anchors(decomposed_nodes, pages)
+            final_enriched_nodes = attach_content_anchors(decomposed_nodes, input_bundle.pages)
             final_unassigned_spans = compute_unassigned_spans(
                 document_id=input_bundle.document_id,
                 page_count=input_bundle.page_count,
@@ -759,11 +876,11 @@ class TreePipelineService:
                 tree_run_id=request.tree_run_id,
                 page_count=input_bundle.page_count,
                 nodes=final_enriched_nodes,
-                pages=pages,
+                pages=input_bundle.pages,
                 unassigned_spans=final_unassigned_spans,
                 settings=request.settings,
                 verification_assistant=final_verification_assistant,
-                outline_anchor_records=outline_anchor_records,
+                outline_anchor_records=hierarchy_result.outline_anchor_records,
             )
             passed_ids = {
                 result.subject_id
@@ -799,197 +916,226 @@ class TreePipelineService:
             if gateway is None:
                 msg = "tree pipeline requested summarization but no gateway configured"
                 raise RuntimeError(msg)
-            summarizer = NodeSummarizer(gateway, logger=self._logger)
+            summarizer = NodeSummarizer(gateway, logger=ctx.logger)
             _, node_cards, node_summaries = summarizer.summarize(
                 nodes=committed_nodes,
-                pages=pages,
-                artifact_root=selected_attempt.artifact_root,
+                pages=input_bundle.pages,
+                artifact_root=hierarchy_result.selected_attempt.artifact_root,
             )
             node_summaries_payload = tuple(
                 summary.model_dump(mode="json") for summary in node_summaries
             )
 
-        headings_path = _persist_tree_json(
-            run_store,
-            artifact_kind="headings",
-            artifact_path="headings/candidates.json",
-            source_path=selected_attempt.headings_path,
-        )
-        raw_hierarchy_path = _persist_tree_json(
-            run_store,
-            artifact_kind="hierarchy",
-            artifact_path="hierarchy/raw.json",
-            source_path=selected_attempt.raw_hierarchy_path,
-        )
-        repair_requests_path = _persist_tree_json(
-            run_store,
-            artifact_kind="repair",
-            artifact_path="repair/requests.json",
-            source_path=selected_attempt.repair_requests_path,
-        )
-        repair_decisions_path = _persist_tree_json(
-            run_store,
-            artifact_kind="repair",
-            artifact_path="repair/decisions.json",
-            source_path=selected_attempt.repair_decisions_path,
-        )
-        repaired_hierarchy_path = _persist_tree_json(
-            run_store,
-            artifact_kind="hierarchy",
-            artifact_path="hierarchy/repaired.json",
-            source_path=selected_attempt.repaired_hierarchy_path,
-        )
-        committed_hierarchy_path = _persist_tree_json(
-            run_store,
-            artifact_kind="hierarchy",
-            artifact_path="hierarchy/committed.json",
-            payload=committed_nodes,
-        )
-        node_cards_path = _persist_tree_json(
-            run_store,
-            artifact_kind="node_cards",
-            artifact_path="hierarchy/node-cards.json",
-            payload=node_cards,
-        )
-        unassigned_spans_path = _persist_tree_json(
-            run_store,
-            artifact_kind="artifact",
-            artifact_path="unassigned-spans.json",
-            payload=unassigned_spans_payload,
-        )
-        verification_report_path = _persist_tree_json(
-            run_store,
-            artifact_kind="verification",
-            artifact_path="verify/report.json",
-            payload=verification_report_payload,
-        )
-        build_report_path = _persist_tree_json(
-            run_store,
-            artifact_kind="report",
-            artifact_path="build-report.json",
-            payload=build_report,
-        )
-        toc_detection_path = _persist_tree_json(
-            run_store,
-            artifact_kind="toc",
-            artifact_path="toc-detection.json",
-            source_path=selected_attempt.toc_detection_path,
-        )
-        toc_reconciliation_path = _persist_tree_json(
-            run_store,
-            artifact_kind="toc",
-            artifact_path="toc-reconciliation.json",
-            source_path=selected_attempt.toc_reconciliation_path,
-        )
-        llm_verification_assists_path = _persist_tree_json(
-            run_store,
-            artifact_kind="verification",
-            artifact_path="verify/llm-assists.json",
-            source_path=llm_verification_assists_source,
-        )
-        node_summaries_path = _persist_tree_json(
-            run_store,
-            artifact_kind="summary",
-            artifact_path="summaries/node-summaries.json",
-            payload=node_summaries_payload,
-        )
-        strategy_execution_report_path = _persist_tree_json(
-            run_store,
-            artifact_kind="report",
-            artifact_path="strategy/execution-report.json",
-            payload=strategy_report,
-        )
-        decomposition_report_path = _persist_tree_json(
-            run_store,
-            artifact_kind="report",
-            artifact_path="decomposition/report.json",
-            payload=decomposition_report,
+        return _PostProcessPhaseResult(
+            selected_attempt=hierarchy_result.selected_attempt,
+            strategy_report=hierarchy_result.strategy_report,
+            committed_nodes=committed_nodes,
+            node_cards=node_cards,
+            verification_report_payload=verification_report_payload,
+            unassigned_spans_payload=unassigned_spans_payload,
+            build_report=build_report,
+            committed_node_count=committed_node_count,
+            unassigned_span_count=unassigned_span_count,
+            llm_verification_assists_source=llm_verification_assists_source,
+            node_summaries_payload=node_summaries_payload,
+            decomposition_report=decomposition_report,
         )
 
+    def _persist_and_finalize(
+        self,
+        ctx: RunContext,
+        request: TreeBuildRequest,
+        input_bundle: TreeInputBundle,
+        run_index: TreeRunIndex,
+        postprocess_result: _PostProcessPhaseResult,
+        effective_tree_root: Path,
+    ) -> TreeBuildManifest:
+        artifact_paths = self._persist_attempt_artifacts(ctx.run_store, postprocess_result)
+
         self._emit_verification_events(
+            ctx=ctx,
             document_id=input_bundle.document_id,
             tree_run_id=request.tree_run_id,
-            verification_report_path=verification_report_path,
-            committed_nodes=committed_nodes,
-            store=output_store,
+            verification_report_path=artifact_paths["verification_report"],
+            committed_nodes=postprocess_result.committed_nodes,
         )
 
         run_index_ref = _persist_tree_run_index(
-            output_store,
-            run_store,
-            run_index_path=run_index_path,
+            ctx.store,
+            ctx.run_store,
+            run_index_path=input_bundle.registry_root / request.tree_run_id / "run-index.json",
             run_index=run_index,
+            manifest_artifact_root=ctx.artifact_root,
         )
         manifest = TreeBuildManifest(
             tree_run_id=request.tree_run_id,
             document_id=input_bundle.document_id,
-            registry_root=str(registry_root),
+            registry_root=str(input_bundle.registry_root),
             acquisition_manifest_path=input_bundle.manifest_path,
             acquisition_artifact_identity=input_bundle.input_identity,
             acquisition_fingerprint_sha256=input_bundle.fingerprint_sha256,
-            artifact_root=_tree_manifest_artifact_root(
-                backend=output_store.backend,
-                tree_root=tree_root,
-                run_id=request.tree_run_id,
-                document_id=input_bundle.document_id,
-            ),
+            artifact_root=ctx.artifact_root,
             settings=request.settings,
-            settings_digest=digest,
+            settings_digest=run_index.settings_digest,
             run_index_path=run_index_ref,
-            headings_path=headings_path,
-            raw_hierarchy_path=raw_hierarchy_path,
-            repair_requests_path=repair_requests_path,
-            repair_decisions_path=repair_decisions_path,
-            repaired_hierarchy_path=repaired_hierarchy_path,
-            committed_hierarchy_path=committed_hierarchy_path,
-            node_cards_path=node_cards_path,
-            unassigned_spans_path=unassigned_spans_path,
-            verification_report_path=verification_report_path,
-            build_report_path=build_report_path,
-            committed_node_count=committed_node_count,
-            unassigned_span_count=unassigned_span_count,
-            node_summaries_path=node_summaries_path,
-            toc_detection_path=toc_detection_path,
-            toc_reconciliation_path=toc_reconciliation_path,
-            llm_verification_assists_path=llm_verification_assists_path,
-            strategy_execution_report_path=strategy_execution_report_path,
-            decomposition_report_path=decomposition_report_path,
+            headings_path=artifact_paths["headings"],
+            raw_hierarchy_path=artifact_paths["raw_hierarchy"],
+            repair_requests_path=artifact_paths["repair_requests"],
+            repair_decisions_path=artifact_paths["repair_decisions"],
+            repaired_hierarchy_path=artifact_paths["repaired_hierarchy"],
+            committed_hierarchy_path=artifact_paths["committed_hierarchy"],
+            node_cards_path=artifact_paths["node_cards"],
+            unassigned_spans_path=artifact_paths["unassigned_spans"],
+            verification_report_path=artifact_paths["verification_report"],
+            build_report_path=artifact_paths["build_report"],
+            committed_node_count=postprocess_result.committed_node_count,
+            unassigned_span_count=postprocess_result.unassigned_span_count,
+            node_summaries_path=artifact_paths["node_summaries"],
+            toc_detection_path=artifact_paths["toc_detection"],
+            toc_reconciliation_path=artifact_paths["toc_reconciliation"],
+            llm_verification_assists_path=artifact_paths["llm_verification_assists"],
+            strategy_execution_report_path=artifact_paths["strategy_execution_report"],
+            decomposition_report_path=artifact_paths["decomposition_report"],
         )
-        manifest_ref = run_store.put_json(
+        manifest_ref = ctx.run_store.put_json(
             artifact_kind="manifest",
             artifact_path="manifest.json",
             payload=manifest,
         )
         _cleanup_attempt_artifacts(effective_tree_root)
-        if output_store.backend is StorageBackend.POSTGRES:
-            run_store.complete(
-                manifest_ref=manifest_ref,
-                manifest=manifest,
-            )
+        ctx.run_store.complete(
+            manifest_ref=manifest_ref,
+            manifest=manifest,
+        )
         log_event(
-            self._logger,
+            ctx.logger,
             "TreeBuildCompleted",
             document_id=input_bundle.document_id,
             tree_run_id=request.tree_run_id,
-            committed_node_count=committed_node_count,
-            unassigned_span_count=unassigned_span_count,
+            committed_node_count=postprocess_result.committed_node_count,
+            unassigned_span_count=postprocess_result.unassigned_span_count,
             manifest_ref=manifest_ref,
         )
         return manifest
 
+    @staticmethod
+    def _persist_attempt_artifacts(
+        run_store: RunScopedStore,
+        pp: _PostProcessPhaseResult,
+    ) -> dict[str, str | None]:
+        """Persist all tree-build artifacts and return a name->ref mapping."""
+        return {
+            "headings": _persist_tree_json(
+                run_store,
+                artifact_kind="headings",
+                artifact_path="headings/candidates.json",
+                source_path=pp.selected_attempt.headings_path,
+            ),
+            "raw_hierarchy": _persist_tree_json(
+                run_store,
+                artifact_kind="hierarchy",
+                artifact_path="hierarchy/raw.json",
+                source_path=pp.selected_attempt.raw_hierarchy_path,
+            ),
+            "repair_requests": _persist_tree_json(
+                run_store,
+                artifact_kind="repair",
+                artifact_path="repair/requests.json",
+                source_path=pp.selected_attempt.repair_requests_path,
+            ),
+            "repair_decisions": _persist_tree_json(
+                run_store,
+                artifact_kind="repair",
+                artifact_path="repair/decisions.json",
+                source_path=pp.selected_attempt.repair_decisions_path,
+            ),
+            "repaired_hierarchy": _persist_tree_json(
+                run_store,
+                artifact_kind="hierarchy",
+                artifact_path="hierarchy/repaired.json",
+                source_path=pp.selected_attempt.repaired_hierarchy_path,
+            ),
+            "committed_hierarchy": _persist_tree_json(
+                run_store,
+                artifact_kind="hierarchy",
+                artifact_path="hierarchy/committed.json",
+                payload=pp.committed_nodes,
+            ),
+            "node_cards": _persist_tree_json(
+                run_store,
+                artifact_kind="node_cards",
+                artifact_path="hierarchy/node-cards.json",
+                payload=pp.node_cards,
+            ),
+            "unassigned_spans": _persist_tree_json(
+                run_store,
+                artifact_kind="artifact",
+                artifact_path="unassigned-spans.json",
+                payload=pp.unassigned_spans_payload,
+            ),
+            "verification_report": _persist_tree_json(
+                run_store,
+                artifact_kind="verification",
+                artifact_path="verify/report.json",
+                payload=pp.verification_report_payload,
+            ),
+            "build_report": _persist_tree_json(
+                run_store,
+                artifact_kind="report",
+                artifact_path="build-report.json",
+                payload=pp.build_report,
+            ),
+            "toc_detection": _persist_tree_json(
+                run_store,
+                artifact_kind="toc",
+                artifact_path="toc-detection.json",
+                source_path=pp.selected_attempt.toc_detection_path,
+            ),
+            "toc_reconciliation": _persist_tree_json(
+                run_store,
+                artifact_kind="toc",
+                artifact_path="toc-reconciliation.json",
+                source_path=pp.selected_attempt.toc_reconciliation_path,
+            ),
+            "llm_verification_assists": _persist_tree_json(
+                run_store,
+                artifact_kind="verification",
+                artifact_path="verify/llm-assists.json",
+                source_path=pp.llm_verification_assists_source,
+            ),
+            "node_summaries": _persist_tree_json(
+                run_store,
+                artifact_kind="summary",
+                artifact_path="summaries/node-summaries.json",
+                payload=pp.node_summaries_payload,
+            ),
+            "strategy_execution_report": _persist_tree_json(
+                run_store,
+                artifact_kind="report",
+                artifact_path="strategy/execution-report.json",
+                payload=pp.strategy_report,
+            ),
+            "decomposition_report": _persist_tree_json(
+                run_store,
+                artifact_kind="report",
+                artifact_path="decomposition/report.json",
+                payload=pp.decomposition_report,
+            ),
+        }
+
     def _emit_verification_events(
         self,
         *,
+        ctx: RunContext,
         document_id: str,
         tree_run_id: str,
         verification_report_path: str | None,
         committed_nodes: tuple[HierarchyNode, ...],
-        store: DocumentStore,
     ) -> None:
         if verification_report_path is None:
             for node in committed_nodes:
                 log_event(
-                    self._logger,
+                    ctx.logger,
                     "NodeCommitted",
                     document_id=document_id,
                     tree_run_id=tree_run_id,
@@ -998,11 +1144,11 @@ class TreePipelineService:
                 )
             return
         verification_payload = cast(
-            dict[str, Any], store.read_json_artifact(verification_report_path)
+            dict[str, Any], ctx.store.read_json_artifact(verification_report_path)
         )
         for node in committed_nodes:
             log_event(
-                self._logger,
+                ctx.logger,
                 "NodeCommitted",
                 document_id=document_id,
                 tree_run_id=tree_run_id,
@@ -1013,7 +1159,7 @@ class TreePipelineService:
             if result.get("status") == VerificationStatus.PASSED.value:
                 continue
             log_event(
-                self._logger,
+                ctx.logger,
                 "NodeVerificationFailed",
                 document_id=document_id,
                 tree_run_id=tree_run_id,
@@ -1102,6 +1248,77 @@ def build_tree_batch(
                     error_message=str(exc),
                 )
             )
+
+    if first_batch_fatal is not None:
+        raise first_batch_fatal
+
+    return BatchResult(successful=tuple(successful), failed=tuple(failed))
+
+
+async def async_build_tree_batch(
+    requests: Sequence[TreeBuildRequest],
+    *,
+    storage: StorageConfig | None = None,
+    gateway: StructuredLLMGateway | None = None,
+    repair_engine: RepairEngine | None = None,
+    max_workers: int = 4,
+    logger: Logger | None = None,
+) -> BatchResult[TreeBuildManifest]:
+    """Build hierarchy trees concurrently using asyncio fan-out."""
+    if max_workers < 1:
+        msg = "max_workers must be greater than or equal to 1"
+        raise ValueError(msg)
+
+    request_list = tuple(requests)
+    if not request_list:
+        return BatchResult(successful=(), failed=())
+
+    semaphore = asyncio.Semaphore(min(max_workers, len(request_list)))
+    results: list[TreeBuildManifest | Exception | None] = [None] * len(request_list)
+
+    async def _build_one(index: int, request: TreeBuildRequest) -> None:
+        async with semaphore:
+            service = TreePipelineService(logger=logger, storage=storage)
+            try:
+                results[index] = await asyncio.to_thread(
+                    service.build,
+                    request,
+                    gateway=gateway,
+                    repair_engine=repair_engine,
+                )
+            except Exception as exc:
+                results[index] = exc
+
+    await asyncio.gather(
+        *(_build_one(index, request) for index, request in enumerate(request_list))
+    )
+
+    successful: list[TreeBuildManifest] = []
+    failed: list[BatchItemFailure] = []
+    first_batch_fatal: Exception | None = None
+    for idx, result in enumerate(results):
+        if isinstance(result, Exception):
+            if first_batch_fatal is None and isinstance(result, _BATCH_FATAL_ERRORS):
+                first_batch_fatal = result
+                continue
+            failed.append(
+                BatchItemFailure(
+                    item_index=idx,
+                    error_type=type(result).__name__,
+                    error_message=str(result),
+                )
+            )
+            continue
+        if result is None:
+            failed.append(
+                BatchItemFailure(
+                    item_index=idx,
+                    error_type="InternalError",
+                    error_message="tree build completed without result",
+                )
+            )
+            continue
+        successful.append(result)
 
     if first_batch_fatal is not None:
         raise first_batch_fatal

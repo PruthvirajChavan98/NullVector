@@ -1,360 +1,125 @@
-# NullVector
+# CLAUDE.md
 
-# IMPORTANT:
-I won't accept patch work, i need permanent enterprise production grade solution
+## Your code will be reviewed with google gemini antigravity and openai codex, so stop being lazy.
 
-I WON'T!!!
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## What This Is
 
----
+NullVector is a **vectorless hierarchical RAG framework** — a CPU-first, deterministic document processing pipeline that builds auditable hierarchical trees from PDFs and Markdown without vector embeddings. All retrieval is structural (BM25-style ranking, Jaccard similarity, tree traversal) with full spatial traceability back to source bounding boxes.
 
-## Workflow Orchestration
-
-### 1. Plan Node Default
-
-* Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions).
-* If something goes sideways, STOP and re-plan immediately—don't keep pushing.
-* Use plan mode for verification steps, not just building.
-* Write detailed specs upfront to reduce ambiguity.
-
-### 2. Subagent Strategy
-
-* Use subagents liberally to keep main context window clean.
-* Offload research, exploration, and parallel analysis to subagents.
-* For complex problems, throw more compute at it via subagents.
-* One **task** per subagent for focused execution.
-
-### 3. Self-Improvement Loop
-
-* After ANY correction from the user: update `tasks/lessons.md` with the pattern.
-* Write rules for yourself that prevent the same mistake.
-* Ruthlessly iterate on these lessons until mistake rate drops.
-* Review lessons at session start for relevant project.
-
-### 4. Verification Before Done
-
-* Never mark a task complete without proving it works.
-* Diff behavior between main and your changes when relevant.
-* Ask yourself: "Would a staff engineer approve this?"
-* Run tests, check logs, demonstrate correctness.
-
-### 5. Demand Elegance (Balanced)
-
-* For non-trivial changes: pause and ask "is there a more elegant way?"
-* If a fix feels hacky: "Knowing everything I know now, implement the elegant solution."
-* Skip this for simple, obvious fixes—don't over-engineer.
-* Challenge your own work before presenting it.
-
-### 6. Autonomous Bug Fixing
-
-* When given a bug report: just fix it. Don't ask for hand-holding.
-* Point at logs, errors, failing tests—then resolve them.
-* Zero context switching required from the user.
-* Go fix failing CI tests without being told how.
-
----
-
-## Task Management
-
-1. **Plan First**: Write plan to `tasks/todo.md` with checkable items.
-2. **Verify Plan**: Check in before starting implementation.
-3. **Track Progress**: Mark items complete as you go.
-4. **Explain Changes**: High-level summary at each step.
-5. **Document Results**: Add review section to `tasks/todo.md`.
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections.
-
----
-
-## Core Principles
-
-* **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-* **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-* **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
-
----
-
-I WANT EVERYTHING RESEARCH BACKED, I WON'T TOLERATE A SINGLE DEPRECATION WARNING
-
-You should proactively search when you encounter things like:
-
-Version pins that might be outdated
-API signatures you are uncertain about (deprecations)
-New library features before recommending them
-
-
----
-
-> **Onboarding brief for Claude Code.** Loaded at session start.
-> Keep sessions focused: `/clear` between unrelated tasks. Reference `@docs/` on demand.
-
----
-
-## 1. Project Identity
-
-| Key             | Value                                                                |
-|-----------------|----------------------------------------------------------------------|
-| **What**        | CPU-first document hierarchy framework for deterministic PDF ingestion |
-| **Type**        | Python library (no web framework, no HTTP endpoints)                 |
-| **Python**      | `>=3.11` (enforced via `pyproject.toml`)                             |
-| **Package mgr** | `uv` (NOT pip, NOT poetry)                                          |
-| **Build**       | `hatchling>=1.27.0` (PEP 517 src layout)                            |
-| **Test runner** | `pytest` with `--strict-config --strict-markers`                     |
-| **Lint / fmt**  | `ruff 0.11.x` (linting + formatting)                                |
-| **Type check**  | `mypy --strict`                                                      |
-| **CI**          | None configured yet. Quality gate is local via `make ci`.            |
-
----
-
-## 2. Repository Layout
-
-```
-.
-├── src/nullvector/              # All importable source code (PEP 517 src layout)
-│   ├── domain/                  # Authoritative Pydantic contracts (StrataModel base)
-│   │   ├── common.py            # Geometry, spans, coordinate spaces
-│   │   ├── ledger.py            # Parse manifests, canonical ledger (v2)
-│   │   ├── tree.py              # Hierarchy nodes, tree synthesis, repair
-│   │   ├── events.py            # DocumentEvent, PageEvent, provenance
-│   │   ├── gateway.py           # LLM gateway response types
-│   │   └── retrieval.py         # Retrieval corpus, hits, evidence
-│   ├── ingest/                  # Phase 01: PDF acquisition & parsing
-│   │   ├── acquisition_service.py  # V2 acquisition runtime (uses DocumentStore)
-│   │   ├── service.py           # Legacy parse service
-│   │   ├── providers/           # PyMuPDF provider implementation
-│   │   └── protocols.py         # AcquisitionProvider
-│   ├── tree/                    # Phase 02: Deterministic hierarchy builder
-│   │   ├── service.py           # TreePipelineService
-│   │   ├── strategy.py          # Hierarchy strategy selection
-│   │   ├── headings.py          # Heading extraction & scoring
-│   │   ├── hierarchy.py         # Hierarchy synthesis
-│   │   ├── repair.py            # RepairEngine protocol + NoopRepairEngine
-│   │   ├── verify.py            # Tree verification
-│   │   ├── toc.py / toc_reconcile.py  # TOC extraction & reconciliation
-│   │   └── anchors.py           # Line anchoring
-│   ├── llm/                     # Phase 03: Typed LLM gateway
-│   │   ├── service.py           # GatewayService (sync-first, retries, auditing)
-│   │   ├── protocols.py         # ProviderAdapter, StructuredLLMGateway
-│   │   ├── adapters/            # Optional convenience adapters (OpenAI, LiteLLM) — zero deps
-│   │   ├── providers/           # Noop adapter (users bring their own ProviderAdapter)
-│   │   ├── prompts/             # Prompt templates (repair, summarization, verification, toc)
-│   │   └── types.py             # GatewayRequest, GatewaySuccess, GatewayFailure
-│   ├── retrieval/               # Corpus building, query planning, ranking, QA
-│   │   ├── service.py           # RetrievalService
-│   │   ├── build.py             # RetrievalCorpusBuilder
-│   │   ├── planner.py           # QueryPlanner
-│   │   ├── rank.py              # RetrievalRanker
-│   │   ├── index.py             # In-memory & PostgreSQL indices
-│   │   └── qa.py                # QA response generation
-│   ├── semantic/                # Decomposition & summarization
-│   │   ├── decompose.py         # NodeDecomposer
-│   │   ├── summarize.py         # NodeSummarizer
-│   │   └── tokens.py            # Tokenizer protocol & heuristics
-│   ├── storage/                 # Backend-agnostic persistence (NEW)
-│   │   ├── protocol.py          # DocumentStore, RunScopedStore protocols
-│   │   ├── filesystem.py        # FilesystemDocumentStore
-│   │   ├── postgres.py          # PostgresDocumentStore (optional)
-│   │   ├── factory.py           # build_document_store()
-│   │   └── config.py            # StorageConfig types
-│   ├── observability/           # Structured logging & subscribers
-│   │   ├── logging.py           # log_event() + typed event helpers
-│   │   └── subscribers/         # JSONL logger, Rich progress bars
-│   ├── export/                  # Edge-only bridges (LangChain, LlamaIndex)
-│   └── constants.py             # Version locks, paths
-│
-├── tests/
-│   ├── unit/                    # Pure logic tests (no real I/O)
-│   ├── integration/             # Real infrastructure tests
-│   ├── retrieval/               # Retrieval-specific tests
-│   └── llm/                     # LLM adapter tests
-│
-├── docs/
-│   ├── architecture.md          # !! STALE — describes phantom FastAPI/SQLAlchemy app !!
-│   ├── coding-standards.md      # !! STALE — references phantom dependencies !!
-│   ├── development-workflows.md # !! STALE — references phantom CI/pre-commit !!
-│   └── adr/                     # Architecture Decision Records (0000-0008) — ACCURATE
-│
-├── fixtures/                    # Golden test expectations (phase01, phase02)
-├── notebooks/                   # Development notebooks
-├── cookbook/                     # Example job runs and usage
-├── pyproject.toml               # Single source of truth for all tool config
-└── Makefile                     # uv command wrappers
-```
-
----
-
-## 3. Dependencies (Actual)
-
-### Production
-| Package | Pin | Purpose |
-|---------|-----|---------|
-| `httpx` | `>=0.28.0,<1.0.0` | Async HTTP client |
-| `PyMuPDF` | `==1.27.2` | Primary PDF parser (exact pin for determinism) |
-| `pypdf` | `==6.8.0` | Alternative outline extractor (exact pin) |
-| `pydantic` | `>=2.11.0,<3.0.0` | Domain model validation |
-
-### Development (`[dev]` extra)
-| Package | Purpose |
-|---------|---------|
-| `mypy` | Strict type checking |
-| `pytest` | Test runner |
-| `ruff` | Lint + format |
-| `ipykernel`, `nbclient`, `nbformat` | Jupyter support |
-
-### Optional (`[postgres]` extra)
-| Package | Purpose |
-|---------|---------|
-| `psycopg[binary]` | PostgreSQL storage backend |
-
-### Optional Convenience Adapters (zero new dependencies)
-| Adapter | SDK Required | Install |
-|---------|-------------|---------|
-| `OpenAIAdapter` | `openai>=1.0.0` | `pip install openai` |
-| `LiteLLMAdapter` | `litellm>=1.79.0` | `pip install litellm` |
-
-### NOT in dependencies (despite docs claiming otherwise)
-- `pytest-asyncio` — not installed
-- `pytest-mock` — not installed
-- `pydantic-settings` — not installed
-- `FastAPI` — not used (pure library)
-- `SQLAlchemy` — not used
-- `Redis` — not used
-
----
-
-## 4. Essential Commands
+## Commands
 
 ```bash
-# Bootstrap
-uv sync --extra dev
+make setup          # uv sync --extra dev
+make ci             # format-check + lint + typecheck + test (the full quality gate)
+make format         # uv run ruff format src tests
+make lint           # uv run ruff check src tests
+make typecheck      # uv run mypy src tests
+make test           # uv run pytest
 
-# Full quality gate (run before any commit)
-make ci
-# Equivalent to: ruff format --check + ruff check + mypy + pytest
+# Single test
+uv run pytest tests/unit/test_domain_models.py::test_name
 
-# Individual tools
-uv run ruff check --fix .         # Auto-fix lint
-uv run ruff format .              # Format in-place
-uv run mypy src/                  # Strict type check (src only)
-uv run pytest -x -q               # Fast-fail tests
-uv run pytest tests/unit/         # Unit tests only
-uv run pytest tests/integration/  # Integration tests
+# Run progress notebook (canonical manual verification)
+uv run python scripts/run_progress_notebook.py
 
-# Dependency management
-uv add <package>                  # Add production dep (requires human approval)
-uv add --dev <package>            # Add dev dep (requires human approval)
-uv lock                           # Regenerate lockfile
+# Quickstart smoke test
+uv run python scripts/nullvector_quickstart.py --source-path fixtures/pdfs/phase01/born_digital_with_outline.pdf
 ```
 
----
+Pytest enforces `filterwarnings = ["error::DeprecationWarning"]` — deprecation warnings are test failures.
 
-## 5. Non-Negotiable Constraints
+## Architecture
 
-### Python & Typing
-- Python 3.11+. Use `str | None`, not `Optional[str]`.
-- Every public function/method/class requires complete type annotations.
-- `mypy --strict` must pass with zero errors. No `# type: ignore` without inline explanation.
-- mypy ignores `fitz` (PyMuPDF) — it has no type stubs.
+### Pipeline Flow
 
-### Imports
-- PEP 517 src layout. All imports are absolute: `from nullvector.domain.tree import HierarchyNode`.
-- No relative imports except within the same sub-package.
-- Never add dependencies without explicit human approval.
+```
+AcquisitionRequest
+  → [ingest/acquisition_service] deterministic PDF/Markdown extraction
+CanonicalDocumentLedger (text substrate, outlines, pages, bounding boxes)
+  → [ingest/projection] transform into tree input
+TreeSynthesisView
+  → [tree/service] hierarchy assembly, verification, optional LLM repair
+HierarchyNode tree (verified, with page anchors and summaries)
+  → [retrieval/build] corpus construction from tree nodes
+RetrievalCorpus (queryable units)
+  → [retrieval/service] query planning, tree search, ranking
+RetrievalHit[] with spatial citations
+```
 
-### Domain Models
-- All domain types inherit from `NullVectorModel` (defined in `domain/common.py`): `frozen=True, extra="forbid", strict=True`.
-- Use Pydantic v2 semantics only. No v1 compatibility shims.
-- Constrained types: `NonEmptyStr`, `Sha256Hex`, `PositiveInt`, `NonNegativeInt` (defined in `domain/common.py`).
+### Subsystems
 
-### Error Handling
-- Domain-specific exceptions only. Defined in `ingest/errors.py`, `llm/errors.py`, `tree/service.py`, `storage/postgres.py`.
-- Never swallow exceptions silently. Log before re-raising.
-- Bare `except Exception:` only for documented defensive cases (see `outline.py`).
+- **domain/** — Authoritative Pydantic v2 type contracts. All models inherit `NullVectorModel` (`frozen=True`, `strict=True`, `extra="forbid"`). This is the source of truth for every data shape in the system.
+- **ingest/** — Deterministic document acquisition. Providers: `native_pymupdf` (PDF), `markdown_native` (Markdown). CPU-first, no network. OCR is local Tesseract fallback only.
+- **tree/** — Hierarchy assembly from headings, outlines, and TOC. Strategies: outline-only, TOC-derived, inferred-deterministic. Optional LLM-assisted verification and repair. `service.py` is the main orchestrator (~1100 lines).
+- **llm/** — Structured LLM gateway with owned retries, schema-constrained output, and per-request audit. Protocol-driven: `ProviderAdapter` (provider boundary) and `StructuredLLMGateway` (public API). Adapters: OpenAI, LiteLLM.
+- **semantic/** — Node summarization (bottom-up, LLM-backed or passthrough) and large-leaf decomposition.
+- **retrieval/** — Query planning, tree-based search, BM25-style ranking, metadata/description selection. Indices: `InMemoryRetrievalIndex` (filesystem), `PostgresRetrievalIndex` (Postgres).
+- **storage/** — `DocumentStore` protocol with filesystem and PostgreSQL backends. Run-scoped artifact persistence. `RunScopedStore` scopes all writes to a single reserved run.
+- **observability/** — Structured JSONL logging, `log_event()` helper, Rich progress subscriber.
+- **export/** — LangChain and LlamaIndex integration adapters.
 
-### Storage
-- All persistence goes through `DocumentStore` protocol (`storage/protocol.py`).
-- Services receive a `RunScopedStore` handle scoped to a single run.
-- Two backends: `FilesystemDocumentStore` (default), `PostgresDocumentStore` (optional).
+### Storage Protocol
 
-### Testing
-- Unit tests: pure logic, no filesystem/network/database. Located in `tests/unit/`.
-- Integration tests: real infrastructure. Located in `tests/integration/`.
-- Test data in `fixtures/` with golden expectations for deterministic validation.
-- `filterwarnings = ["error::DeprecationWarning"]` — deprecation warnings fail tests.
+`DocumentStore` is the single persistence boundary. Two implementations: `FilesystemDocumentStore` and `PostgresDocumentStore`. The protocol provides run reservation, artifact read/write (JSON, JSONL, text, binary), retrieval unit persistence, metadata records, and audit/event logging. Factory: `build_document_store()` in `storage/factory.py`.
 
-### Security
-- No secrets or PII in source or tests. Use environment variables.
-- Validate external input at provider/adapter boundaries.
+### Public API
 
----
+The package exports ~100 domain types plus two batch orchestration functions:
+- `acquire_batch()` — parallel document acquisition
+- `build_tree_batch()` — parallel tree construction
 
-## 6. Code Style
+Both use `ThreadPoolExecutor` internally and return `BatchResult[T]` with `successful` and `failed` tuples.
 
-- **Docstrings**: Google style. Required on every public class and function.
-- **Naming**: `snake_case` functions/variables, `PascalCase` classes, `UPPER_SNAKE` constants.
-- **Line length**: 100 chars.
-- **Ruff rules**: `B, E, F, I, PTH, RUF, SIM, UP, W` (configured in `pyproject.toml`).
-- **No magic numbers**: Extract to named constants.
-- **No `print()`**: Use `logging` module. Structured events via `observability/logging.py`.
+## Critical Constraints
 
----
+- **Vectorless**: No vector embeddings anywhere. Retrieval is structural/lexical.
+- **Deterministic-first**: LLM is fallback, not default. Parse path (Phase 01/02) is CPU-only.
+- **Strict versioning**: `PyMuPDF==1.27.2`, `pypdf==6.8.0` — pinned, not ranges.
+- **Zero deprecation warnings**: pytest treats `DeprecationWarning` as error.
+- **Immutable artifacts**: All domain models are frozen. Run-scoped artifacts are write-once.
+- **Schema-constrained LLM output**: Every model response is validated into typed Pydantic models. No regex-based JSON cleanup.
+- **No network in parse path**: Acquisition is CPU-first. OCR uses local Tesseract only.
 
-## 7. Architecture Notes
+## Domain Model Rules
 
-### This is NOT a web app
-NullVector is a **library** for deterministic PDF document ingestion and hierarchy building.
-It has no HTTP endpoints, no CLI entry point, no ASGI server. It is meant to be imported
-and used programmatically.
+- All models inherit `NullVectorModel` from `domain/common.py`
+- `tuple` over `list` for all sequence fields (immutability)
+- `NonEmptyStr` (not bare `str`) for validated string fields
+- `Field(default_factory=tuple)` for empty sequence defaults
+- Enums via `StrEnum` for all categorical state
+- Cross-field validation via `model_validator(mode="after")`
 
-### Processing Phases
-1. **Ingest** (`ingest/`): Acquire PDF, extract text/images, build canonical ledger
-2. **Tree** (`tree/`): Build deterministic document hierarchy from headings, outlines, TOC
-3. **LLM** (`llm/`): Optional enrichment via typed LLM gateway (repair, summarization, verification)
-4. **Retrieval** (`retrieval/`): Build searchable corpus, plan queries, rank results
-5. **Semantic** (`semantic/`): Node decomposition and summarization
+## LLM Gateway Rules
 
-### Key Design Patterns
-- **Protocol-based boundaries**: `AcquisitionProvider`, `ProviderAdapter`, `DocumentStore`, `RepairEngine`
-- **Typed failure envelopes**: `GatewaySuccess | GatewayFailure` instead of exceptions for expected failures
-- **Deterministic outputs**: Exact version pins on PDF parsers, content-addressed fingerprinting
-- **Artifact-driven pipelines**: Each phase produces typed artifacts persisted via `DocumentStore`
-- **BYOLLM (Bring Your Own LLM)**: `provider_adapter` is a required kwarg on `GatewayService`.
-  Users bring their own SDK client. Optional convenience adapters in `llm/adapters/` wrap
-  OpenAI and LiteLLM with zero added dependencies (lazy imports).
+- All calls go through `StructuredLLMGateway` protocol — never call providers directly
+- Retries are owned by NullVector (not delegated to provider SDKs)
+- `GatewayRetryPolicy`: max_attempts=3, exponential backoff
+- Retryable: TIMEOUT, RATE_LIMIT, NETWORK_FAILURE, UNKNOWN_PROVIDER_FAILURE
+- Non-retryable: AUTH_FAILURE, VALIDATION_FAILURE, CONTEXT_LENGTH_VIOLATION, PROVIDER_REFUSAL
+- Every invocation produces a `GatewayAuditRecord`
 
-### ADRs (Authoritative)
-The `docs/adr/` directory contains the actual architectural decisions:
-- ADR 0001-0003: Bootstrap, parser substrate, tree pipeline
-- ADR 0004: LLM gateway design
-- ADR 0005: Tree enhancements (TOC, strategy, decomposition)
-- ADR 0006-0008: V2 ledger, acquisition runtime, major v2 changes
+## Testing
 
----
+- `tests/unit/` — domain models, parser, verification, gateway, adapters
+- `tests/integration/` — full pipeline with real filesystem
+- `tests/retrieval/` — planner, ranker, corpus builder, QA, tree search
+- `tests/llm/` — gateway adapter tests
+- `tests/corpus/` — large document corpus tests
+- Markers: `@pytest.mark.integration`, `@pytest.mark.slow`
 
-## 8. What Claude Should Always Do
+## Dependency Management
 
-- Run `uv run ruff check --fix .` after any code change.
-- Run `uv run ruff format .` after any code change.
-- Run `uv run mypy src/` to validate types on modified modules.
-- Check existing patterns in `src/nullvector/` before introducing new abstractions.
-- Read `docs/adr/` before making architectural changes.
-- Prefer editing existing files over creating new ones.
+Use `uv` exclusively. Any new dependency requires the dependency intelligence gate:
+1. Verify latest stable version from authoritative sources (PyPI, changelogs, migration guides)
+2. Review breaking changes, deprecations, security advisories
+3. Validate compatibility with Python >=3.11 and existing pinned deps
+4. Document the review in the plan before implementation begins
 
-## 9. What Claude Must Never Do
+## Workflow
 
-- Add, remove, or change dependencies without explicit human approval.
-- Use `print()` — use `logging` or `observability/logging.py` helpers.
-- Use deprecated stdlib APIs. Target Python 3.11 exclusively.
-- Leave `# TODO` or `# FIXME` comments in committed code.
-- Run destructive database commands without explicit instruction.
-- Reference non-existent modules: `core/`, `adapters/`, `api/routers/`, `api/schemas/`.
-
----
-
-## 10. Known Issues (Active)
-
-> See `docs/audit-patchwork-overengineering.md` for the full analysis.
-
-- **Half-migrated storage**: Old `ArtifactStore` classes coexist with new `DocumentStore` protocol.
-- **Dead cookbook imports**: Notebooks reference deleted `multimodal_gateway` sub-package.
-- **Missing dev deps**: `pytest-asyncio` and `pytest-mock` not in `pyproject.toml`.
-- **No CI**: No GitHub Actions, no pre-commit hooks, no commitlint.
+- Plan mode for any non-trivial task (3+ steps or architectural decisions)
+- Track progress in `tasks/todo.md`, lessons in `tasks/lessons.md`
+- Run `make ci` before considering any change complete
+- After each phase, append filtered diff to `CHANGE_DIFF.md` (respecting `.diffignore`)

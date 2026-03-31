@@ -487,7 +487,7 @@ class LexicalDocumentPrefilter:
                 key=lambda hit: _hit_sort_key(hit, proxies_by_id=proxies_by_id),
             )
         )
-        if len(ranked_positive) >= request.limit:
+        if len(ranked_positive) >= request.limit or not request.include_zero_score_fillers:
             return ranked_positive[: request.limit]
         remaining = max(request.limit - len(ranked_positive), 0)
         return ranked_positive + zero_score_hits[:remaining]
@@ -515,14 +515,15 @@ class SemanticPrefilterService:
             selection_run_id=request.selection_run_id,
             query=request.query,
             proxy_count=len(request.proxies),
+            include_zero_score_fillers=request.include_zero_score_fillers,
         )
+        store = build_document_store(self._storage, default_filesystem_root=".")
         artifact_root = selection_artifact_root(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
             artifact_root=request.artifact_root,
-            storage=self._storage,
+            store=store,
         )
-        store = build_document_store(self._storage, default_filesystem_root=".")
         index_proxies = tuple(sorted(request.proxies, key=_proxy_sort_key))
         semantic_proxy_index_path = store.put_jsonl_artifact(
             run_type="document_selection",
@@ -566,6 +567,7 @@ class SemanticPrefilterService:
             query=request.query,
             proxy_count=len(index_proxies),
             hit_count=len(hits),
+            include_zero_score_fillers=request.include_zero_score_fillers,
             results_path=semantic_prefilter_results_path,
         )
         return response

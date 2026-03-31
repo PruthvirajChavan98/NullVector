@@ -22,4 +22,6 @@ notebooks/artifacts/
 notebooks/.ipynb_checkpoints/
 files_dump*
 CHANGE_DIFF*
+workspace-diff*
+diffcommand.txt
 features/

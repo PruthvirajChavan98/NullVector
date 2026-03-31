@@ -153,6 +153,7 @@ def _line_blocks(
                     bbox=bbox,
                     content=content,
                     reading_index=reading_index,
+                    family_reading_index=reading_index,
                     occurrence_index=occurrence_index,
                     top_y=bbox.y0,
                     font_size=max(font_sizes) if font_sizes else None,
@@ -203,6 +204,7 @@ def _text_blocks(
                 bbox=bbox,
                 content=content,
                 reading_index=reading_index,
+                family_reading_index=reading_index,
                 line_count=len(line_texts),
                 word_count=_word_count(content),
                 provenance=_text_provenance(),
@@ -231,6 +233,14 @@ def _table_rows_from_block(content: str) -> tuple[tuple[str, ...], ...] | None:
         rows.append(parts)
     if len(rows) < 2:
         return None
+    if any(any(len(cell.split()) > 12 for cell in row) for row in rows):
+        return None
+    numeric_column_rows = sum(
+        1 for row in rows if any(any(char.isdigit() for char in cell) for cell in row[1:])
+    )
+    compact_rows = sum(1 for row in rows if all(len(cell.split()) <= 8 for cell in row))
+    if numeric_column_rows == 0 and compact_rows < 2:
+        return None
     return tuple(rows)
 
 
@@ -255,6 +265,7 @@ def _table_artifacts(
                 table_id=text_block.block_id.replace("text", "table", 1),
                 bbox=text_block.bbox,
                 reading_index=text_block.reading_index,
+                family_reading_index=text_block.family_reading_index,
                 rows=rows,
                 markdown_projection="\n".join(markdown_lines),
                 provenance=_table_provenance(),
@@ -323,6 +334,7 @@ def _image_blocks(
                 visual_id=f"page-{page_index}-visual-{output_index:04d}",
                 bbox=bboxes[raw_index],
                 reading_index=output_index,
+                family_reading_index=output_index,
                 kind_hint="embedded_image",
                 image_ref=f"page-{page_index}-image-{raw_index:04d}",
                 needs_enrichment=True,
@@ -368,6 +380,7 @@ def _make_unresolved_region(
         severity=severity,
         recommended_fallback=recommended_fallback,
         reading_index=reading_index,
+        family_reading_index=reading_index,
         provenance=_unresolved_provenance(),
     )
 
@@ -416,7 +429,17 @@ def _assign_page_global_reading_order(
 ) -> tuple[TextBlock | LineBlock | TableArtifact | VisualArtifact | UnresolvedRegion, ...]:
     ordered = sorted(blocks, key=_block_sort_key)
     return tuple(
-        block.model_copy(update={"reading_index": index}) for index, block in enumerate(ordered)
+        block.model_copy(
+            update={
+                "reading_index": index,
+                "family_reading_index": (
+                    block.family_reading_index
+                    if getattr(block, "family_reading_index", None) is not None
+                    else block.reading_index
+                ),
+            }
+        )
+        for index, block in enumerate(ordered)
     )
 
 
