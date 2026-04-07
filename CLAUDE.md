@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-## Your code will be reviewed with google gemini antigravity and openai codex, so stop being lazy.
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What This Is
 
 NullVector is a **vectorless hierarchical RAG framework** — a CPU-first, deterministic document processing pipeline that builds auditable hierarchical trees from PDFs and Markdown without vector embeddings. All retrieval is structural (BM25-style ranking, Jaccard similarity, tree traversal) with full spatial traceability back to source bounding boxes.
+
+This is a **Python library first** — no HTTP endpoints, no ASGI server. The CLI and async wrappers are thin adapters over the same synchronous library-owned runtime.
 
 ## Commands
 
@@ -21,14 +21,15 @@ make test           # uv run pytest
 # Single test
 uv run pytest tests/unit/test_domain_models.py::test_name
 
-# Run progress notebook (canonical manual verification)
-uv run python scripts/run_progress_notebook.py
-
 # Quickstart smoke test
 uv run python scripts/nullvector_quickstart.py --source-path fixtures/pdfs/phase01/born_digital_with_outline.pdf
+
+# Installed CLI (two entrypoints, identical)
+uv run nullvector ingest document.pdf
+uv run nv search "your query" --document-id <id>
 ```
 
-Pytest enforces `filterwarnings = ["error::DeprecationWarning"]` — deprecation warnings are test failures.
+Pytest enforces `filterwarnings = ["error::DeprecationWarning"]` — deprecation warnings are test failures. Ruff line-length is 100. Mypy runs in strict mode.
 
 ## Architecture
 
@@ -36,51 +37,113 @@ Pytest enforces `filterwarnings = ["error::DeprecationWarning"]` — deprecation
 
 ```
 AcquisitionRequest
-  → [ingest/acquisition_service] deterministic PDF/Markdown extraction
+  -> [ingest/acquisition_service] deterministic PDF/Markdown extraction
 CanonicalDocumentLedger (text substrate, outlines, pages, bounding boxes)
-  → [ingest/projection] transform into tree input
+  -> [ingest/projection] transform into tree input
 TreeSynthesisView
-  → [tree/service] hierarchy assembly, verification, optional LLM repair
+  -> [tree/service] hierarchy assembly, verification, optional LLM repair
 HierarchyNode tree (verified, with page anchors and summaries)
-  → [retrieval/build] corpus construction from tree nodes
+  -> [retrieval/build] corpus construction from tree nodes
 RetrievalCorpus (queryable units)
-  → [retrieval/service] query planning, tree search, ranking
+  -> [retrieval/service] query planning, tree search, ranking
 RetrievalHit[] with spatial citations
 ```
 
 ### Subsystems
 
-- **domain/** — Authoritative Pydantic v2 type contracts. All models inherit `NullVectorModel` (`frozen=True`, `strict=True`, `extra="forbid"`). This is the source of truth for every data shape in the system.
+- **domain/** — Authoritative Pydantic v2 type contracts. All models inherit `NullVectorModel` (`frozen=True`, `strict=True`, `extra="forbid"`). Source of truth for every data shape.
 - **ingest/** — Deterministic document acquisition. Providers: `native_pymupdf` (PDF), `markdown_native` (Markdown). CPU-first, no network. OCR is local Tesseract fallback only.
-- **tree/** — Hierarchy assembly from headings, outlines, and TOC. Strategies: outline-only, TOC-derived, inferred-deterministic. Optional LLM-assisted verification and repair. `service.py` is the main orchestrator (~1100 lines).
-- **llm/** — Structured LLM gateway with owned retries, schema-constrained output, and per-request audit. Protocol-driven: `ProviderAdapter` (provider boundary) and `StructuredLLMGateway` (public API). Adapters: OpenAI, LiteLLM.
+- **tree/** — Hierarchy assembly from headings, outlines, and TOC. Strategies: outline-only, TOC-derived, inferred-deterministic. Optional LLM-assisted verification and repair. `service.py` is the main orchestrator.
+- **llm/** — Structured LLM gateway with owned retries, schema-constrained output, and per-request audit. Protocol-driven: `ProviderAdapter` (provider boundary) and `StructuredLLMGateway` (public API). Adapters: OpenAI, LiteLLM, Noop.
 - **semantic/** — Node summarization (bottom-up, LLM-backed or passthrough) and large-leaf decomposition.
-- **retrieval/** — Query planning, tree-based search, BM25-style ranking, metadata/description selection. Indices: `InMemoryRetrievalIndex` (filesystem), `PostgresRetrievalIndex` (Postgres).
-- **storage/** — `DocumentStore` protocol with filesystem and PostgreSQL backends. Run-scoped artifact persistence. `RunScopedStore` scopes all writes to a single reserved run.
+- **retrieval/** — Query planning, tree-based search, BM25-style ranking, metadata/description selection. Indices: `InMemoryRetrievalIndex` (filesystem), `PostgresRetrievalIndex` (Postgres). Includes QA response generation via `RetrievalQAService`.
+- **storage/** — `DocumentStore` protocol with filesystem and PostgreSQL backends. Run-scoped artifact persistence via `RunScopedStore`. Factory: `build_document_store()` in `storage/factory.py`.
 - **observability/** — Structured JSONL logging, `log_event()` helper, Rich progress subscriber.
-- **export/** — LangChain and LlamaIndex integration adapters.
+- **export/** — LangChain and LlamaIndex bridge adapters (edge-only, thin type converters).
 
-### Storage Protocol
+### Client Facade (`client.py`)
 
-`DocumentStore` is the single persistence boundary. Two implementations: `FilesystemDocumentStore` and `PostgresDocumentStore`. The protocol provides run reservation, artifact read/write (JSON, JSONL, text, binary), retrieval unit persistence, metadata records, and audit/event logging. Factory: `build_document_store()` in `storage/factory.py`.
+`NullVectorClient` is the high-level DX surface. It chains acquisition -> tree -> retrieval -> QA under a single workspace root. Key methods:
 
-### Public API
+- `ingest(source_path)` — full pipeline: acquire + tree + retrieval in one call
+- `acquire(source_path)` — acquisition only
+- `build_tree(acquisition_manifest_path)` — tree from existing acquisition
+- `build_retrieval(acquisition_manifest_path)` — retrieval corpus from existing acquisition
+- `build_description(acquisition_manifest_path, tree_manifest_path)` — document-level description (LLM-backed)
+- `search(query, document_id=...)` — structural retrieval hits
+- `ask(query, document_id=...)` — LLM-grounded QA with citations
 
-The package exports ~100 domain types plus two batch orchestration functions:
-- `acquire_batch()` — parallel document acquisition
-- `build_tree_batch()` — parallel tree construction
+Every method has an `async_` variant (`async_ingest`, `async_search`, etc.) that wraps the sync method via `asyncio.to_thread`.
 
-Both use `ThreadPoolExecutor` internally and return `BatchResult[T]` with `successful` and `failed` tuples.
+The client maintains a local catalog at `<workspace>/.nullvector/catalog.json` mapping document IDs to their latest artifact manifest paths.
+
+### CLI (`cli.py`)
+
+Installed as `nullvector` and `nv` via `pyproject.toml [project.scripts]`. Typer-based. Commands mirror the client facade: `ingest`, `build-tree`, `search`, `ask`. All output is JSON via `canonical_json_text`. Supports `--storage-backend=postgres` with `--pg-conninfo` and `--pg-schema`.
+
+### Presets System (`presets.py`)
+
+`DocumentPreset` bundles `AcquisitionSettings`, `TreeSettings`, `DocumentDescriptionSettings`, and `tree_summarize` flag. Currently one built-in preset: `"general_document"`. Client methods accept `preset: str | DocumentPreset | None`.
+
+### Protocol Boundaries
+
+All inter-layer contracts are `typing.Protocol` classes:
+
+| Protocol | Module | Purpose |
+|----------|--------|---------|
+| `DocumentStore` | `storage/protocol.py` | Persistence read/write boundary |
+| `RunScopedStore` | `storage/protocol.py` | Single-run persistence handle |
+| `StructuredLLMGateway` | `llm/protocols.py` | Typed LLM invocation |
+| `ProviderAdapter` | `llm/protocols.py` | Internal provider transport |
+| `RepairEngine` | `tree/repair.py` | Tree repair strategy |
+| `AcquisitionProvider` | `ingest/protocols.py` | Document extraction |
+
+Async mirrors exist for `DocumentStore`, `RunScopedStore`, `StructuredLLMGateway`, and `ProviderAdapter`.
+
+### Storage Dual-Backend
+
+`DocumentStore` protocol has two implementations:
+
+- **`FilesystemDocumentStore`** — default, zero-dependency. Artifacts written to `<workspace>/artifacts/<run_type>_runs/<run_id>/<document_id>/`.
+- **`PostgresDocumentStore`** — optional, requires `psycopg` (`uv sync --extra postgres`). Artifacts referenced via `pg://<run_type>/<run_id>/<document_id>/<artifact_path>`.
+
+Artifact refs are strings. Filesystem refs are plain paths; Postgres refs start with `pg://`. The `is_postgres_ref()` helper in `storage/_serialization.py` detects the backend from a ref string. `load_model_artifact()` in `_client_utils.py` loads from either backend transparently.
+
+### Error Hierarchy
+
+```
+NullVectorError (base)
++-- ClientValidationError   — bad user inputs or preset configuration
++-- IngestionError          — document acquisition failure
++-- TreeBuildError          — tree synthesis failure
++-- RetrievalError          — retrieval/description artifact failure
++-- QueryError              — search or QA execution failure
+    +-- GatewayInvocationError   — single LLM call failure
+    +-- GatewayUnavailableError  — gateway circuit open or misconfigured
+    +-- DocumentNotIndexedError  — document not in catalog
+```
+
+`translate_error()` in `errors.py` converts internal exceptions into this public hierarchy. All client/CLI code catches broadly and translates via this function.
+
+### Run-ID System
+
+Every pipeline stage produces a unique run identified by a run ID. Auto-generated IDs follow the pattern `<stem>-<12-hex-token>-<stage>` (e.g., `my-document-a1b2c3d4e5f6-acquisition`). Derived stages strip the current stage suffix and append the target stage, preserving the token for traceability across acquisition -> tree -> retrieval chains. See `_client_utils.py`.
+
+### Batch Orchestration
+
+`acquire_batch()` and `build_tree_batch()` (plus async variants) use `ThreadPoolExecutor` internally and return `BatchResult[T]` with `successful` and `failed` tuples.
 
 ## Critical Constraints
 
 - **Vectorless**: No vector embeddings anywhere. Retrieval is structural/lexical.
-- **Deterministic-first**: LLM is fallback, not default. Parse path (Phase 01/02) is CPU-only.
-- **Strict versioning**: `PyMuPDF==1.27.2`, `pypdf==6.8.0` — pinned, not ranges.
+- **Deterministic-first**: LLM is fallback, not default. Parse path is CPU-only.
+- **Strict versioning**: `PyMuPDF==1.27.2`, `pypdf==6.8.0` — pinned exact, not ranges.
 - **Zero deprecation warnings**: pytest treats `DeprecationWarning` as error.
 - **Immutable artifacts**: All domain models are frozen. Run-scoped artifacts are write-once.
-- **Schema-constrained LLM output**: Every model response is validated into typed Pydantic models. No regex-based JSON cleanup.
+- **Schema-constrained LLM output**: Every LLM response is validated into typed Pydantic models. No regex-based JSON cleanup.
 - **No network in parse path**: Acquisition is CPU-first. OCR uses local Tesseract only.
+- **tuple over list**: All sequence fields in domain models use `tuple`, never `list`.
+- **NonEmptyStr over str**: Validated string fields use the `NonEmptyStr` annotated type.
 
 ## Domain Model Rules
 
@@ -90,6 +153,7 @@ Both use `ThreadPoolExecutor` internally and return `BatchResult[T]` with `succe
 - `Field(default_factory=tuple)` for empty sequence defaults
 - Enums via `StrEnum` for all categorical state
 - Cross-field validation via `model_validator(mode="after")`
+- `CoerceTuple` (`BeforeValidator`) handles JSON list->tuple deserialization
 
 ## LLM Gateway Rules
 
@@ -99,27 +163,27 @@ Both use `ThreadPoolExecutor` internally and return `BatchResult[T]` with `succe
 - Retryable: TIMEOUT, RATE_LIMIT, NETWORK_FAILURE, UNKNOWN_PROVIDER_FAILURE
 - Non-retryable: AUTH_FAILURE, VALIDATION_FAILURE, CONTEXT_LENGTH_VIOLATION, PROVIDER_REFUSAL
 - Every invocation produces a `GatewayAuditRecord`
+- The gateway uses typed failure envelopes (`GatewaySuccess | GatewayFailure`) for expected failures, not exceptions
 
 ## Testing
 
-- `tests/unit/` — domain models, parser, verification, gateway, adapters
-- `tests/integration/` — full pipeline with real filesystem
-- `tests/retrieval/` — planner, ranker, corpus builder, QA, tree search
-- `tests/llm/` — gateway adapter tests
-- `tests/corpus/` — large document corpus tests
-- Markers: `@pytest.mark.integration`, `@pytest.mark.slow`
+- `tests/unit/` — domain models, parser, verification, gateway, adapters, client utils, presets
+- `tests/integration/` — full pipeline with real filesystem, client facade, CLI commands
+- `tests/retrieval/` — planner, ranker, corpus builder, QA, tree search, description selection
+- Markers: `@pytest.mark.integration`, `@pytest.mark.slow`, `@pytest.mark.asyncio`
+- `asyncio_mode = "auto"` in pytest config — async tests are auto-detected
 
 ## Dependency Management
 
-Use `uv` exclusively. Any new dependency requires the dependency intelligence gate:
-1. Verify latest stable version from authoritative sources (PyPI, changelogs, migration guides)
+Use `uv` exclusively. Optional extras: `dev` (testing/linting), `postgres` (psycopg). Any new dependency requires:
+1. Verify latest stable version from authoritative sources (PyPI, changelogs)
 2. Review breaking changes, deprecations, security advisories
 3. Validate compatibility with Python >=3.11 and existing pinned deps
-4. Document the review in the plan before implementation begins
 
 ## Workflow
 
 - Plan mode for any non-trivial task (3+ steps or architectural decisions)
 - Track progress in `tasks/todo.md`, lessons in `tasks/lessons.md`
 - Run `make ci` before considering any change complete
-- After each phase, append filtered diff to `CHANGE_DIFF.md` (respecting `.diffignore`)
+- Reference `docs/architecture.md` for detailed module-level documentation
+- ADRs in `docs/adr/` are the authoritative record of architectural decisions

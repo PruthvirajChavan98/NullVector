@@ -58,7 +58,7 @@ def test_cli_ingest_then_ask_markdown(tmp_path: Path) -> None:
             "--storage-path",
             str(workspace),
             "--preset",
-            "academic_paper",
+            "general_document",
         ],
     )
 

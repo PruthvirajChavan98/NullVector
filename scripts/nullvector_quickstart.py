@@ -35,7 +35,11 @@ from nullvector.domain import (
 )
 from nullvector.retrieval import load_retrieval_manifest
 from nullvector.storage import PostgresStorageConfig, StorageConfig, build_document_store
-from nullvector.storage._serialization import canonical_json_text, is_postgres_ref
+from nullvector.storage._serialization import (
+    canonical_json_text,
+    is_postgres_ref,
+    parse_postgres_ref,
+)
 
 
 def infer_source_kind(
@@ -152,6 +156,22 @@ def format_summary(summary: dict[str, Any]) -> str:
     return canonical_json_text(summary, pretty=True)
 
 
+def run_id_from_manifest_ref(manifest_path: str, *, run_type: str) -> str:
+    """Extract one persisted run id from a manifest ref on either backend."""
+
+    if is_postgres_ref(manifest_path):
+        actual_run_type, run_id, _, artifact_path = parse_postgres_ref(manifest_path)
+        if actual_run_type != run_type or artifact_path != "manifest.json":
+            msg = f"manifest ref {manifest_path!r} does not target {run_type}/manifest.json"
+            raise ValueError(msg)
+        return run_id
+    path = Path(manifest_path)
+    if path.name != "manifest.json":
+        msg = f"manifest path {manifest_path!r} does not end with manifest.json"
+        raise ValueError(msg)
+    return path.parent.name
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse quickstart CLI arguments."""
 
@@ -164,11 +184,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--acquisition-run-id",
-        help="Optional acquisition run id. Defaults to <source-stem>-acquisition.",
+        help="Optional acquisition run id. Defaults to an auto-generated unique run id.",
     )
     parser.add_argument(
         "--tree-run-id",
-        help="Optional tree run id. Defaults to <source-stem>-tree.",
+        help="Optional tree run id. Defaults to an auto-generated unique run id.",
     )
     parser.add_argument(
         "--build-retrieval",
@@ -177,7 +197,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--retrieval-run-id",
-        help="Optional retrieval run id. Defaults to <source-stem>-retrieval.",
+        help="Optional retrieval run id. Defaults to an auto-generated unique run id.",
     )
     parser.add_argument(
         "--storage-backend",
@@ -218,18 +238,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         workspace_root = Path(args.artifact_root or DEFAULT_ACQUISITION_ARTIFACT_ROOT)
         client = NullVectorClient(storage_path=workspace_root, storage=storage)
 
-        acquisition_run_id = args.acquisition_run_id or default_run_id(source_path, "acquisition")
-        tree_run_id = args.tree_run_id or default_run_id(source_path, "tree")
-        retrieval_run_id = args.retrieval_run_id or default_run_id(source_path, "retrieval")
-
         if args.build_retrieval:
             result = client.ingest(
                 source_path,
                 source_kind=source_kind,
                 preset="general_document",
-                acquisition_run_id=acquisition_run_id,
-                tree_run_id=tree_run_id,
-                retrieval_run_id=retrieval_run_id,
+                acquisition_run_id=args.acquisition_run_id,
+                tree_run_id=args.tree_run_id,
+                retrieval_run_id=args.retrieval_run_id,
             )
             acquisition_manifest_path = result.acquisition_manifest_path
             tree_manifest_path = result.tree_manifest_path
@@ -249,7 +265,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 storage=storage,
             )
             retrieval_summary: dict[str, Any] | None = {
-                "run_id": retrieval_run_id,
+                "run_id": (
+                    args.retrieval_run_id
+                    or run_id_from_manifest_ref(retrieval_manifest_path, run_type="retrieval")
+                ),
                 "manifest_path": retrieval_manifest_path,
                 "unit_count": retrieval_manifest.unit_count,
             }
@@ -258,17 +277,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source_path,
                 source_kind=source_kind,
                 preset="general_document",
-                acquisition_run_id=acquisition_run_id,
+                acquisition_run_id=args.acquisition_run_id,
             )
             tree_manifest = client.build_tree(
                 acquisition_manifest_path,
-                tree_run_id=tree_run_id,
+                tree_run_id=args.tree_run_id,
                 preset="general_document",
                 summarize=False,
             )
             tree_manifest_path = manifest_ref(
                 run_type="tree",
-                run_id=tree_run_id,
+                run_id=tree_manifest.tree_run_id,
                 document_id=tree_manifest.document_id,
                 artifact_root=tree_manifest.artifact_root,
             )
@@ -280,13 +299,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             "source_path": str(source_path),
             "document_id": acquisition_manifest.document_id,
             "acquisition": {
-                "run_id": acquisition_run_id,
+                "run_id": acquisition_manifest.acquisition_run_id,
                 "manifest_path": acquisition_manifest_path,
                 "page_count": acquisition_manifest.page_count,
                 "selected_outline_source": acquisition_manifest.selected_outline_source.value,
             },
             "tree": {
-                "run_id": tree_run_id,
+                "run_id": tree_manifest.tree_run_id,
                 "manifest_path": tree_manifest_path,
                 "committed_node_count": tree_manifest.committed_node_count,
                 "unassigned_span_count": tree_manifest.unassigned_span_count,

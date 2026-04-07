@@ -9,8 +9,9 @@ from typing import Any
 from pydantic import Field
 
 from nullvector._client_utils import (
-    default_run_id,
-    derived_run_id,
+    auto_derived_run_id,
+    auto_run_id,
+    auto_run_id_token,
     infer_source_kind,
     load_model_artifact,
     manifest_ref,
@@ -203,8 +204,16 @@ class NullVectorClient:
         except Exception as exc:
             raise translate_error(exc, operation="ingest") from exc
 
-        resolved_tree_run_id = tree_run_id or default_run_id(source_path_obj, "tree")
         try:
+            resolved_tree_run_id = tree_run_id or auto_derived_run_id(
+                acquisition_manifest.acquisition_run_id,
+                current_stage="acquisition",
+                target_stage="tree",
+                token=auto_run_id_token(
+                    acquisition_manifest.acquisition_run_id,
+                    stage="acquisition",
+                ),
+            )
             tree_manifest, tree_manifest_path = self._build_tree_manifest(
                 acquisition_manifest_path,
                 tree_run_id=resolved_tree_run_id,
@@ -215,8 +224,13 @@ class NullVectorClient:
         except Exception as exc:
             raise translate_error(exc, operation="tree") from exc
 
-        resolved_retrieval_run_id = retrieval_run_id or default_run_id(source_path_obj, "retrieval")
         try:
+            resolved_retrieval_run_id = retrieval_run_id or auto_derived_run_id(
+                tree_manifest.tree_run_id,
+                current_stage="tree",
+                target_stage="retrieval",
+                token=auto_run_id_token(tree_manifest.tree_run_id, stage="tree"),
+            )
             retrieval_manifest, retrieval_manifest_path = self._build_retrieval_manifest(
                 acquisition_manifest_path,
                 tree_manifest_path=tree_manifest_path,
@@ -487,10 +501,7 @@ class NullVectorClient:
         acquisition_run_id: str | None,
     ) -> tuple[AcquisitionRunManifest, str]:
         resolved_source_kind = infer_source_kind(source_path, source_kind)
-        resolved_acquisition_run_id = acquisition_run_id or default_run_id(
-            source_path,
-            "acquisition",
-        )
+        resolved_acquisition_run_id = acquisition_run_id or auto_run_id(source_path, "acquisition")
         manifest = AcquisitionService(logger=self._logger, storage=self._storage).acquire(
             AcquisitionRequest(
                 source_path=str(source_path),
@@ -525,7 +536,7 @@ class NullVectorClient:
             acquisition_manifest_path,
             storage=self._storage,
         )
-        resolved_tree_run_id = tree_run_id or derived_run_id(
+        resolved_tree_run_id = tree_run_id or auto_derived_run_id(
             acquisition_manifest.acquisition_run_id,
             current_stage="acquisition",
             target_stage="tree",
@@ -573,11 +584,20 @@ class NullVectorClient:
             if tree_manifest_path is not None
             else None
         )
-        resolved_retrieval_run_id = retrieval_run_id or (
-            tree_manifest.tree_run_id
-            if tree_manifest is not None
-            else acquisition_manifest.acquisition_run_id
-        )
+        if retrieval_run_id is not None:
+            resolved_retrieval_run_id = retrieval_run_id
+        elif tree_manifest is not None:
+            resolved_retrieval_run_id = auto_derived_run_id(
+                tree_manifest.tree_run_id,
+                current_stage="tree",
+                target_stage="retrieval",
+            )
+        else:
+            resolved_retrieval_run_id = auto_derived_run_id(
+                acquisition_manifest.acquisition_run_id,
+                current_stage="acquisition",
+                target_stage="retrieval",
+            )
         manifest = RetrievalCorpusBuilder(logger=self._logger, storage=self._storage).build(
             acquisition_manifest_path=acquisition_manifest_path,
             tree_manifest_path=tree_manifest_path,
@@ -611,7 +631,7 @@ class NullVectorClient:
             tree_manifest_path,
             storage=self._storage,
         )
-        resolved_description_run_id = description_run_id or derived_run_id(
+        resolved_description_run_id = description_run_id or auto_derived_run_id(
             tree_manifest.tree_run_id,
             current_stage="tree",
             target_stage="description",

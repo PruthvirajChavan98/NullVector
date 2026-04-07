@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import re
 from pathlib import Path
 from types import ModuleType
 
@@ -34,6 +35,37 @@ def test_default_run_id_uses_normalized_source_stem() -> None:
     module = load_quickstart_module()
 
     assert module.default_run_id("Q1 Revenue Deck!!.pdf", "tree") == "q1-revenue-deck-tree"
+
+
+def test_run_id_from_manifest_ref_supports_filesystem_and_postgres_refs() -> None:
+    module = load_quickstart_module()
+
+    assert (
+        module.run_id_from_manifest_ref(
+            "/tmp/workspace/retrieval/demo-run/manifest.json",
+            run_type="retrieval",
+        )
+        == "demo-run"
+    )
+    assert (
+        module.run_id_from_manifest_ref(
+            "pg://retrieval/demo-run/doc-123/manifest.json",
+            run_type="retrieval",
+        )
+        == "demo-run"
+    )
+
+
+def test_parse_args_help_describes_auto_generated_default_run_ids(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = load_quickstart_module()
+
+    with pytest.raises(SystemExit):
+        module.parse_args(["--help"])
+
+    help_text = capsys.readouterr().out
+    assert re.search(r"auto-\s+generated unique run id", help_text) is not None
 
 
 def test_validate_args_rejects_cross_flag_mismatches() -> None:

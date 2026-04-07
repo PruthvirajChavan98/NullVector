@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import TypeVar
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -18,6 +19,7 @@ from nullvector.storage._serialization import (
 
 _RUN_ID_SAFE = re.compile(r"[^a-z0-9]+")
 _MARKDOWN_SUFFIXES = {".md", ".markdown"}
+_AUTO_RUN_ID_TOKEN_LENGTH = 12
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
@@ -45,10 +47,7 @@ def infer_source_kind(
 def default_run_id(source_path: str | Path, stage: str) -> str:
     """Generate a readable run identifier from the source stem and stage."""
 
-    stem = Path(source_path).stem.casefold()
-    normalized = _RUN_ID_SAFE.sub("-", stem).strip("-")
-    prefix = normalized or "source"
-    return f"{prefix}-{stage}"
+    return f"{_run_id_prefix(source_path)}-{stage}"
 
 
 def derived_run_id(existing_run_id: str, *, current_stage: str, target_stage: str) -> str:
@@ -58,6 +57,67 @@ def derived_run_id(existing_run_id: str, *, current_stage: str, target_stage: st
     if existing_run_id.endswith(current_suffix):
         return f"{existing_run_id.removesuffix(current_suffix)}-{target_stage}"
     return f"{existing_run_id}-{target_stage}"
+
+
+def auto_run_id(source_path: str | Path, stage: str, *, token: str | None = None) -> str:
+    """Generate a readable unique run identifier while preserving the stage suffix."""
+
+    resolved_token = _resolve_auto_run_token(token)
+    return f"{_run_id_prefix(source_path)}-{resolved_token}-{stage}"
+
+
+def auto_derived_run_id(
+    existing_run_id: str,
+    *,
+    current_stage: str,
+    target_stage: str,
+    token: str | None = None,
+) -> str:
+    """Derive one related unique run id from another while preserving the stage suffix."""
+
+    current_suffix = f"-{current_stage}"
+    base = (
+        existing_run_id.removesuffix(current_suffix)
+        if existing_run_id.endswith(current_suffix)
+        else existing_run_id
+    )
+    resolved_token = _resolve_auto_run_token(token)
+    if base.endswith(f"-{resolved_token}"):
+        return f"{base}-{target_stage}"
+    return f"{base}-{resolved_token}-{target_stage}"
+
+
+def auto_run_id_token(existing_run_id: str, *, stage: str) -> str | None:
+    """Return the auto-generated token for one run id when present."""
+
+    suffix = f"-{stage}"
+    if not existing_run_id.endswith(suffix):
+        return None
+    base = existing_run_id.removesuffix(suffix)
+    prefix, separator, token = base.rpartition("-")
+    if not prefix or not separator:
+        return None
+    if re.fullmatch(rf"[0-9a-f]{{{_AUTO_RUN_ID_TOKEN_LENGTH}}}", token) is None:
+        return None
+    return token
+
+
+def _run_id_prefix(source_path: str | Path) -> str:
+    stem = Path(source_path).stem.casefold()
+    normalized = _RUN_ID_SAFE.sub("-", stem).strip("-")
+    return normalized or "source"
+
+
+def _resolve_auto_run_token(token: str | None) -> str:
+    if token is not None:
+        if re.fullmatch(rf"[0-9a-f]{{{_AUTO_RUN_ID_TOKEN_LENGTH}}}", token) is None:
+            msg = (
+                "auto run-id token must be a "
+                f"{_AUTO_RUN_ID_TOKEN_LENGTH}-character lowercase hexadecimal string"
+            )
+            raise ValueError(msg)
+        return token
+    return uuid4().hex[:_AUTO_RUN_ID_TOKEN_LENGTH]
 
 
 def provider_identity_for(source_kind: SourceDocumentKind) -> str:
@@ -106,6 +166,9 @@ def load_model_artifact(
 
 
 __all__ = [
+    "auto_derived_run_id",
+    "auto_run_id",
+    "auto_run_id_token",
     "default_run_id",
     "derived_run_id",
     "infer_source_kind",

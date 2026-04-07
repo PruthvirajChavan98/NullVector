@@ -87,15 +87,15 @@ def ingest_command(
     ] = None,
     acquisition_run_id: Annotated[
         str | None,
-        typer.Option(help="Optional acquisition run id."),
+        typer.Option(help="Optional acquisition run id. Defaults to an auto-generated unique id."),
     ] = None,
     tree_run_id: Annotated[
         str | None,
-        typer.Option(help="Optional tree run id."),
+        typer.Option(help="Optional tree run id. Defaults to an auto-generated unique id."),
     ] = None,
     retrieval_run_id: Annotated[
         str | None,
-        typer.Option(help="Optional retrieval run id."),
+        typer.Option(help="Optional retrieval run id. Defaults to an auto-generated unique id."),
     ] = None,
     storage_path: Annotated[
         Path,
@@ -145,7 +145,7 @@ def build_tree_command(
     preset: Annotated[str, typer.Option(help="Named document preset.")] = "general_document",
     tree_run_id: Annotated[
         str | None,
-        typer.Option(help="Optional tree run id."),
+        typer.Option(help="Optional tree run id. Defaults to an auto-generated unique id."),
     ] = None,
     summarize: Annotated[
         bool | None,

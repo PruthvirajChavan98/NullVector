@@ -21,6 +21,21 @@ This repository currently establishes:
   acquisition manifests
 - test fixtures, golden expectations, and ADR scaffolding for later phases
 
+## Repository Layout
+
+The repo is organized around a library-first framework layout:
+
+- `src/` contains the framework packages and public DX entrypoints
+- `tests/` contains automated validation
+- `fixtures/` contains committed reusable inputs and goldens
+- `docs/` contains architecture notes, ADRs, standards, and legal docs
+- `scripts/` contains maintained operator and development scripts
+- `cookbook/` and `notebooks/` contain authored notebook content
+- `.artifacts/` is the canonical ignored runtime-output root
+
+The current repo also contains historical runtime trees outside `.artifacts/`. The audit and target
+cleanup sequence live in `docs/repository-structure-audit.md`.
+
 ## Local Development
 
 ```bash
