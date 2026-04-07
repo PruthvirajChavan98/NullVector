@@ -1,4 +1,4 @@
-"""Phase 02 deterministic tree pipeline."""
+"""Phase 02 LLM-driven tree pipeline."""
 
 from nullvector.tree.compaction import (
     TreeCompactionService,
@@ -8,7 +8,7 @@ from nullvector.tree.compaction import (
     load_compacted_tree,
     load_compacted_tree_manifest,
 )
-from nullvector.tree.repair import NoopRepairEngine, RepairEngine
+from nullvector.tree.llm_hierarchy import LLMHierarchyBuilder
 from nullvector.tree.service import (
     TreeConflictError,
     TreePipelineError,
@@ -17,8 +17,7 @@ from nullvector.tree.service import (
 )
 
 __all__ = [
-    "NoopRepairEngine",
-    "RepairEngine",
+    "LLMHierarchyBuilder",
     "TreeCompactionService",
     "TreeConflictError",
     "TreePipelineError",

@@ -14,7 +14,6 @@ from typing import TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
-from nullvector.domain.tree import RepairDecision, RepairRequest
 from nullvector.llm.audit import apply_redaction_hooks, json_safe, persist_audit_record
 from nullvector.llm.circuit_breaker import CircuitBreaker
 from nullvector.llm.config_validation import (
@@ -22,7 +21,6 @@ from nullvector.llm.config_validation import (
     validate_gateway_mode_configuration,
 )
 from nullvector.llm.errors import GatewayConfigurationError, error_from_failure
-from nullvector.llm.prompts.repair import RepairPromptResponse, build_repair_messages
 from nullvector.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
 from nullvector.llm.retry import backoff_delay_seconds, should_retry
 from nullvector.llm.types import (
@@ -831,43 +829,4 @@ class GatewayService(StructuredLLMGateway):
         return tuple(cast(GatewaySuccess[T], result) for result in results)
 
 
-def evaluate_repairs(
-    gateway: StructuredLLMGateway,
-    requests: tuple[RepairRequest, ...],
-) -> tuple[RepairDecision, ...]:
-    """Evaluate bounded repair requests through a structured gateway."""
-
-    decisions: list[RepairDecision] = []
-    for request in requests:
-        success = cast(
-            GatewaySuccess[RepairPromptResponse],
-            gateway.invoke(
-                GatewayRequest[RepairPromptResponse](
-                    operation_name=f"repair:{request.repair_kind.value}",
-                    messages=build_repair_messages(request),
-                    response_model=RepairPromptResponse,
-                    idempotency_key=request.request_id,
-                    metadata={
-                        "repair_kind": request.repair_kind.value,
-                        "subject_id": request.subject_id,
-                    },
-                )
-            ),
-        )
-        proposal = success.output
-        decisions.append(
-            RepairDecision(
-                subject_id=request.subject_id,
-                status=proposal.status,
-                repair_kind=request.repair_kind,
-                request_id=request.request_id,
-                message=proposal.message,
-                proposed_title=proposal.proposed_title,
-                resolved_level=proposal.resolved_level,
-                details=request.details,
-            )
-        )
-    return tuple(decisions)
-
-
-__all__ = ["GatewayService", "evaluate_repairs"]
+__all__ = ["GatewayService"]

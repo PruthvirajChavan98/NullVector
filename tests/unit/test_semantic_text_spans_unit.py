@@ -6,17 +6,15 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from nullvector.domain import (
-    AnchorSource,
     ContentSpan,
     HierarchyNode,
     HierarchyOrigin,
-    NodeAnchor,
     NodeOwnedSpan,
     PageSourceAnchor,
     PageSpan,
 )
 from nullvector.semantic._text_spans import bounded_fragments, text_for_node
-from nullvector.tree.headings import PageArtifacts
+from nullvector.tree.page_data import PageData as PageArtifacts
 
 
 def _node(*, owned_spans: tuple[NodeOwnedSpan, ...], end_page: int = 0) -> HierarchyNode:
@@ -28,14 +26,6 @@ def _node(*, owned_spans: tuple[NodeOwnedSpan, ...], end_page: int = 0) -> Hiera
         title="Section",
         normalized_title="section",
         page_span=PageSpan(start_page=0, end_page=end_page),
-        heading_anchor=NodeAnchor(
-            page=0,
-            start_offset=0,
-            end_offset=7,
-            anchor_text="Section",
-            anchor_source=AnchorSource.TEXT,
-            occurrence_index=0,
-        ),
         owned_spans=owned_spans,
         source_anchors=(
             PageSourceAnchor(
@@ -68,7 +58,6 @@ def test_text_for_node_prefers_owned_spans_over_full_page_text() -> None:
         0: PageArtifacts(
             page_index=0,
             text="Section\nbody only\nsibling content",
-            rawdict=None,
         )
     }
 
@@ -91,8 +80,8 @@ def test_text_for_node_falls_back_to_page_span_when_owned_spans_are_empty() -> N
         end_page=1,
     )
     pages_by_index = {
-        0: PageArtifacts(page_index=0, text="Page zero text", rawdict=None),
-        1: PageArtifacts(page_index=1, text="Page one text", rawdict=None),
+        0: PageArtifacts(page_index=0, text="Page zero text"),
+        1: PageArtifacts(page_index=1, text="Page one text"),
     }
 
     assert (

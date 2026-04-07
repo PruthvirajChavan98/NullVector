@@ -27,7 +27,7 @@ from nullvector.semantic._text_spans import (
 )
 from nullvector.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
 from nullvector.storage._serialization import write_json_file
-from nullvector.tree.headings import PageArtifacts
+from nullvector.tree.page_data import PageData as PageArtifacts
 
 LEAF_PASSTHROUGH_TOKEN_THRESHOLD = 200
 
@@ -48,10 +48,9 @@ def _usage_snapshot(usage: GatewayUsage | None) -> SemanticUsage | None:
     )
 
 
-def _stable_node_order(node: HierarchyNode) -> tuple[int, int, int, str]:
+def _stable_node_order(node: HierarchyNode) -> tuple[int, int, str]:
     return (
         node.page_span.start_page,
-        node.heading_anchor.start_offset,
         node.level,
         node.node_id,
     )
@@ -92,19 +91,11 @@ def _parent_prefix_text(
     first_child = sorted(children, key=_stable_node_order)[0]
     parts: list[str] = []
     for page in _pages_for_node(node, pages_by_index):
-        if page.page_index < node.heading_anchor.page:
+        if page.page_index < node.page_span.start_page:
             continue
-        if page.page_index > first_child.heading_anchor.page:
+        if page.page_index > first_child.page_span.start_page:
             break
-
-        start_offset = (
-            node.heading_anchor.end_offset if page.page_index == node.heading_anchor.page else 0
-        )
-        end_offset = len(page.text)
-        if page.page_index == first_child.heading_anchor.page:
-            end_offset = min(end_offset, first_child.heading_anchor.start_offset)
-        if start_offset < end_offset:
-            parts.append(page.text[start_offset:end_offset].strip())
+        parts.append(page.text.strip())
     return "\n".join(part for part in parts if part).strip()
 
 

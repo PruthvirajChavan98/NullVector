@@ -33,7 +33,7 @@ from nullvector.llm.providers import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
-from nullvector.llm.service import GatewayService, evaluate_repairs
+from nullvector.llm.service import GatewayService
 from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayAttempt,
@@ -100,5 +100,4 @@ __all__ = [
     "StructuredOutputMode",
     "VisualInsightResponse",
     "enrich_visual_region",
-    "evaluate_repairs",
 ]

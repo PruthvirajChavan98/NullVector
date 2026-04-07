@@ -7,9 +7,7 @@ from typing import Annotated, Self
 
 from pydantic import (
     Field,
-    NonNegativeFloat,
     NonNegativeInt,
-    PositiveFloat,
     PositiveInt,
     model_validator,
 )
@@ -30,88 +28,13 @@ from nullvector.domain.events import DocumentEvent, EventSeverity, TrustTier
 from nullvector.domain.ledger import OutlineEntry
 
 
-class AnchorSource(StrEnum):
-    """Artifact source used to derive a deterministic heading anchor."""
-
-    TEXT = "text"
-    RAWDICT = "rawdict"
-
-
-class HeadingSourceKind(StrEnum):
-    """Source family that produced a heading candidate."""
-
-    OUTLINE = "outline"
-    TEXT = "text"
-    RAWDICT = "rawdict"
-
-
 class HierarchyOrigin(StrEnum):
     """Origin of a committed hierarchy node."""
 
     OUTLINE = "outline"
     INFERRED = "inferred"
     HYBRID = "hybrid"
-
-
-class OutlineTrustMode(StrEnum):
-    """Deterministic trust mode chosen for hierarchy assembly."""
-
-    OUTLINE_PRIMARY = "outline_primary"
-    HYBRID = "hybrid"
-    INFERRED_PRIMARY = "inferred_primary"
-    TOC_RECONCILED = "toc_reconciled"
-
-
-class OutlineAnchorStatus(StrEnum):
-    """Physical anchoring state for an outline entry."""
-
-    ANCHORED_TO_PHYSICAL_TEXT = "anchored_to_physical_text"
-    OUTLINE_KNOWN_BUT_UNANCHORED = "outline_known_but_unanchored"
-    REJECTED = "rejected"
-
-
-class TocDetectionMethod(StrEnum):
-    """How TOC pages were classified."""
-
-    DETERMINISTIC = "deterministic"
-    HYBRID = "hybrid"
-    LLM_ONLY = "llm_only"
-
-
-class TocParseMethod(StrEnum):
-    """How TOC text was parsed into structural entries."""
-
-    DETERMINISTIC = "deterministic"
-    LLM_ASSISTED = "llm_assisted"
-
-
-class TitleMatchTier(StrEnum):
-    """Verification tier used to confirm a node title against source artifacts."""
-
-    EXACT_NORMALIZED = "exact_normalized"
-    CASEFOLD_PUNCT = "casefold_punct"
-    TOKEN_CONTAINMENT = "token_containment"
-    EDIT_DISTANCE = "edit_distance"
-    LLM_VERIFIED = "llm_verified"
-    NONE = "none"
-
-
-class RepairStatus(StrEnum):
-    """Auditable state of a bounded repair request/decision."""
-
-    NOT_REQUESTED = "not_requested"
-    REQUESTED_BUT_SKIPPED = "requested_but_skipped"
-    NOOP_APPLIED = "noop_applied"
-    PROPOSAL_GENERATED = "proposal_generated"
-    PROPOSAL_REJECTED = "proposal_rejected"
-
-
-class RepairKind(StrEnum):
-    """Bounded repair classes allowed in the tree pipeline."""
-
-    TITLE_NORMALIZATION = "title_normalization"
-    ADJACENT_LEVEL_AMBIGUITY = "adjacent_level_ambiguity"
-    PARTIAL_TOC_REPAIR = "partial_toc_repair"
+    LLM_SYNTHESIZED = "llm_synthesized"
 
 
 class NodeSummaryMethod(StrEnum):
@@ -128,16 +51,6 @@ class DecompositionMethod(StrEnum):
     DETERMINISTIC = "deterministic"
     LLM_ASSISTED = "llm_assisted"
     NONE = "none"
-
-
-class HierarchyStrategy(StrEnum):
-    """Typed orchestration strategies for hierarchy construction."""
-
-    OUTLINE_WITH_TOC_RECONCILIATION = "outline_with_toc_reconciliation"
-    OUTLINE_ONLY = "outline_only"
-    TOC_DERIVED = "toc_derived"
-    INFERRED_WITH_LLM_ASSIST = "inferred_with_llm_assist"
-    INFERRED_DETERMINISTIC = "inferred_deterministic"
 
 
 class VerificationStatus(StrEnum):
@@ -157,91 +70,11 @@ class VerificationSeverity(StrEnum):
 
 
 class TreeSettings(NullVectorModel):
-    """Tuneable deterministic thresholds and policies for tree synthesis."""
+    """Settings for LLM-driven tree synthesis."""
 
-    outline_null_destination_rate_threshold: PositiveFloat = 0.15
-    outline_high_agreement_threshold: PositiveFloat = 0.70
-    outline_low_agreement_threshold: PositiveFloat = 0.30
-    heading_score_keep_threshold: NonNegativeInt = 30
-    heading_score_high_confidence_threshold: NonNegativeInt = 50
-    heading_numbering_signal: NonNegativeInt = 22
-    heading_sparse_page_isolation_signal: NonNegativeInt = 12
-    heading_first_occurrence_isolation_signal: NonNegativeInt = 6
-    heading_sparse_page_line_count: PositiveInt = 4
-    heading_short_line_signal: NonNegativeInt = 14
-    heading_medium_line_signal: NonNegativeInt = 8
-    heading_short_line_max_words: PositiveInt = 8
-    heading_medium_line_max_words: PositiveInt = 12
-    heading_title_case_signal: NonNegativeInt = 10
-    heading_uppercase_signal: NonNegativeInt = 8
-    heading_uppercase_max_words: PositiveInt = 6
-    heading_punctuation_penalty: NonNegativeInt = 20
-    heading_figure_like_penalty: NonNegativeInt = 25
-    heading_repeated_header_footer_penalty: NonNegativeInt = 60
-    heading_toc_overlap_signal: NonNegativeInt = 20
-    heading_layout_signal: NonNegativeInt = 12
-    heading_top_margin_threshold: PositiveFloat = 120.0
-    heading_min_font_size: PositiveFloat = 14.0
-    toc_scan_page_limit: PositiveInt = 20
-    toc_deterministic_high_threshold: PositiveFloat = 0.70
-    toc_deterministic_low_threshold: PositiveFloat = 0.45
-    toc_pattern_match_weight: NonNegativeFloat = 0.35
-    toc_leader_dot_weight: NonNegativeFloat = 0.20
-    toc_numbering_weight: NonNegativeFloat = 0.15
-    toc_font_uniformity_weight: NonNegativeFloat = 0.10
-    toc_consecutive_page_weight: NonNegativeFloat = 0.20
-    toc_repeated_header_penalty_weight: NonNegativeFloat = 0.25
     max_pages_per_leaf_node: PositiveInt = 10
     max_tokens_per_leaf_node: PositiveInt = 20000
     max_decomposition_depth: PositiveInt = 2
-
-    @model_validator(mode="after")
-    def validate_thresholds(self) -> Self:
-        if self.outline_high_agreement_threshold > 1:
-            msg = "outline_high_agreement_threshold must be less than or equal to 1"
-            raise ValueError(msg)
-        if self.outline_low_agreement_threshold > 1:
-            msg = "outline_low_agreement_threshold must be less than or equal to 1"
-            raise ValueError(msg)
-        if self.outline_high_agreement_threshold < self.outline_low_agreement_threshold:
-            msg = (
-                "outline_high_agreement_threshold must be greater than or equal to "
-                "outline_low_agreement_threshold"
-            )
-            raise ValueError(msg)
-        if self.heading_score_high_confidence_threshold < self.heading_score_keep_threshold:
-            msg = (
-                "heading_score_high_confidence_threshold must be greater than or equal to "
-                "heading_score_keep_threshold"
-            )
-            raise ValueError(msg)
-        toc_bounded_values = {
-            "toc_deterministic_high_threshold": self.toc_deterministic_high_threshold,
-            "toc_deterministic_low_threshold": self.toc_deterministic_low_threshold,
-            "toc_pattern_match_weight": self.toc_pattern_match_weight,
-            "toc_leader_dot_weight": self.toc_leader_dot_weight,
-            "toc_numbering_weight": self.toc_numbering_weight,
-            "toc_font_uniformity_weight": self.toc_font_uniformity_weight,
-            "toc_consecutive_page_weight": self.toc_consecutive_page_weight,
-            "toc_repeated_header_penalty_weight": self.toc_repeated_header_penalty_weight,
-        }
-        for field_name, value in toc_bounded_values.items():
-            if not 0 <= value <= 1:
-                msg = f"{field_name} must be between 0 and 1"
-                raise ValueError(msg)
-        if self.toc_deterministic_high_threshold < self.toc_deterministic_low_threshold:
-            msg = (
-                "toc_deterministic_high_threshold must be greater than or equal to "
-                "toc_deterministic_low_threshold"
-            )
-            raise ValueError(msg)
-        if self.heading_medium_line_max_words < self.heading_short_line_max_words:
-            msg = (
-                "heading_medium_line_max_words must be greater than or equal to "
-                "heading_short_line_max_words"
-            )
-            raise ValueError(msg)
-        return self
 
 
 class TreeCompactionSettings(NullVectorModel):
@@ -260,68 +93,6 @@ class TreeBuildRequest(NullVectorModel):
     settings: TreeSettings = Field(default_factory=TreeSettings)
 
 
-class TocPageScore(NullVectorModel):
-    """Deterministic and hybrid TOC-likeness signals for a single page."""
-
-    page_index: NonNegativeInt
-    pattern_match_count: NonNegativeInt
-    leader_dot_density: float = 0.0
-    numbering_density: float = 0.0
-    font_uniformity_signal: float = 0.0
-    consecutive_page_bonus: float = 0.0
-    repeated_header_penalty: float = 0.0
-    final_score: float
-    classified_as_toc: bool = False
-    classification_reason: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-    @model_validator(mode="after")
-    def validate_ranges(self) -> Self:
-        bounded_values = {
-            "leader_dot_density": self.leader_dot_density,
-            "numbering_density": self.numbering_density,
-            "font_uniformity_signal": self.font_uniformity_signal,
-            "consecutive_page_bonus": self.consecutive_page_bonus,
-            "repeated_header_penalty": self.repeated_header_penalty,
-            "final_score": self.final_score,
-        }
-        for field_name, value in bounded_values.items():
-            if not 0 <= value <= 1:
-                msg = f"{field_name} must be between 0 and 1"
-                raise ValueError(msg)
-        return self
-
-
-class TocDetectionResult(NullVectorModel):
-    """Persistable TOC detection result over the leading parse artifact pages."""
-
-    toc_page_indices: tuple[NonNegativeInt, ...] = ()
-    toc_content: str | None = None
-    detection_method: TocDetectionMethod
-    page_scores: tuple[TocPageScore, ...] = Field(default_factory=tuple)
-    has_page_numbers: bool = False
-
-
-class TocParsedEntry(NullVectorModel):
-    """Single parsed entry recovered from TOC text."""
-
-    structure: str | None = None
-    title: NonEmptyStr
-    page_number: NonNegativeInt | None = None
-
-
-class OutlineAnchorRecord(NullVectorModel):
-    """Auditable anchoring outcome for one outline entry."""
-
-    document_id: NonEmptyStr
-    title: NonEmptyStr
-    normalized_title: NonEmptyStr
-    page_index: NonNegativeInt | None = None
-    source: NonEmptyStr
-    status: OutlineAnchorStatus
-    anchor: NodeAnchor | None = None
-    reason: NonEmptyStr | None = None
-
-
 class DecompositionBoundary(NullVectorModel):
     """Bounded subsection boundary returned by deterministic or LLM decomposition."""
 
@@ -330,98 +101,8 @@ class DecompositionBoundary(NullVectorModel):
     level_hint: PositiveInt | None = None
 
 
-class TocReconciliationResult(NullVectorModel):
-    """Deterministic TOC-to-physical-page reconciliation result."""
-
-    parsed_entries: tuple[TocParsedEntry, ...] = Field(default_factory=tuple)
-    offset: int | None = None
-    offset_confidence: float = 0.0
-    reconciled_candidates: tuple[HeadingCandidate, ...] = Field(default_factory=tuple)
-    parse_method: TocParseMethod
-
-    @model_validator(mode="after")
-    def validate_offset_confidence(self) -> Self:
-        if not 0 <= self.offset_confidence <= 1:
-            msg = "offset_confidence must be between 0 and 1"
-            raise ValueError(msg)
-        return self
-
-
-class NodeAnchor(NullVectorModel):
-    """Deterministic heading anchor used to start a hierarchy node."""
-
-    page: NonNegativeInt
-    start_offset: NonNegativeInt
-    end_offset: PositiveInt
-    anchor_text: NonEmptyStr
-    anchor_source: AnchorSource
-    occurrence_index: NonNegativeInt
-
-    @model_validator(mode="after")
-    def validate_offsets(self) -> Self:
-        if self.end_offset <= self.start_offset:
-            msg = "end_offset must be greater than start_offset"
-            raise ValueError(msg)
-        return self
-
-
-class HeadingScoreBreakdown(NullVectorModel):
-    """Explicit signal breakdown for heading candidate scoring."""
-
-    numbering_signal: int = 0
-    isolation_signal: int = 0
-    short_line_signal: int = 0
-    title_case_signal: int = 0
-    uppercase_signal: int = 0
-    punctuation_penalty: int = 0
-    repeated_header_footer_penalty: int = 0
-    toc_overlap_signal: int = 0
-    layout_signal: int = 0
-    layout_cues_available: bool = False
-    final_score: int
-
-
-class HeadingCandidate(NullVectorModel):
-    """Deterministic heading candidate extracted from persisted source artifacts."""
-
-    document_id: NonEmptyStr
-    page_index: NonNegativeInt
-    title: NonEmptyStr
-    normalized_title: NonEmptyStr
-    anchor: NodeAnchor
-    source_kind: HeadingSourceKind
-    level_hint: PositiveInt | None = None
-    outline_level_hint: PositiveInt | None = None
-    score_breakdown: HeadingScoreBreakdown
-    keep: bool = False
-    high_confidence: bool = False
-
-
-class RepairRequest(NullVectorModel):
-    """Typed repair request envelope emitted by deterministic tree logic."""
-
-    request_id: NonEmptyStr
-    subject_id: NonEmptyStr
-    repair_kind: RepairKind
-    rationale: NonEmptyStr
-    details: dict[str, str] = Field(default_factory=dict)
-
-
-class RepairDecision(NullVectorModel):
-    """Typed repair decision recorded for audit and later gateway integration."""
-
-    subject_id: NonEmptyStr
-    status: RepairStatus
-    repair_kind: RepairKind | None = None
-    request_id: NonEmptyStr | None = None
-    message: NonEmptyStr
-    proposed_title: NonEmptyStr | None = None
-    resolved_level: PositiveInt | None = None
-    details: dict[str, str] = Field(default_factory=dict)
-
-
 class HierarchyNode(NullVectorModel):
-    """Internal verified hierarchy node used before projecting to NodeCard."""
+    """Internal hierarchy node used before projecting to NodeCard."""
 
     node_id: NonEmptyStr
     document_id: NonEmptyStr
@@ -431,22 +112,17 @@ class HierarchyNode(NullVectorModel):
     title: NonEmptyStr
     normalized_title: NonEmptyStr
     page_span: PageSpan
-    heading_anchor: NodeAnchor
     owned_spans: Annotated[tuple[NodeOwnedSpan, ...], CoerceTuple] = Field(default_factory=tuple)
     source_anchors: Annotated[tuple[PageSourceAnchor, ...], CoerceTuple] = Field(
         default_factory=tuple
     )
     origin: HierarchyOrigin
     confidence: float = 0.0
-    verification_match_tier: TitleMatchTier = TitleMatchTier.NONE
 
     @model_validator(mode="after")
     def validate_hierarchy_node(self) -> Self:
         if not self.path:
             msg = "path must contain at least one segment"
-            raise ValueError(msg)
-        if not self.source_anchors:
-            msg = "hierarchy nodes must include at least one source anchor"
             raise ValueError(msg)
         if not 0 <= self.confidence <= 1:
             msg = "confidence must be between 0 and 1"
@@ -463,41 +139,14 @@ class UnassignedPageSpan(NullVectorModel):
 
 
 class HierarchyBuildReport(NullVectorModel):
-    """Deterministic build summary and ambiguity accounting for a tree run."""
+    """Build summary for a tree run."""
 
     document_id: NonEmptyStr
     tree_run_id: NonEmptyStr
-    outline_trust_mode: OutlineTrustMode
-    candidate_count: NonNegativeInt
-    outline_candidate_count: NonNegativeInt
-    inferred_candidate_count: NonNegativeInt
-    selected_candidate_count: NonNegativeInt
-    kept_candidate_count: NonNegativeInt
-    high_confidence_candidate_count: NonNegativeInt
-    candidates_with_layout_cues: NonNegativeInt
-    candidates_without_layout_cues: NonNegativeInt
     committed_node_count: NonNegativeInt
     unassigned_span_count: NonNegativeInt
-    ambiguity_count: NonNegativeInt
+    synthesis_method: NonEmptyStr = "llm"
     notes: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-
-class StrategyRationale(NullVectorModel):
-    """Deterministic rationale used for strategy selection."""
-
-    reasons: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-    outline_available: bool
-    toc_available: bool
-    gateway_available: bool
-
-
-class StrategyExecutionReport(NullVectorModel):
-    """Auditable record of attempted and selected hierarchy strategies."""
-
-    attempted_strategies: tuple[HierarchyStrategy, ...]
-    selected_strategy: HierarchyStrategy
-    rationale: StrategyRationale
-    fallback_reasons: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
 
 
 class NodeCard(NullVectorModel):
@@ -754,7 +403,7 @@ class TreeRunIndex(NullVectorModel):
 
 
 class TreeBuildManifest(NullVectorModel):
-    """Filesystem-backed manifest for a deterministic tree build."""
+    """Manifest for a tree build run."""
 
     tree_run_id: NonEmptyStr
     document_id: NonEmptyStr
@@ -766,21 +415,11 @@ class TreeBuildManifest(NullVectorModel):
     settings: TreeSettings
     settings_digest: Sha256Hex
     run_index_path: NonEmptyStr | None = None
-    headings_path: NonEmptyStr | None = None
-    raw_hierarchy_path: NonEmptyStr | None = None
-    repair_requests_path: NonEmptyStr | None = None
-    repair_decisions_path: NonEmptyStr | None = None
-    repaired_hierarchy_path: NonEmptyStr | None = None
     committed_hierarchy_path: NonEmptyStr | None = None
     node_cards_path: NonEmptyStr | None = None
     unassigned_spans_path: NonEmptyStr | None = None
-    verification_report_path: NonEmptyStr | None = None
     build_report_path: NonEmptyStr | None = None
-    toc_detection_path: NonEmptyStr | None = None
-    toc_reconciliation_path: NonEmptyStr | None = None
-    llm_verification_assists_path: NonEmptyStr | None = None
     node_summaries_path: NonEmptyStr | None = None
-    strategy_execution_report_path: NonEmptyStr | None = None
     decomposition_report_path: NonEmptyStr | None = None
     committed_node_count: NonNegativeInt
     unassigned_span_count: NonNegativeInt
@@ -927,48 +566,26 @@ class TreeSynthesisView(NullVectorModel):
 
 
 __all__ = [
-    "AnchorSource",
     "CompactedNodeMapping",
     "CompactedTreeManifest",
     "CompactedTreeNode",
     "DecompositionBoundary",
     "DecompositionMethod",
     "DecompositionReport",
-    "HeadingCandidate",
-    "HeadingScoreBreakdown",
-    "HeadingSourceKind",
     "HierarchyBuildReport",
     "HierarchyNode",
     "HierarchyOrigin",
-    "HierarchyStrategy",
     "LLMVerificationAssistRecord",
-    "NodeAnchor",
     "NodeCard",
     "NodeSummary",
     "NodeSummaryMethod",
-    "OutlineAnchorRecord",
-    "OutlineAnchorStatus",
-    "OutlineTrustMode",
-    "RepairDecision",
-    "RepairKind",
-    "RepairRequest",
-    "RepairStatus",
     "SemanticUsage",
-    "StrategyExecutionReport",
-    "StrategyRationale",
     "StructuredRegionInsight",
     "SynthesisLine",
     "SynthesisPage",
     "SynthesisTextProjection",
     "SynthesisTrustSummary",
     "SynthesisUnresolvedRegion",
-    "TitleMatchTier",
-    "TocDetectionMethod",
-    "TocDetectionResult",
-    "TocPageScore",
-    "TocParseMethod",
-    "TocParsedEntry",
-    "TocReconciliationResult",
     "TreeBuildManifest",
     "TreeBuildRequest",
     "TreeCompactionRequest",

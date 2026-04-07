@@ -54,18 +54,11 @@ from nullvector.domain.ledger import (
 )
 from nullvector.domain.retrieval import TreeSearchFrontierNode
 from nullvector.domain.tree import (
-    AnchorSource,
     DecompositionMethod,
     DecompositionReport,
-    HeadingCandidate,
-    HeadingScoreBreakdown,
-    HeadingSourceKind,
     HierarchyNode,
     HierarchyOrigin,
-    NodeAnchor,
     NodeCard,
-    RepairDecision,
-    RepairStatus,
     SynthesisLine,
     SynthesisPage,
     SynthesisTextProjection,
@@ -547,39 +540,14 @@ def test_tree_synthesis_view_accepts_projection_payloads() -> None:
     assert projection.pages[0].trust_summary.dominant_trust_tier is TrustTier.NATIVE_LAYOUT_BACKED
 
 
-def test_tree_settings_reject_invalid_threshold_order() -> None:
-    with pytest.raises(ValidationError):
-        TreeSettings(
-            outline_high_agreement_threshold=0.2,
-            outline_low_agreement_threshold=0.4,
-        )
+def test_tree_settings_accept_valid_fields() -> None:
+    settings = TreeSettings(max_pages_per_leaf_node=5, max_decomposition_depth=3)
+
+    assert settings.max_pages_per_leaf_node == 5
+    assert settings.max_decomposition_depth == 3
 
 
 def test_models_accept_valid_phase02_payloads() -> None:
-    heading_anchor = NodeAnchor(
-        page=1,
-        start_offset=0,
-        end_offset=8,
-        anchor_text="Overview",
-        anchor_source=AnchorSource.TEXT,
-        occurrence_index=0,
-    )
-    heading_candidate = HeadingCandidate(
-        document_id="c" * 64,
-        page_index=1,
-        title="Overview",
-        normalized_title="overview",
-        anchor=heading_anchor,
-        source_kind=HeadingSourceKind.OUTLINE,
-        level_hint=1,
-        outline_level_hint=1,
-        score_breakdown=HeadingScoreBreakdown(
-            toc_overlap_signal=40,
-            final_score=100,
-        ),
-        keep=True,
-        high_confidence=True,
-    )
     hierarchy_node = HierarchyNode(
         node_id="d" * 64,
         document_id="c" * 64,
@@ -588,7 +556,6 @@ def test_models_accept_valid_phase02_payloads() -> None:
         title="Overview",
         normalized_title="overview",
         page_span=PageSpan(start_page=1, end_page=1),
-        heading_anchor=heading_anchor,
         owned_spans=(
             NodeOwnedSpan(
                 kind="body",
@@ -643,23 +610,12 @@ def test_models_accept_valid_phase02_payloads() -> None:
         settings=TreeSettings(),
         settings_digest="f" * 64,
         run_index_path="/tmp/_tree_runs/tree-run-001/run-index.json",
-        headings_path="/tmp/tree/headings/candidates.json",
-        raw_hierarchy_path="/tmp/tree/hierarchy/raw.json",
-        repair_requests_path="/tmp/tree/repair/requests.json",
-        repair_decisions_path="/tmp/tree/repair/decisions.json",
-        repaired_hierarchy_path="/tmp/tree/hierarchy/repaired.json",
         committed_hierarchy_path="/tmp/tree/hierarchy/committed.json",
         node_cards_path="/tmp/tree/hierarchy/node-cards.json",
         unassigned_spans_path="/tmp/tree/unassigned-spans.json",
-        verification_report_path="/tmp/tree/verify/report.json",
         build_report_path="/tmp/tree/build-report.json",
         committed_node_count=1,
         unassigned_span_count=0,
-    )
-    repair_decision = RepairDecision(
-        subject_id="d" * 64,
-        status=RepairStatus.NOT_REQUESTED,
-        message="no repair work was needed",
     )
     decomposition_report = DecompositionReport(
         decomposition_method=DecompositionMethod.NONE,
@@ -671,7 +627,6 @@ def test_models_accept_valid_phase02_payloads() -> None:
         page_span=PageSpan(start_page=0, end_page=0),
     )
 
-    assert heading_candidate.keep is True
     assert hierarchy_node.origin is HierarchyOrigin.OUTLINE
     assert hierarchy_node.owned_spans[0].span.end_offset == 8
     assert verification_report.status is VerificationStatus.PASSED
@@ -680,7 +635,6 @@ def test_models_accept_valid_phase02_payloads() -> None:
     assert tree_index.acquisition_artifact_identity == "/tmp/manifest.json"
     assert tree_manifest.committed_node_count == 1
     assert tree_manifest.registry_root == "/tmp/_tree_runs"
-    assert repair_decision.status is RepairStatus.NOT_REQUESTED
     assert decomposition_report.empty_parent_count == 0
     assert unassigned_span.page_span.start_page == 0
 

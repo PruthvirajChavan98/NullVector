@@ -7,16 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from nullvector._text import normalized_text_key
 from nullvector.domain.common import ContentSpan, NodeOwnedSpan, PageSpan
 from nullvector.domain.gateway import DecompositionPromptResponse
-from nullvector.domain.ledger import OutlineEntry
 from nullvector.domain.tree import (
     DecompositionBoundary,
     DecompositionMethod,
     DecompositionReport,
     HierarchyNode,
     HierarchyOrigin,
-    NodeAnchor,
     SemanticUsage,
     TreeSettings,
 )
@@ -26,14 +25,8 @@ from nullvector.llm.types import GatewayRequest, GatewayUsage
 from nullvector.semantic._text_spans import _TextPage, text_for_node
 from nullvector.semantic.tokens import Tokenizer, resolve_tokenizer
 from nullvector.storage._serialization import write_json_file
-from nullvector.tree.anchors import node_anchor_to_source_anchor
-from nullvector.tree.headings import (
-    PageArtifacts,
-    anchor_title_on_page,
-    extract_inferred_candidates,
-    normalized_title_key,
-)
 from nullvector.tree.hierarchy import generate_node_id
+from nullvector.tree.page_data import PageData as PageArtifacts
 
 _DECOMPOSITION_KEEP_THRESHOLD = 20
 _DECOMPOSITION_HIGH_CONFIDENCE_THRESHOLD = 40
@@ -48,10 +41,9 @@ class _DecompositionMetadata:
     audit_path: str | None
 
 
-def _stable_node_order(node: HierarchyNode) -> tuple[int, int, int, str]:
+def _stable_node_order(node: HierarchyNode) -> tuple[int, int, str]:
     return (
         node.page_span.start_page,
-        node.heading_anchor.start_offset,
         node.level,
         node.node_id,
     )
@@ -310,37 +302,9 @@ class NodeDecomposer:
         node: HierarchyNode,
         pages: tuple[PageArtifacts, ...],
     ) -> tuple[HierarchyNode, ...]:
-        local_settings = self._settings.model_copy(
-            update={
-                "heading_score_keep_threshold": _DECOMPOSITION_KEEP_THRESHOLD,
-                "heading_score_high_confidence_threshold": _DECOMPOSITION_HIGH_CONFIDENCE_THRESHOLD,
-            }
-        )
-        candidates = extract_inferred_candidates(
-            document_id=node.document_id,
-            pages=pages,
-            outline_entries=cast(tuple[OutlineEntry, ...], ()),
-            settings=local_settings,
-        )
-        credible_candidates = tuple(
-            candidate
-            for candidate in candidates
-            if _is_credible_subheading(candidate)
-            and self._candidate_belongs_to_child(candidate.anchor, node)
-        )
-        return self._children_from_anchors(
-            node=node,
-            boundaries=tuple(
-                DecompositionBoundary(
-                    title=candidate.title,
-                    page_index=candidate.page_index,
-                    level_hint=candidate.level_hint,
-                )
-                for candidate in credible_candidates
-            ),
-            pages=pages,
-            method=DecompositionMethod.DETERMINISTIC,
-        )
+        # Deterministic decomposition removed in Phase 2 (VLM/LLM pivot).
+        # Phase 3 replaces this with LLM-driven decomposition.
+        return ()
 
     def _llm_children(
         self,
@@ -385,37 +349,21 @@ class NodeDecomposer:
         pages: tuple[PageArtifacts, ...],
         method: DecompositionMethod,
     ) -> tuple[HierarchyNode, ...]:
-        pages_by_index = {page.page_index: page for page in pages}
-        anchored: list[tuple[DecompositionBoundary, NodeAnchor]] = []
-        seen_positions: set[tuple[int, int, int]] = set()
-
-        for boundary in boundaries:
-            page = pages_by_index.get(boundary.page_index)
-            if page is None:
-                continue
-            anchor = anchor_title_on_page(boundary.title, page)
-            if anchor is None or not self._candidate_belongs_to_child(anchor, node):
-                continue
-            position = (anchor.page, anchor.start_offset, anchor.end_offset)
-            if position in seen_positions:
-                continue
-            seen_positions.add(position)
-            anchored.append((boundary, anchor))
-
-        anchored.sort(key=lambda item: (item[1].page, item[1].start_offset, item[0].title))
-        if len(anchored) < 2:
+        # Anchor-based decomposition removed in Phase 2 (VLM/LLM pivot).
+        # Phase 3 replaces with LLM-driven boundary detection.
+        if len(boundaries) < 2:
             return ()
 
         children: list[HierarchyNode] = []
-        parent_end_page, parent_end_offset = _parent_owned_end(node, pages_by_index)
-        for index, (boundary, anchor) in enumerate(anchored):
-            next_anchor = anchored[index + 1][1] if index + 1 < len(anchored) else None
-            if next_anchor is not None:
-                child_end_page = next_anchor.page
-                child_end_offset = next_anchor.start_offset
-            else:
-                child_end_page = parent_end_page
-                child_end_offset = parent_end_offset
+        parent_end_page = node.page_span.end_page
+        sorted_boundaries = sorted(boundaries, key=lambda b: (b.page_index, b.title))
+
+        for index, boundary in enumerate(sorted_boundaries):
+            has_next = index + 1 < len(sorted_boundaries)
+            next_boundary = sorted_boundaries[index + 1] if has_next else None
+            child_end_page = (
+                next_boundary.page_index if next_boundary is not None else parent_end_page
+            )
 
             level = _candidate_level(node, boundary.level_hint)
             title = boundary.title.strip()
@@ -425,40 +373,23 @@ class NodeDecomposer:
                     document_id=node.document_id,
                     path=path,
                     level=level,
-                    page=anchor.page,
-                    start_offset=anchor.start_offset,
-                    end_offset=anchor.end_offset,
-                    span_start_page=anchor.page,
+                    page=boundary.page_index,
+                    start_offset=0,
+                    end_offset=1,
+                    span_start_page=boundary.page_index,
                 ),
                 document_id=node.document_id,
                 parent_id=node.node_id,
                 path=path,
                 level=level,
                 title=title,
-                normalized_title=normalized_title_key(title),
+                normalized_title=normalized_text_key(title),
                 page_span=PageSpan(
-                    start_page=anchor.page,
-                    end_page=max(anchor.page, child_end_page),
+                    start_page=boundary.page_index,
+                    end_page=max(boundary.page_index, child_end_page),
                 ),
-                heading_anchor=anchor,
-                owned_spans=(
-                    NodeOwnedSpan(
-                        kind="body",
-                        span=ContentSpan(
-                            start_page=anchor.page,
-                            start_offset=anchor.start_offset,
-                            end_page=child_end_page,
-                            end_offset=child_end_offset,
-                        ),
-                    ),
-                ),
-                source_anchors=(node_anchor_to_source_anchor(anchor),),
-                origin=(
-                    HierarchyOrigin.INFERRED
-                    if method is DecompositionMethod.DETERMINISTIC
-                    else HierarchyOrigin.HYBRID
-                ),
-                confidence=0.72 if method is DecompositionMethod.DETERMINISTIC else 0.6,
+                origin=HierarchyOrigin.LLM_SYNTHESIZED,
+                confidence=0.6,
             )
             children.append(child)
         return tuple(children)
@@ -473,14 +404,11 @@ class NodeDecomposer:
             parent_start_page = node.owned_spans[0].span.start_page
             parent_start_offset = node.owned_spans[0].span.start_offset
         else:
-            parent_start_page = node.heading_anchor.page
-            parent_start_offset = node.heading_anchor.start_offset
-        prefix_end_page = first_child.heading_anchor.page
-        prefix_end_offset = first_child.heading_anchor.start_offset
+            parent_start_page = node.page_span.start_page
+            parent_start_offset = 0
+        prefix_end_page = first_child.page_span.start_page
 
-        if prefix_end_page < parent_start_page or (
-            prefix_end_page == parent_start_page and prefix_end_offset < parent_start_offset
-        ):
+        if prefix_end_page < parent_start_page:
             return node.model_copy(update={"owned_spans": ()})
 
         return node.model_copy(
@@ -492,19 +420,12 @@ class NodeDecomposer:
                             start_page=parent_start_page,
                             start_offset=parent_start_offset,
                             end_page=prefix_end_page,
-                            end_offset=prefix_end_offset,
+                            end_offset=0,
                         ),
                     ),
                 )
             }
         )
-
-    def _candidate_belongs_to_child(self, anchor: NodeAnchor, node: HierarchyNode) -> bool:
-        if anchor.page < node.page_span.start_page or anchor.page > node.page_span.end_page:
-            return False
-        if anchor.page == node.heading_anchor.page:
-            return anchor.start_offset > node.heading_anchor.start_offset
-        return True
 
 
 def _token_count_for_node(

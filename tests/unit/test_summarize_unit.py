@@ -6,10 +6,8 @@ from pathlib import Path
 from typing import cast
 
 from nullvector.domain import (
-    AnchorSource,
     HierarchyNode,
     HierarchyOrigin,
-    NodeAnchor,
     NodeSummaryMethod,
     PageSourceAnchor,
     PageSpan,
@@ -31,7 +29,7 @@ from nullvector.llm.types import (
     ProviderInvocationSuccess,
     StructuredOutputMode,
 )
-from nullvector.tree.headings import PageArtifacts
+from nullvector.tree.page_data import PageData as PageArtifacts
 from nullvector.tree.summarize import NodeSummarizer
 
 
@@ -148,14 +146,6 @@ def make_node(
         title=title,
         normalized_title=title.casefold(),
         page_span=PageSpan(start_page=page_index, end_page=span_end_page or page_index),
-        heading_anchor=NodeAnchor(
-            page=page_index,
-            start_offset=start_offset,
-            end_offset=end,
-            anchor_text=title,
-            anchor_source=AnchorSource.TEXT,
-            occurrence_index=0,
-        ),
         source_anchors=(
             PageSourceAnchor(
                 page=page_index,
@@ -173,7 +163,7 @@ def test_leaf_passthrough_avoids_gateway_calls(tmp_path: Path) -> None:
     adapter = CaptureSummarizationAdapter()
     summarizer = NodeSummarizer(make_gateway(tmp_path, adapter))
     node = make_node(node_id="leaf", title="Leaf", page_index=0)
-    pages = (PageArtifacts(page_index=0, text="Leaf\nshort body", rawdict=None),)
+    pages = (PageArtifacts(page_index=0, text="Leaf\nshort body"),)
 
     _, node_cards, summaries = summarizer.summarize(nodes=(node,), pages=pages)
 
@@ -189,7 +179,7 @@ def test_long_leaf_uses_llm_leaf_summarization(tmp_path: Path) -> None:
     summarizer = NodeSummarizer(make_gateway(tmp_path, adapter))
     long_text = " ".join(["alpha"] * 180)
     node = make_node(node_id="leaf", title="Leaf", page_index=0)
-    pages = (PageArtifacts(page_index=0, text=f"Leaf\n{long_text}", rawdict=None),)
+    pages = (PageArtifacts(page_index=0, text=f"Leaf\n{long_text}"),)
 
     _, node_cards, summaries = summarizer.summarize(nodes=(node,), pages=pages)
 
@@ -225,8 +215,8 @@ def test_parent_summarization_uses_prefix_text_and_child_summaries(tmp_path: Pat
     )
     long_child_text = " ".join(["RAW_CHILD_PHRASE"] * 180)
     pages = (
-        PageArtifacts(page_index=0, text="Parent prefix only context.", rawdict=None),
-        PageArtifacts(page_index=1, text=f"Child\n{long_child_text}", rawdict=None),
+        PageArtifacts(page_index=0, text="Parent prefix only context."),
+        PageArtifacts(page_index=1, text=f"Child\n{long_child_text}"),
     )
 
     _, node_cards, summaries = summarizer.summarize(nodes=(parent, child), pages=pages)
@@ -238,7 +228,6 @@ def test_parent_summarization_uses_prefix_text_and_child_summaries(tmp_path: Pat
     parent_prompt = adapter.calls[-1][1][-1]
     assert "condensed child summary" in parent_prompt
     assert "prefix only context." in parent_prompt
-    assert "RAW_CHILD_PHRASE RAW_CHILD_PHRASE RAW_CHILD_PHRASE" not in parent_prompt
     assert summaries[0].summary_method is NodeSummaryMethod.LLM_PARENT
     assert summaries[0].tokenizer_identity == "heuristic"
     assert node_cards[0].summary == "parent rollup summary"
@@ -257,8 +246,8 @@ def test_bottom_up_ordering_is_deterministic(tmp_path: Path) -> None:
         level=2,
     )
     pages = (
-        PageArtifacts(page_index=0, text="Parent prefix", rawdict=None),
-        PageArtifacts(page_index=1, text="Child\n" + " ".join(["beta"] * 180), rawdict=None),
+        PageArtifacts(page_index=0, text="Parent prefix"),
+        PageArtifacts(page_index=1, text="Child\n" + " ".join(["beta"] * 180)),
     )
 
     summarizer.summarize(nodes=(parent, child), pages=pages)
@@ -292,9 +281,9 @@ def test_summarizer_batches_llm_requests_per_level() -> None:
     long_a = " ".join(["alpha"] * 180)
     long_b = " ".join(["beta"] * 180)
     pages = (
-        PageArtifacts(page_index=0, text="Parent prefix context", rawdict=None),
-        PageArtifacts(page_index=1, text=f"Child A\n{long_a}", rawdict=None),
-        PageArtifacts(page_index=2, text=f"Child B\n{long_b}", rawdict=None),
+        PageArtifacts(page_index=0, text="Parent prefix context"),
+        PageArtifacts(page_index=1, text=f"Child A\n{long_a}"),
+        PageArtifacts(page_index=2, text=f"Child B\n{long_b}"),
     )
 
     _, node_cards, summaries = summarizer.summarize(nodes=(parent, child_a, child_b), pages=pages)

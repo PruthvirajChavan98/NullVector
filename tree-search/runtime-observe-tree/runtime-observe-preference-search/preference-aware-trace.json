@@ -1,19 +1,43 @@
 {
   "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
-  "fell_back_to_base_tree_search": false,
+  "fell_back_to_base_tree_search": true,
   "search_mode": "deterministic",
   "trace": [
     {
       "applied_preference_ids": [],
       "frontier_node_ids": [
-        "af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba"
+        "cb6a3b4a3aa752df67827c4e08a88a70f64c0f03209b7479face264e5b5ca22c"
       ],
       "selected_node_ids": [
-        "af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba"
+        "cb6a3b4a3aa752df67827c4e08a88a70f64c0f03209b7479face264e5b5ca22c"
       ],
-      "selection_reason": "Selected frontier nodes by tree-search score: af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba=0.00",
+      "selection_reason": "Advanced through the single available frontier node despite low lexical score: cb6a3b4a3aa752df67827c4e08a88a70f64c0f03209b7479face264e5b5ca22c=0.00",
       "step_index": 0,
-      "termination_signal": "evidence_sufficient"
+      "termination_signal": null
+    },
+    {
+      "applied_preference_ids": [],
+      "frontier_node_ids": [
+        "da8d822a72cf1994c5d4e2cd0c85fdb731332376c3fb9bfd1ad47e1a601eac65"
+      ],
+      "selected_node_ids": [
+        "da8d822a72cf1994c5d4e2cd0c85fdb731332376c3fb9bfd1ad47e1a601eac65"
+      ],
+      "selection_reason": "Advanced through the single available frontier node despite low lexical score: da8d822a72cf1994c5d4e2cd0c85fdb731332376c3fb9bfd1ad47e1a601eac65=0.00",
+      "step_index": 1,
+      "termination_signal": null
+    },
+    {
+      "applied_preference_ids": [],
+      "frontier_node_ids": [
+        "70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b"
+      ],
+      "selected_node_ids": [
+        "70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b"
+      ],
+      "selection_reason": "Selected frontier nodes by tree-search score: 70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b=2.00",
+      "step_index": 2,
+      "termination_signal": "leaf"
     }
   ],
   "tree_run_id": "runtime-observe-tree"

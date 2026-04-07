@@ -6,67 +6,6 @@
       "matched_terms": [
         "appendix"
       ],
-      "score": 5.0,
-      "score_breakdown": {
-        "authoritative_bonus": 2.0,
-        "token_overlap": 1.5,
-        "verified_node_bonus": 1.5
-      },
-      "unit": {
-        "asset_path": null,
-        "authoritative": true,
-        "content_span": {
-          "end_offset": 81,
-          "end_page": 1,
-          "start_offset": 0,
-          "start_page": 0
-        },
-        "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
-        "interpretive": false,
-        "keywords": [
-          "Overview"
-        ],
-        "metadata": {
-          "level": 1,
-          "owned_span_count": 1,
-          "path": [
-            "Overview"
-          ],
-          "verified": true
-        },
-        "modality": "text",
-        "node_id": "af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba",
-        "page_render_path": null,
-        "page_span": {
-          "end_page": 1,
-          "start_page": 0
-        },
-        "source_anchors": [
-          {
-            "end_offset": 8,
-            "page": 0,
-            "quote": "Overview",
-            "start_offset": 0
-          },
-          {
-            "end_offset": 55,
-            "page": 0,
-            "quote": "NullVector ingests authored Markdown directly.",
-            "start_offset": 9
-          }
-        ],
-        "text": "Overview\nNullVector ingests authored Markdown directly.\nDetails\nThis section exists to verify heading normalization.\nAppendix\n```python\nprint('stable notebook smoke')\nFinal notes stay in plain text.",
-        "title": "Overview",
-        "trust_tier": "native_exact",
-        "unit_id": "node-text-af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba",
-        "unit_type": "node_text",
-        "visual_region": null
-      }
-    },
-    {
-      "matched_terms": [
-        "appendix"
-      ],
       "score": 3.5,
       "score_breakdown": {
         "authoritative_bonus": 2.0,
@@ -104,37 +43,51 @@
       }
     },
     {
-      "matched_terms": [],
-      "score": 0.0,
-      "score_breakdown": {},
+      "matched_terms": [
+        "appendix"
+      ],
+      "score": 3.0,
+      "score_breakdown": {
+        "authoritative_bonus": 2.0,
+        "empty_text_penalty": -4.0,
+        "keyword_overlap": 2.0,
+        "token_overlap": 1.5,
+        "verified_node_bonus": 1.5
+      },
       "unit": {
         "asset_path": null,
         "authoritative": true,
-        "content_span": {
-          "end_offset": 116,
-          "end_page": 0,
-          "start_offset": 0,
-          "start_page": 0
-        },
+        "content_span": null,
         "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
         "interpretive": false,
-        "keywords": [],
+        "keywords": [
+          "Overview",
+          "Details",
+          "Appendix"
+        ],
         "metadata": {
-          "page_label": "1"
+          "level": 3,
+          "owned_span_count": 0,
+          "path": [
+            "Overview",
+            "Details",
+            "Appendix"
+          ],
+          "verified": true
         },
         "modality": "text",
-        "node_id": null,
+        "node_id": "70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b",
         "page_render_path": null,
         "page_span": {
-          "end_page": 0,
-          "start_page": 0
+          "end_page": 1,
+          "start_page": 1
         },
         "source_anchors": [],
-        "text": "Overview\nNullVector ingests authored Markdown directly.\nDetails\nThis section exists to verify heading normalization.",
-        "title": "Page 1",
+        "text": null,
+        "title": "Appendix",
         "trust_tier": "native_exact",
-        "unit_id": "page-text-000000",
-        "unit_type": "page_text",
+        "unit_id": "node-text-70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b",
+        "unit_type": "node_text",
         "visual_region": null
       }
     }
@@ -142,15 +95,15 @@
   "search_mode": "deterministic",
   "selected_nodes": [
     {
-      "node_id": "af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba",
+      "node_id": "70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b",
       "page_span": {
         "end_page": 1,
-        "start_page": 0
+        "start_page": 1
       },
       "retrieval_evidence_ids": [
-        "node-text-af500998c2fd6f90dcb1b80e95e3802e69181067ced0853bf70d8b5d3dba49ba"
+        "node-text-70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b"
       ],
-      "score": 0.0
+      "score": 2.0
     }
   ],
   "tree_run_id": "runtime-observe-tree"

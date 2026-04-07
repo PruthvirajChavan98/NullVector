@@ -1,20 +1,5 @@
-"""Authoritative domain contracts for NullVector.
+"""Authoritative domain contracts for NullVector."""
 
-Types are organised into four tiers:
-
-* **User-facing** -- appear in ``NullVectorClient`` and service return values.
-  These are the types application developers interact with directly.
-* **Pipeline requests & config** -- inputs to pipeline services (acquisition,
-  tree build, retrieval, search, QA).
-* **Internal processing** -- intermediate representations used by the service
-  layer.  Rarely needed outside NullVector's own codebase.
-* **Diagnostics & verification** -- debugging, auditing, and tree-repair types.
-  Useful for deep inspection but not for normal application workflows.
-"""
-
-# ── User-facing types (appear in client & service return values) ──────
-
-# ── Internal processing types (service layer implementation) ──────────
 from nullvector.domain.common import (
     BatchItemFailure,
     BatchResult,
@@ -26,8 +11,6 @@ from nullvector.domain.common import (
     PageSourceAnchor,
     PageSpan,
 )
-
-# ── Pipeline request / config types ──────────────────────────────────
 from nullvector.domain.document_selection import (
     DescriptionSelectionCandidate,
     DescriptionSelectionMode,
@@ -60,8 +43,9 @@ from nullvector.domain.events import (
 )
 from nullvector.domain.gateway import (
     DecompositionPromptResponse,
-    TocDetectionResponse,
-    TocParseResponse,
+    HierarchySynthesisNode,
+    HierarchySynthesisResponse,
+    VLMTranscriptionResponse,
 )
 from nullvector.domain.ledger import (
     AcquisitionManifest,
@@ -77,20 +61,13 @@ from nullvector.domain.ledger import (
     DocumentFingerprint,
     LineBlock,
     MarkdownAcquisitionSettings,
-    OcrMode,
     OutlineEntry,
     OutlineQualityReport,
     OutlineSource,
     PageBlock,
     PageLedgerRow,
-    ParseErrorCode,
-    ParseFailure,
     ParseJobLifecycle,
     ParseJobState,
-    ParseRequest,
-    ParserSettings,
-    ParseRunIndex,
-    ParseRunManifest,
     SourceDocumentKind,
     SourceMetadata,
     TableArtifact,
@@ -128,51 +105,27 @@ from nullvector.domain.retrieval import (
     TreeSearchTerminationSignal,
     TreeSearchTraceStep,
 )
-
-# ── Diagnostics & verification (debugging, auditing, repair) ─────────
 from nullvector.domain.tree import (
-    AnchorSource,
     CompactedNodeMapping,
     CompactedTreeManifest,
     CompactedTreeNode,
     DecompositionBoundary,
     DecompositionMethod,
     DecompositionReport,
-    HeadingCandidate,
-    HeadingScoreBreakdown,
-    HeadingSourceKind,
     HierarchyBuildReport,
     HierarchyNode,
     HierarchyOrigin,
-    HierarchyStrategy,
     LLMVerificationAssistRecord,
-    NodeAnchor,
     NodeCard,
     NodeSummary,
     NodeSummaryMethod,
-    OutlineAnchorRecord,
-    OutlineAnchorStatus,
-    OutlineTrustMode,
-    RepairDecision,
-    RepairKind,
-    RepairRequest,
-    RepairStatus,
     SemanticUsage,
-    StrategyExecutionReport,
-    StrategyRationale,
     StructuredRegionInsight,
     SynthesisLine,
     SynthesisPage,
     SynthesisTextProjection,
     SynthesisTrustSummary,
     SynthesisUnresolvedRegion,
-    TitleMatchTier,
-    TocDetectionMethod,
-    TocDetectionResult,
-    TocPageScore,
-    TocParsedEntry,
-    TocParseMethod,
-    TocReconciliationResult,
     TreeBuildManifest,
     TreeBuildRequest,
     TreeCompactionRequest,
@@ -193,15 +146,11 @@ from nullvector.domain.tree import (
 )
 
 __all__ = [
-    # ── Pipeline request / config ────────────────────────────────────
     "AcquisitionManifest",
     "AcquisitionRequest",
     "AcquisitionRunIndex",
     "AcquisitionRunManifest",
     "AcquisitionSettings",
-    # ── Internal processing ──────────────────────────────────────────
-    "AnchorSource",
-    # ── User-facing ──────────────────────────────────────────────────
     "AnswerCitation",
     "BatchItemFailure",
     "BatchResult",
@@ -246,14 +195,11 @@ __all__ = [
     "ExtractionProvenance",
     "GeometryCoordinateSpace",
     "GroundingEvidence",
-    "HeadingCandidate",
-    "HeadingScoreBreakdown",
-    "HeadingSourceKind",
     "HierarchyBuildReport",
     "HierarchyNode",
     "HierarchyOrigin",
-    "HierarchyStrategy",
-    # ── Diagnostics & verification ───────────────────────────────────
+    "HierarchySynthesisNode",
+    "HierarchySynthesisResponse",
     "LLMVerificationAssistRecord",
     "LineBlock",
     "MarkdownAcquisitionSettings",
@@ -261,31 +207,20 @@ __all__ = [
     "MetadataSelectionPlannerRequest",
     "MetadataSelectionRequest",
     "MetadataSelectionResponse",
-    "NodeAnchor",
     "NodeCard",
     "NodeOwnedSpan",
     "NodeSummary",
     "NodeSummaryMethod",
-    "OcrMode",
-    "OutlineAnchorRecord",
-    "OutlineAnchorStatus",
     "OutlineEntry",
     "OutlineQualityReport",
     "OutlineSource",
-    "OutlineTrustMode",
     "PageBlock",
     "PageEvent",
     "PageLedgerRow",
     "PageSourceAnchor",
     "PageSpan",
-    "ParseErrorCode",
-    "ParseFailure",
     "ParseJobLifecycle",
     "ParseJobState",
-    "ParseRequest",
-    "ParseRunIndex",
-    "ParseRunManifest",
-    "ParserSettings",
     "PreferenceAwareTreeSearchRequest",
     "PreferenceAwareTreeSearchResponse",
     "PreferenceAwareTreeSearchTraceStep",
@@ -295,10 +230,6 @@ __all__ = [
     "PreferenceSnippet",
     "QueryIntent",
     "QueryPlan",
-    "RepairDecision",
-    "RepairKind",
-    "RepairRequest",
-    "RepairStatus",
     "RetrievalCorpus",
     "RetrievalEvidence",
     "RetrievalHit",
@@ -309,8 +240,6 @@ __all__ = [
     "SourceDocumentKind",
     "SourceMetadata",
     "SourceTrack",
-    "StrategyExecutionReport",
-    "StrategyRationale",
     "StructuredRegionInsight",
     "SynthesisLine",
     "SynthesisPage",
@@ -319,15 +248,6 @@ __all__ = [
     "SynthesisUnresolvedRegion",
     "TableArtifact",
     "TextBlock",
-    "TitleMatchTier",
-    "TocDetectionMethod",
-    "TocDetectionResponse",
-    "TocDetectionResult",
-    "TocPageScore",
-    "TocParseMethod",
-    "TocParseResponse",
-    "TocParsedEntry",
-    "TocReconciliationResult",
     "TreeBuildManifest",
     "TreeBuildRequest",
     "TreeCompactionRequest",
@@ -346,6 +266,7 @@ __all__ = [
     "TrustTier",
     "UnassignedPageSpan",
     "UnresolvedRegion",
+    "VLMTranscriptionResponse",
     "VerificationIssue",
     "VerificationReport",
     "VerificationResult",
