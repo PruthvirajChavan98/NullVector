@@ -1,4 +1,4 @@
-"""Deterministic-first large-node decomposition over normalized synthesis text."""
+"""LLM-driven large-node decomposition over normalized synthesis text."""
 
 from __future__ import annotations
 
@@ -23,13 +23,10 @@ from nullvector.llm.prompts import build_decomposition_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest, GatewayUsage
 from nullvector.semantic._text_spans import _TextPage, text_for_node
-from nullvector.semantic.tokens import Tokenizer, resolve_tokenizer
 from nullvector.storage._serialization import write_json_file
 from nullvector.tree.hierarchy import generate_node_id
 from nullvector.tree.page_data import PageData as PageArtifacts
 
-_DECOMPOSITION_KEEP_THRESHOLD = 20
-_DECOMPOSITION_HIGH_CONFIDENCE_THRESHOLD = 40
 _MAX_LLM_PAGE_TEXT_CHARS = 12000
 
 
@@ -42,11 +39,7 @@ class _DecompositionMetadata:
 
 
 def _stable_node_order(node: HierarchyNode) -> tuple[int, int, str]:
-    return (
-        node.page_span.start_page,
-        node.level,
-        node.node_id,
-    )
+    return (node.page_span.start_page, node.level, node.node_id)
 
 
 def _usage_snapshot(usage: GatewayUsage | None) -> SemanticUsage | None:
@@ -72,13 +65,12 @@ def _combine_usage(left: SemanticUsage | None, right: SemanticUsage | None) -> S
 
 
 def _node_pages(
-    node: HierarchyNode,
-    pages_by_index: dict[int, PageArtifacts],
+    node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]
 ) -> tuple[PageArtifacts, ...]:
     return tuple(
-        pages_by_index[page_index]
-        for page_index in range(node.page_span.start_page, node.page_span.end_page + 1)
-        if page_index in pages_by_index
+        pages_by_index[i]
+        for i in range(node.page_span.start_page, node.page_span.end_page + 1)
+        if i in pages_by_index
     )
 
 
@@ -92,21 +84,7 @@ def _candidate_level(parent: HierarchyNode, level_hint: int | None) -> int:
     return parent.level + 1
 
 
-def _is_credible_subheading(candidate: Any) -> bool:
-    breakdown = candidate.score_breakdown
-    return candidate.keep and (
-        candidate.anchor.start_offset == 0
-        or candidate.level_hint is not None
-        or breakdown.uppercase_signal > 0
-        or breakdown.title_case_signal > 0
-        or breakdown.toc_overlap_signal > 0
-    )
-
-
-def _bounded_llm_node_text(
-    node: HierarchyNode,
-    pages_by_index: dict[int, PageArtifacts],
-) -> str:
+def _bounded_llm_node_text(node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]) -> str:
     return text_for_node(node, cast(Mapping[int, _TextPage], pages_by_index))[
         :_MAX_LLM_PAGE_TEXT_CHARS
     ].strip()
@@ -122,30 +100,16 @@ def _owned_spans_are_empty(node: HierarchyNode) -> bool:
     )
 
 
-def _parent_owned_end(
-    node: HierarchyNode,
-    pages_by_index: dict[int, PageArtifacts],
-) -> tuple[int, int]:
-    if node.owned_spans:
-        last = node.owned_spans[-1].span
-        return last.end_page, last.end_offset
-    last_page = node.page_span.end_page
-    last_offset = len(pages_by_index[last_page].text) if last_page in pages_by_index else 0
-    return last_page, last_offset
-
-
 class NodeDecomposer:
-    """Deterministic-first decomposition over normalized synthesis text."""
+    """LLM-driven decomposition of large leaf nodes."""
 
     def __init__(
         self,
         settings: TreeSettings,
         gateway: StructuredLLMGateway | None = None,
-        tokenizer: Tokenizer | None = None,
     ) -> None:
         self._settings = settings
         self._gateway = gateway
-        self._tokenizer = resolve_tokenizer(tokenizer)
         self._artifact_path: str | None = None
 
     @property
@@ -167,7 +131,6 @@ class NodeDecomposer:
         decomposed_node_ids: list[str] = []
         new_child_count = 0
         empty_parent_count = 0
-        used_llm = False
         max_depth_used = 0
         provider_name: str | None = None
         assurance_mode: str | None = None
@@ -175,37 +138,35 @@ class NodeDecomposer:
         gateway_audit_paths: list[str] = []
 
         for depth in range(1, self._settings.max_decomposition_depth + 1):
-            parent_ids = {node.parent_id for node in current_nodes if node.parent_id is not None}
+            parent_ids = {n.parent_id for n in current_nodes if n.parent_id is not None}
             depth_changed = False
             next_nodes = list(current_nodes)
 
             for node in list(current_nodes):
                 if not _is_leaf(node, parent_ids):
                     continue
-                if not self._needs_decomposition(node, pages_by_index):
+                if not self._needs_decomposition(node):
+                    continue
+                if self._gateway is None:
                     continue
 
-                result = self._decompose_node(node=node, pages_by_index=pages_by_index)
+                result = self._llm_decompose(node=node, pages_by_index=pages_by_index)
                 if result is None:
                     continue
 
-                truncated_parent, children, method, metadata = result
-                next_nodes = [
-                    existing for existing in next_nodes if existing.node_id != node.node_id
-                ]
+                truncated_parent, children, metadata = result
+                next_nodes = [n for n in next_nodes if n.node_id != node.node_id]
                 next_nodes.append(truncated_parent)
                 next_nodes.extend(children)
                 decomposed_node_ids.append(node.node_id)
                 new_child_count += len(children)
                 if _owned_spans_are_empty(truncated_parent):
                     empty_parent_count += 1
-                if metadata is not None:
-                    provider_name = metadata.provider_name
-                    assurance_mode = metadata.assurance_mode
-                    gateway_usage = _combine_usage(gateway_usage, metadata.usage)
-                    if metadata.audit_path is not None:
-                        gateway_audit_paths.append(metadata.audit_path)
-                used_llm = used_llm or method is DecompositionMethod.LLM_ASSISTED
+                provider_name = metadata.provider_name
+                assurance_mode = metadata.assurance_mode
+                gateway_usage = _combine_usage(gateway_usage, metadata.usage)
+                if metadata.audit_path is not None:
+                    gateway_audit_paths.append(metadata.audit_path)
                 depth_changed = True
 
             current_nodes = tuple(sorted(next_nodes, key=_stable_node_order))
@@ -214,20 +175,15 @@ class NodeDecomposer:
                 continue
             break
 
-        if new_child_count == 0:
-            method = DecompositionMethod.NONE
-        elif used_llm:
-            method = DecompositionMethod.LLM_ASSISTED
-        else:
-            method = DecompositionMethod.DETERMINISTIC
-
+        method = (
+            DecompositionMethod.LLM_ASSISTED if new_child_count > 0 else DecompositionMethod.NONE
+        )
         report = DecompositionReport(
             decomposed_node_ids=tuple(decomposed_node_ids),
             new_child_count=new_child_count,
             empty_parent_count=empty_parent_count,
             decomposition_method=method,
             depth=max_depth_used,
-            tokenizer_identity=self._tokenizer.identity,
             gateway_provider_name=provider_name,
             gateway_assurance_mode=assurance_mode,
             gateway_usage=gateway_usage,
@@ -241,81 +197,19 @@ class NodeDecomposer:
             )
         return current_nodes, report
 
-    def _needs_decomposition(
-        self,
-        node: HierarchyNode,
-        pages_by_index: dict[int, PageArtifacts],
-    ) -> bool:
-        page_length = node.page_span.end_page - node.page_span.start_page + 1
-        if page_length > self._settings.max_pages_per_leaf_node:
-            return True
-        return _token_count_for_node(node, pages_by_index, self._tokenizer) > (
-            self._settings.max_tokens_per_leaf_node
-        )
+    def _needs_decomposition(self, node: HierarchyNode) -> bool:
+        page_count = node.page_span.end_page - node.page_span.start_page + 1
+        return page_count > self._settings.max_pages_per_leaf_node
 
-    def _decompose_node(
+    def _llm_decompose(
         self,
         *,
         node: HierarchyNode,
         pages_by_index: dict[int, PageArtifacts],
-    ) -> (
-        tuple[
-            HierarchyNode,
-            tuple[HierarchyNode, ...],
-            DecompositionMethod,
-            _DecompositionMetadata | None,
-        ]
-        | None
-    ):
+    ) -> tuple[HierarchyNode, tuple[HierarchyNode, ...], _DecompositionMetadata] | None:
+        if self._gateway is None:
+            return None
         pages = _node_pages(node, pages_by_index)
-        deterministic_children = self._deterministic_children(node=node, pages=pages)
-        if len(deterministic_children) >= 2:
-            truncated_parent = self._refine_parent_owned_spans(node, deterministic_children)
-            return (
-                truncated_parent,
-                deterministic_children,
-                DecompositionMethod.DETERMINISTIC,
-                None,
-            )
-
-        if self._gateway is None:
-            return None
-
-        llm_children, metadata = self._llm_children(
-            node=node,
-            pages=pages,
-            pages_by_index=pages_by_index,
-        )
-        if len(llm_children) < 2:
-            return None
-        truncated_parent = self._refine_parent_owned_spans(node, llm_children)
-        return (
-            truncated_parent,
-            llm_children,
-            DecompositionMethod.LLM_ASSISTED,
-            metadata,
-        )
-
-    def _deterministic_children(
-        self,
-        *,
-        node: HierarchyNode,
-        pages: tuple[PageArtifacts, ...],
-    ) -> tuple[HierarchyNode, ...]:
-        # Deterministic decomposition removed in Phase 2 (VLM/LLM pivot).
-        # Phase 3 replaces this with LLM-driven decomposition.
-        return ()
-
-    def _llm_children(
-        self,
-        *,
-        node: HierarchyNode,
-        pages: tuple[PageArtifacts, ...],
-        pages_by_index: dict[int, PageArtifacts],
-    ) -> tuple[tuple[HierarchyNode, ...], _DecompositionMetadata]:
-        if self._gateway is None:
-            msg = "LLM decomposition requested but no gateway configured"
-            raise RuntimeError(msg)
         response = self._gateway.invoke(
             GatewayRequest[DecompositionPromptResponse](
                 operation_name="decompose_large_node",
@@ -326,31 +220,29 @@ class NodeDecomposer:
                 response_model=DecompositionPromptResponse,
             )
         )
-        return (
-            self._children_from_anchors(
-                node=node,
-                boundaries=response.output.entries,
-                pages=pages,
-                method=DecompositionMethod.LLM_ASSISTED,
-            ),
-            _DecompositionMetadata(
-                provider_name=response.provider_name,
-                assurance_mode=response.assurance_mode.value,
-                usage=_usage_snapshot(response.usage),
-                audit_path=response.audit_path,
-            ),
+        children = self._children_from_boundaries(
+            node=node,
+            boundaries=response.output.entries,
+            pages=pages,
         )
+        if len(children) < 2:
+            return None
+        truncated_parent = self._refine_parent_owned_spans(node, children)
+        metadata = _DecompositionMetadata(
+            provider_name=response.provider_name,
+            assurance_mode=response.assurance_mode.value,
+            usage=_usage_snapshot(response.usage),
+            audit_path=response.audit_path,
+        )
+        return truncated_parent, children, metadata
 
-    def _children_from_anchors(
+    def _children_from_boundaries(
         self,
         *,
         node: HierarchyNode,
         boundaries: tuple[DecompositionBoundary, ...],
         pages: tuple[PageArtifacts, ...],
-        method: DecompositionMethod,
     ) -> tuple[HierarchyNode, ...]:
-        # Anchor-based decomposition removed in Phase 2 (VLM/LLM pivot).
-        # Phase 3 replaces with LLM-driven boundary detection.
         if len(boundaries) < 2:
             return ()
 
@@ -426,16 +318,6 @@ class NodeDecomposer:
                 )
             }
         )
-
-
-def _token_count_for_node(
-    node: HierarchyNode,
-    pages_by_index: dict[int, PageArtifacts],
-    tokenizer: Tokenizer,
-) -> int:
-    return tokenizer.count_tokens(
-        text_for_node(node, cast(Mapping[int, _TextPage], pages_by_index))
-    )
 
 
 __all__ = [

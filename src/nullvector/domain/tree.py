@@ -172,9 +172,6 @@ class NodeCard(NullVectorModel):
         if not self.path:
             msg = "path must contain at least one segment"
             raise ValueError(msg)
-        if self.summary is not None and not self.source_anchors:
-            msg = "summarized node cards must include at least one source anchor"
-            raise ValueError(msg)
         return self
 
 

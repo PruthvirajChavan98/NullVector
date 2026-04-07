@@ -65,7 +65,7 @@ def test_required_bootstrap_paths_exist() -> None:
         repo_root / "src" / "nullvector" / "ingest" / "projection.py",
         repo_root / "src" / "nullvector" / "ingest" / "acquisition_service.py",
         repo_root / "src" / "nullvector" / "ingest" / "providers" / "native_pymupdf.py",
-        repo_root / "src" / "nullvector" / "semantic" / "tokens.py",
+        repo_root / "src" / "nullvector" / "semantic" / "_text_spans.py",
         repo_root / "src" / "nullvector" / "semantic" / "summarize.py",
         repo_root / "src" / "nullvector" / "semantic" / "decompose.py",
         repo_root / "src" / "nullvector" / "llm" / "visual.py",

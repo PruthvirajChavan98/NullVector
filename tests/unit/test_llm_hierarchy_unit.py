@@ -135,9 +135,7 @@ def test_node_ids_are_stable_across_repeated_builds() -> None:
 
 def test_unassigned_spans_reported_for_gaps() -> None:
     builder = LLMHierarchyBuilder(gateway=None)
-    entries = (
-        OutlineEntry(title="Middle", level=1, page_index=1, source=OutlineSource.PYMUPDF),
-    )
+    entries = (OutlineEntry(title="Middle", level=1, page_index=1, source=OutlineSource.PYMUPDF),)
     nodes, _, spans, report = builder.build(
         document_id=DOC_ID,
         tree_run_id="gap-test",
@@ -151,11 +149,7 @@ def test_unassigned_spans_reported_for_gaps() -> None:
 
 def test_build_nodes_from_response_clamps_page_indices() -> None:
     response = HierarchySynthesisResponse(
-        nodes=(
-            HierarchySynthesisNode(
-                title="Overflow", level=1, start_page=99, end_page=99
-            ),
-        )
+        nodes=(HierarchySynthesisNode(title="Overflow", level=1, start_page=99, end_page=99),)
     )
     nodes = _build_nodes_from_response(response, document_id=DOC_ID, page_count=3)
 

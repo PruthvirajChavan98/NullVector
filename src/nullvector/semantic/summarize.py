@@ -25,17 +25,16 @@ from nullvector.semantic._text_spans import (
     text_for_node,
     text_fragments_for_node,
 )
-from nullvector.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
 from nullvector.storage._serialization import write_json_file
 from nullvector.tree.page_data import PageData as PageArtifacts
 
-LEAF_PASSTHROUGH_TOKEN_THRESHOLD = 200
+LEAF_PASSTHROUGH_WORD_THRESHOLD = 150
 
 
 def estimate_token_count(text: str) -> int:
-    """Compatibility token estimator used by older callers and tests."""
+    """Rough word-count-based token estimator."""
 
-    return HeuristicTokenizer().estimate_tokens(text)
+    return len(text.split())
 
 
 def _usage_snapshot(usage: GatewayUsage | None) -> SemanticUsage | None:
@@ -117,12 +116,10 @@ class NodeSummarizer:
         self,
         gateway: StructuredLLMGateway,
         max_workers: int = 4,
-        tokenizer: Tokenizer | None = None,
         logger: Logger | None = None,
     ) -> None:
         self._gateway = gateway
         self._max_workers = max_workers
-        self._tokenizer = resolve_tokenizer(tokenizer)
         self._logger = logger
         self._artifact_path: str | None = None
 
@@ -182,7 +179,7 @@ class NodeSummarizer:
                         token_count=pending_request.token_count,
                         estimated_token_count=pending_request.estimated_token_count,
                         exact_token_count=pending_request.exact_token_count,
-                        tokenizer_identity=self._tokenizer.identity,
+                        tokenizer_identity="word_count",
                         gateway_provider_name=response.provider_name,
                         gateway_assurance_mode=response.assurance_mode.value,
                         gateway_audit_path=response.audit_path,
@@ -239,7 +236,7 @@ class NodeSummarizer:
         if not children:
             raw_text = _node_raw_text(node, pages_by_index)
             token_count, estimated_token_count, exact_token_count = self._token_counts(raw_text)
-            if token_count < LEAF_PASSTHROUGH_TOKEN_THRESHOLD:
+            if token_count < LEAF_PASSTHROUGH_WORD_THRESHOLD:
                 summary = NodeSummary(
                     node_id=node.node_id,
                     summary=raw_text or node.title,
@@ -247,7 +244,7 @@ class NodeSummarizer:
                     token_count=token_count,
                     estimated_token_count=estimated_token_count,
                     exact_token_count=exact_token_count,
-                    tokenizer_identity=self._tokenizer.identity,
+                    tokenizer_identity="word_count",
                 )
                 self._publish_summary_event(node, summary)
                 return summary, None
@@ -296,9 +293,8 @@ class NodeSummarizer:
         )
 
     def _token_counts(self, text: str) -> tuple[int, int, int | None]:
-        estimated = self._tokenizer.estimate_tokens(text)
-        exact = self._tokenizer.count_tokens(text)
-        return exact, estimated, exact if self._tokenizer.supports_exact_counts else None
+        word_count = len(text.split())
+        return word_count, word_count, None
 
     def _publish_summary_event(self, node: HierarchyNode, summary: NodeSummary) -> None:
         log_event(
@@ -311,7 +307,7 @@ class NodeSummarizer:
 
 
 __all__ = [
-    "LEAF_PASSTHROUGH_TOKEN_THRESHOLD",
+    "LEAF_PASSTHROUGH_WORD_THRESHOLD",
     "NodeSummarizer",
     "estimate_token_count",
 ]

@@ -153,17 +153,18 @@ def test_page_ledger_row_requires_consistent_offsets() -> None:
         )
 
 
-def test_node_card_requires_anchor_for_summary() -> None:
-    with pytest.raises(ValidationError):
-        NodeCard(
-            node_id="node-001",
-            document_id="doc-001",
-            path=("Root", "Section 1"),
-            level=2,
-            title="Section 1",
-            page_span=PageSpan(start_page=0, end_page=2),
-            summary="A bounded summary.",
-        )
+def test_node_card_accepts_summary_without_source_anchors() -> None:
+    card = NodeCard(
+        node_id="node-001",
+        document_id="doc-001",
+        path=("Root", "Section 1"),
+        level=2,
+        title="Section 1",
+        page_span=PageSpan(start_page=0, end_page=2),
+        summary="A bounded summary.",
+    )
+    assert card.summary == "A bounded summary."
+    assert card.source_anchors == ()
 
 
 def test_parse_job_state_requires_error_message_for_failed_lifecycle() -> None:

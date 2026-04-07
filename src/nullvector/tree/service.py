@@ -33,6 +33,7 @@ from nullvector.storage._serialization import (
     settings_digest,
 )
 from nullvector.tree.llm_hierarchy import LLMHierarchyBuilder
+from nullvector.tree.page_data import PageData
 
 _BATCH_FATAL_ERRORS = (GatewayAuthError, GatewayConfigurationError)
 
@@ -168,8 +169,29 @@ class TreePipelineService:
             payload=build_report,
         )
 
-        # Optional summarization (Phase 3 will replace this)
+        # Optional summarization
         node_summaries_path: str | None = None
+        if request.summarize:
+            if gateway is None:
+                raise TreePipelineError("summarize=True requires a configured gateway")
+            from nullvector.semantic.summarize import NodeSummarizer
+
+            page_data = tuple(
+                PageData(page_index=i, text=text)
+                for i, text in enumerate(input_bundle.markdown_pages)
+            )
+            summarizer = NodeSummarizer(gateway=gateway, logger=self._logger)
+            committed_nodes_tuple, node_cards, node_summaries = summarizer.summarize(
+                nodes=committed_nodes,
+                pages=page_data,
+            )
+            committed_nodes = committed_nodes_tuple
+            node_summaries_path = run_store.put_json(
+                artifact_kind="summary",
+                artifact_path="summaries/node-summaries.json",
+                payload=node_summaries,
+            )
+
         decomposition_report = DecompositionReport(
             decomposition_method=DecompositionMethod.NONE,
         )

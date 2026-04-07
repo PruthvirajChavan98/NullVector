@@ -33,9 +33,7 @@ def test_user_prompt_includes_page_count() -> None:
 
 
 def test_user_prompt_includes_outline_entries() -> None:
-    entries = (
-        OutlineEntry(title="Intro", level=1, page_index=0, source=OutlineSource.PYMUPDF),
-    )
+    entries = (OutlineEntry(title="Intro", level=1, page_index=0, source=OutlineSource.PYMUPDF),)
     messages = build_hierarchy_synthesis_messages(
         markdown_pages=("page",),
         outline_entries=entries,

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from nullvector.domain.ledger import AcquisitionRequest, SourceDocumentKind
 from nullvector.domain.retrieval import RetrievalUnitType
 from nullvector.domain.tree import TreeBuildRequest, TreeCompactionRequest, TreeCompactionSettings
@@ -89,7 +87,6 @@ def _summary_gateway(tmp_path: Path) -> GatewayService:
     )
 
 
-@pytest.mark.skip(reason="summarization not wired in new tree pipeline (Phase 3 scope)")
 def test_tree_compaction_persists_artifacts_and_maps_back_to_retrieval_evidence(
     tmp_path: Path,
 ) -> None:

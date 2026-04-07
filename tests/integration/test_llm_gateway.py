@@ -226,7 +226,6 @@ def test_progress_notebook_executes_for_phase03(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.skip(reason="cookbook notebook imports deleted types (RepairKind, evaluate_repairs)")
 def test_phase03_cookbook_notebook_executes_deterministic_sections(tmp_path: Path) -> None:
     output_path = tmp_path / "phase03-cookbook.executed.ipynb"
     subprocess.run(
