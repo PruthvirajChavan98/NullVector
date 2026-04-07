@@ -110,8 +110,19 @@ class VLMPageTranscriber:
             coordinate_space=GeometryCoordinateSpace.UNROTATED_PAGE,
         )
 
-        # Write page PNG to a temp location if no store-persisted path exists
-        image_path = page_render_path or f"page-{page_index:06d}.png"
+        # Write page PNG to a temp file when no store-persisted path exists,
+        # because the gateway validates that attachment paths exist on disk.
+        import tempfile
+        from pathlib import Path
+
+        temp_file: Path | None = None
+        if page_render_path is not None:
+            image_path = page_render_path
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp.write(png_bytes)
+            temp_file = Path(tmp.name)
+            image_path = str(temp_file)
 
         attachment = RegionImageInput(
             region=region,
@@ -126,7 +137,11 @@ class VLMPageTranscriber:
             response_model=VLMTranscriptionResponse,
             temperature=0.0,
         )
-        result = self._gateway.invoke(request)
+        try:
+            result = self._gateway.invoke(request)
+        finally:
+            if temp_file is not None:
+                temp_file.unlink(missing_ok=True)
 
         return PageTranscription(
             page_index=page_index,
