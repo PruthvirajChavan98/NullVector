@@ -37,8 +37,17 @@ class DecompositionPromptResponse(NullVectorModel):
     entries: tuple[DecompositionBoundary, ...] = ()
 
 
+class VLMTranscriptionResponse(NullVectorModel):
+    """Typed structured response for VLM page transcription."""
+
+    markdown_text: NonEmptyStr
+    has_tables: bool = False
+    has_images: bool = False
+
+
 __all__ = [
     "DecompositionPromptResponse",
     "TocDetectionResponse",
     "TocParseResponse",
+    "VLMTranscriptionResponse",
 ]

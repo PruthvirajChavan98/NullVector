@@ -4,16 +4,8 @@ from __future__ import annotations
 
 import json
 
-from nullvector.domain.common import NonEmptyStr, NullVectorModel
+from nullvector.domain.gateway import VLMTranscriptionResponse
 from nullvector.llm.types import LLMMessage, LLMRole
-
-
-class VLMTranscriptionResponse(NullVectorModel):
-    """Typed structured response for VLM page transcription."""
-
-    markdown_text: NonEmptyStr
-    has_tables: bool = False
-    has_images: bool = False
 
 
 def build_vlm_transcription_messages(

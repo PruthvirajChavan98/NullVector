@@ -10,12 +10,10 @@ from nullvector.domain.common import (
     NonEmptyStr,
     NullVectorModel,
 )
+from nullvector.domain.gateway import VLMTranscriptionResponse
 from nullvector.domain.tree import VisualRegionReference
 from nullvector.ingest.page_renderer import open_pdf, render_page_to_png
-from nullvector.llm.prompts.vlm_transcription import (
-    VLMTranscriptionResponse,
-    build_vlm_transcription_messages,
-)
+from nullvector.llm.prompts.vlm_transcription import build_vlm_transcription_messages
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest, RegionImageInput
 from nullvector.storage.protocol import RunScopedStore

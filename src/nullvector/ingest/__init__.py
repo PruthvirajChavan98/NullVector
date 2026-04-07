@@ -5,7 +5,6 @@ from __future__ import annotations
 from nullvector.ingest.errors import (
     ExtractionFailureError,
     InvalidSourceError,
-    MissingOcrRuntimeError,
     ParseConflictError,
     ParseSubstrateError,
 )
@@ -15,10 +14,11 @@ __all__ = [
     "ExtractionFailureError",
     "InvalidSourceError",
     "MarkdownNativeAcquisitionProvider",
-    "MissingOcrRuntimeError",
     "NativePyMuPDFAcquisitionProvider",
+    "PageTranscription",
     "ParseConflictError",
     "ParseSubstrateError",
+    "VLMPageTranscriber",
     "acquire_document",
 ]
 
@@ -40,5 +40,13 @@ def __getattr__(name: str) -> object:
         from nullvector.ingest.providers import MarkdownNativeAcquisitionProvider
 
         return MarkdownNativeAcquisitionProvider
+    if name in {"VLMPageTranscriber", "PageTranscription"}:
+        from nullvector.ingest.vlm_transcriber import PageTranscription, VLMPageTranscriber
+
+        exports = {
+            "VLMPageTranscriber": VLMPageTranscriber,
+            "PageTranscription": PageTranscription,
+        }
+        return exports[name]
     msg = f"module 'nullvector.ingest' has no attribute {name!r}"
     raise AttributeError(msg)
