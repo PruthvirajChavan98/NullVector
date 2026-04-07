@@ -1,24 +1,102 @@
-"""Framework-owned native PyMuPDF acquisition provider."""
+"""Framework-owned native PyMuPDF acquisition provider (VLM-backed)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from nullvector.domain.events import DocumentEvent, EventSeverity
+from nullvector.domain.common import BoundingBox
+from nullvector.domain.events import (
+    ContentAuthoritativeness,
+    DocumentEvent,
+    EventSeverity,
+    ExtractionProvenance,
+    GroundingEvidence,
+    SourceTrack,
+)
 from nullvector.domain.ledger import (
     AcquisitionManifest,
     AcquisitionRequest,
     CanonicalDocumentLedger,
+    CanonicalPage,
     DocumentFingerprint,
     SourceMetadata,
+    TextBlock,
 )
-from nullvector.ingest.pdf_backend import open_document
-from nullvector.ingest.profiling import profile_page
+from nullvector.ingest.page_renderer import open_pdf
+from nullvector.ingest.vlm_transcriber import PageTranscription, VLMPageTranscriber
+from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.storage._serialization import settings_digest
+
+# Dummy bounding box used for all VLM-transcribed blocks until Phase 5
+# removes BoundingBox from the domain models entirely.
+_DUMMY_BBOX = BoundingBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0)
+
+
+def _page_from_transcription(transcription: PageTranscription, document_id: str) -> CanonicalPage:
+    """Build a CanonicalPage from a VLM transcription result."""
+
+    block = TextBlock(
+        block_type="text_block",
+        block_id=f"{document_id}-p{transcription.page_index:06d}-vlm",
+        bbox=_DUMMY_BBOX,
+        content=transcription.markdown_text,
+        reading_index=0,
+        family_reading_index=0,
+        line_count=transcription.markdown_text.count("\n") + 1,
+        word_count=len(transcription.markdown_text.split()),
+        provenance=ExtractionProvenance(
+            source_track=SourceTrack.VISUAL_ENRICHMENT,
+            producer_name="vlm_transcriber",
+            content_authoritativeness=ContentAuthoritativeness.INTERPRETIVE,
+        ),
+        grounding=GroundingEvidence(),
+    )
+    return CanonicalPage(
+        page_index=transcription.page_index,
+        width=1.0,
+        height=1.0,
+        native_available=False,
+        blocks=(block,),
+    )
+
+
+def _page_from_raw_text(
+    page_index: int,
+    text: str,
+    document_id: str,
+) -> CanonicalPage:
+    """Build a CanonicalPage from raw PyMuPDF text extraction (no-VLM fallback)."""
+
+    block = TextBlock(
+        block_type="text_block",
+        block_id=f"{document_id}-p{page_index:06d}-native",
+        bbox=_DUMMY_BBOX,
+        content=text if text.strip() else "(empty page)",
+        reading_index=0,
+        family_reading_index=0,
+        line_count=text.count("\n") + 1,
+        word_count=len(text.split()),
+        provenance=ExtractionProvenance(
+            source_track=SourceTrack.NATIVE,
+            producer_name="native_pymupdf",
+            content_authoritativeness=ContentAuthoritativeness.AUTHORITATIVE,
+            grounded_in_native_metadata=True,
+        ),
+        grounding=GroundingEvidence(
+            has_native_text_anchor=True,
+        ),
+    )
+    return CanonicalPage(
+        page_index=page_index,
+        width=1.0,
+        height=1.0,
+        native_available=True,
+        blocks=(block,),
+    )
 
 
 class NativePyMuPDFAcquisitionProvider:
-    """Native-first acquisition provider that never invokes OCR or external services."""
+    """Native acquisition provider that renders pages and optionally invokes a VLM."""
 
     provider_identity = "native_pymupdf"
 
@@ -26,8 +104,10 @@ class NativePyMuPDFAcquisitionProvider:
         self,
         *,
         source_fingerprint: DocumentFingerprint | None = None,
+        gateway: StructuredLLMGateway | None = None,
     ) -> None:
         self._source_fingerprint = source_fingerprint
+        self._gateway = gateway
 
     def acquire(self, request: AcquisitionRequest) -> CanonicalDocumentLedger:
         if self._source_fingerprint is None:
@@ -36,21 +116,26 @@ class NativePyMuPDFAcquisitionProvider:
         fingerprint = self._source_fingerprint
         source = Path(request.source_path)
 
-        with open_document(request.source_path) as document:
-            pages = []
-            for page_index in range(document.page_count):
-                profiled = profile_page(
-                    document_id=fingerprint.document_id,
-                    page_index=page_index,
-                    page=document.load_page(page_index),
-                    detect_tables=request.settings.detect_tables,
-                    table_min_columns=request.settings.table_min_columns,
-                    table_min_rows=request.settings.table_min_rows,
-                    dense_vector_threshold=request.settings.dense_vector_threshold,
-                    small_vector_max_area_ratio=request.settings.small_vector_max_area_ratio,
-                    vector_scan_limit=request.settings.vector_scan_limit,
+        if self._gateway is not None:
+            transcriber = VLMPageTranscriber(self._gateway, dpi=request.settings.render_dpi)
+            transcriptions = transcriber.transcribe_document(
+                str(source),
+                document_id=fingerprint.document_id,
+            )
+            pages = tuple(
+                _page_from_transcription(t, fingerprint.document_id) for t in transcriptions
+            )
+        else:
+            # Fallback: extract raw text from PyMuPDF without VLM
+            with open_pdf(str(source)) as document:
+                pages = tuple(
+                    _page_from_raw_text(
+                        page_index=page_index,
+                        text=document.load_page(page_index).get_text(),
+                        document_id=fingerprint.document_id,
+                    )
+                    for page_index in range(document.page_count)
                 )
-                pages.append(profiled.page)
 
         source_metadata = SourceMetadata(
             source_path=str(source.resolve()),
@@ -68,10 +153,15 @@ class NativePyMuPDFAcquisitionProvider:
                 event_id=f"{fingerprint.document_id}-acquisition-native",
                 event_name="native_acquisition_completed",
                 severity=EventSeverity.INFO,
-                message="native PyMuPDF acquisition completed",
+                message=(
+                    "VLM-backed acquisition completed"
+                    if self._gateway is not None
+                    else "native text extraction completed (no VLM)"
+                ),
                 details={
                     "provider_identity": self.provider_identity,
                     "page_count": fingerprint.page_count,
+                    "vlm_enabled": self._gateway is not None,
                 },
             ),
         )
@@ -80,6 +170,6 @@ class NativePyMuPDFAcquisitionProvider:
             source_fingerprint=fingerprint,
             source_metadata=source_metadata,
             acquisition_manifest=acquisition_manifest,
-            pages=tuple(pages),
+            pages=pages,
             document_events=document_events,
         )

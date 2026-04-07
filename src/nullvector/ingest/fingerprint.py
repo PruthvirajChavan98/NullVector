@@ -12,7 +12,7 @@ from nullvector.domain.ledger import (
 )
 from nullvector.ingest._markdown import count_markdown_logical_pages
 from nullvector.ingest.errors import InvalidSourceError
-from nullvector.ingest.pdf_backend import open_document
+from nullvector.ingest.page_renderer import open_pdf
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -49,7 +49,7 @@ def fingerprint_document(
         )
     else:
         try:
-            with open_document(str(source)) as document:
+            with open_pdf(str(source)) as document:
                 page_count = document.page_count
         except RuntimeError as exc:
             raise InvalidSourceError(

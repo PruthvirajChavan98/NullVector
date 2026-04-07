@@ -9,10 +9,18 @@ from uuid import uuid4
 from nullvector.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
 from nullvector.domain.ledger import AcquisitionRunManifest
 from nullvector.ingest.errors import ExtractionFailureError
-from nullvector.ingest.pdf_backend import (
-    installed_pymupdf_version,
-    installed_pypdf_version,
-)
+from nullvector.ingest.page_renderer import installed_pymupdf_version
+
+try:
+    from pypdf import __version__ as _pypdf_version_str
+
+    def installed_pypdf_version() -> str:
+        return _pypdf_version_str
+
+except ImportError:  # pragma: no cover
+
+    def installed_pypdf_version() -> str:
+        return "0.0.0"
 
 
 def validate_writable_root(root: str | None, *, label: str) -> None:

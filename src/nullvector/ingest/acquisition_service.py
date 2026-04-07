@@ -9,8 +9,6 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, cast
 
-from pypdf import PdfReader
-
 from nullvector.constants import DEFAULT_ACQUISITION_ARTIFACT_ROOT
 from nullvector.domain.common import BatchItemFailure, BatchResult
 from nullvector.domain.ledger import (
@@ -36,7 +34,7 @@ from nullvector.ingest.outline import (
     score_outline,
     select_outline,
 )
-from nullvector.ingest.pdf_backend import open_document
+from nullvector.ingest.page_renderer import open_pdf
 from nullvector.ingest.projection import (
     build_canonical_text_substrate,
     project_ledger_to_tree_synthesis_view,
@@ -45,6 +43,7 @@ from nullvector.ingest.protocols import AcquisitionProvider
 from nullvector.ingest.providers.markdown_native import MarkdownNativeAcquisitionProvider
 from nullvector.ingest.providers.native_pymupdf import NativePyMuPDFAcquisitionProvider
 from nullvector.ingest.visual_assets import materialize_visual_assets
+from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.runtime_validation import validate_pdf_runtime_versions
 from nullvector.storage import StorageConfig, build_document_store
@@ -59,12 +58,16 @@ def _default_provider(
     request: AcquisitionRequest,
     *,
     source_fingerprint: DocumentFingerprint,
+    gateway: StructuredLLMGateway | None = None,
 ) -> AcquisitionProvider:
     if (
         request.source_kind is SourceDocumentKind.PDF
         and request.provider_identity == "native_pymupdf"
     ):
-        return NativePyMuPDFAcquisitionProvider(source_fingerprint=source_fingerprint)
+        return NativePyMuPDFAcquisitionProvider(
+            source_fingerprint=source_fingerprint,
+            gateway=gateway,
+        )
     if (
         request.source_kind is SourceDocumentKind.MARKDOWN
         and request.provider_identity == "markdown_native"
@@ -93,7 +96,7 @@ def _source_copy_metadata(request: AcquisitionRequest) -> tuple[str, str]:
 
 
 class AcquisitionService:
-    """Storage-backed deterministic acquisition + projection runtime."""
+    """Storage-backed acquisition + projection runtime."""
 
     def __init__(
         self,
@@ -101,10 +104,12 @@ class AcquisitionService:
         *,
         logger: Logger | None = None,
         storage: StorageConfig | None = None,
+        gateway: StructuredLLMGateway | None = None,
     ) -> None:
         self._provider = provider
         self._logger = resolve_runtime_logger(logger)
         self._storage = storage
+        self._gateway = gateway
 
     def acquire(self, request: AcquisitionRequest) -> AcquisitionRunManifest:
         _validate_request_provider(request)
@@ -203,6 +208,7 @@ class AcquisitionService:
             provider = self._provider or _default_provider(
                 request,
                 source_fingerprint=fingerprint,
+                gateway=self._gateway,
             )
             ledger = provider.acquire(request)
             if request.source_kind is SourceDocumentKind.PDF:
@@ -399,7 +405,9 @@ class AcquisitionService:
                 [],
                 [],
             )
-        with open_document(request.source_path) as document:
+        from pypdf import PdfReader
+
+        with open_pdf(request.source_path) as document:
             reader = PdfReader(request.source_path)
             pymupdf_rich, pymupdf_entries = extract_pymupdf_outlines(document)
             _, pypdf_entries = extract_pypdf_outlines(reader)
