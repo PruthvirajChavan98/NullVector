@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-NullVector is a **vectorless hierarchical RAG framework** — a CPU-first, deterministic document processing pipeline that builds auditable hierarchical trees from PDFs and Markdown without vector embeddings. All retrieval is structural (BM25-style ranking, Jaccard similarity, tree traversal) with full spatial traceability back to source bounding boxes.
+NullVector is a **vectorless hierarchical RAG framework** — an LLM/VLM-driven document processing pipeline that builds auditable hierarchical trees from PDFs and Markdown without vector embeddings. PDF pages are rendered to images and transcribed to Markdown via a VLM, then an LLM synthesizes the document hierarchy. All retrieval is structural (tree traversal, LLM-driven ranking) with traceability back to source pages.
 
 This is a **Python library first** — no HTTP endpoints, no ASGI server. The CLI and async wrappers are thin adapters over the same synchronous library-owned runtime.
 
@@ -37,24 +37,24 @@ Pytest enforces `filterwarnings = ["error::DeprecationWarning"]` — deprecation
 
 ```
 AcquisitionRequest
-  -> [ingest/acquisition_service] deterministic PDF/Markdown extraction
-CanonicalDocumentLedger (text substrate, outlines, pages, bounding boxes)
+  -> [ingest/acquisition_service] PDF page rendering + VLM Markdown transcription
+CanonicalDocumentLedger (VLM Markdown per page, outlines)
   -> [ingest/projection] transform into tree input
 TreeSynthesisView
-  -> [tree/service] hierarchy assembly, verification, optional LLM repair
-HierarchyNode tree (verified, with page anchors and summaries)
+  -> [tree/service] LLM hierarchy synthesis (or outline-based fallback)
+HierarchyNode tree (with page spans and summaries)
   -> [retrieval/build] corpus construction from tree nodes
 RetrievalCorpus (queryable units)
   -> [retrieval/service] query planning, tree search, ranking
-RetrievalHit[] with spatial citations
+RetrievalHit[] with page citations
 ```
 
 ### Subsystems
 
 - **domain/** — Authoritative Pydantic v2 type contracts. All models inherit `NullVectorModel` (`frozen=True`, `strict=True`, `extra="forbid"`). Source of truth for every data shape.
-- **ingest/** — Deterministic document acquisition. Providers: `native_pymupdf` (PDF), `markdown_native` (Markdown). CPU-first, no network. OCR is local Tesseract fallback only.
-- **tree/** — Hierarchy assembly from headings, outlines, and TOC. Strategies: outline-only, TOC-derived, inferred-deterministic. Optional LLM-assisted verification and repair. `service.py` is the main orchestrator.
-- **llm/** — Structured LLM gateway with owned retries, schema-constrained output, and per-request audit. Protocol-driven: `ProviderAdapter` (provider boundary) and `StructuredLLMGateway` (public API). Adapters: OpenAI, LiteLLM, Noop.
+- **ingest/** — VLM-driven document acquisition. `page_renderer.py` renders PDF pages to PNG, `vlm_transcriber.py` invokes a multimodal gateway for Markdown transcription. Providers: `native_pymupdf` (PDF with VLM or raw text fallback), `markdown_native` (Markdown). No OCR or font-size analysis.
+- **tree/** — LLM-driven hierarchy synthesis. `llm_hierarchy.py` invokes the gateway for document structure, with outline-based fallback when no gateway is configured. `service.py` is the orchestrator (~340 lines).
+- **llm/** — Structured LLM gateway with owned retries, schema-constrained output, and per-request audit. Protocol-driven: `ProviderAdapter` (provider boundary) and `StructuredLLMGateway` (public API). Adapters: OpenAI, LiteLLM, Noop. Prompt builders for VLM transcription, hierarchy synthesis, decomposition, summarization, tree search, and QA.
 - **semantic/** — Node summarization (bottom-up, LLM-backed or passthrough) and large-leaf decomposition.
 - **retrieval/** — Query planning, tree-based search, BM25-style ranking, metadata/description selection. Indices: `InMemoryRetrievalIndex` (filesystem), `PostgresRetrievalIndex` (Postgres). Includes QA response generation via `RetrievalQAService`.
 - **storage/** — `DocumentStore` protocol with filesystem and PostgreSQL backends. Run-scoped artifact persistence via `RunScopedStore`. Factory: `build_document_store()` in `storage/factory.py`.
@@ -135,13 +135,13 @@ Every pipeline stage produces a unique run identified by a run ID. Auto-generate
 
 ## Critical Constraints
 
-- **Vectorless**: No vector embeddings anywhere. Retrieval is structural/lexical.
-- **Deterministic-first**: LLM is fallback, not default. Parse path is CPU-only.
-- **Strict versioning**: `PyMuPDF==1.27.2`, `pypdf==6.8.0` — pinned exact, not ranges.
+- **Vectorless**: No vector embeddings anywhere. Retrieval is structural/LLM-driven.
+- **LLM-first**: VLM transcribes pages, LLM synthesizes hierarchy. Outline-based fallback when no gateway configured.
+- **Strict versioning**: `PyMuPDF==1.27.2` — pinned exact for page rendering.
 - **Zero deprecation warnings**: pytest treats `DeprecationWarning` as error.
 - **Immutable artifacts**: All domain models are frozen. Run-scoped artifacts are write-once.
 - **Schema-constrained LLM output**: Every LLM response is validated into typed Pydantic models. No regex-based JSON cleanup.
-- **No network in parse path**: Acquisition is CPU-first. OCR uses local Tesseract only.
+- **VLM for acquisition**: PDF pages rendered to PNG, transcribed to Markdown via multimodal gateway. No OCR or font-size analysis.
 - **tuple over list**: All sequence fields in domain models use `tuple`, never `list`.
 - **NonEmptyStr over str**: Validated string fields use the `NonEmptyStr` annotated type.
 
@@ -164,6 +164,7 @@ Every pipeline stage produces a unique run identified by a run ID. Auto-generate
 - Non-retryable: AUTH_FAILURE, VALIDATION_FAILURE, CONTEXT_LENGTH_VIOLATION, PROVIDER_REFUSAL
 - Every invocation produces a `GatewayAuditRecord`
 - The gateway uses typed failure envelopes (`GatewaySuccess | GatewayFailure`) for expected failures, not exceptions
+- VLM transcription and hierarchy synthesis are gateway operations with typed response models (`VLMTranscriptionResponse`, `HierarchySynthesisResponse`)
 
 ## Testing
 
