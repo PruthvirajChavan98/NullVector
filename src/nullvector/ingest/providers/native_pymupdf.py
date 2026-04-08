@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nullvector.domain.common import BoundingBox
 from nullvector.domain.events import (
     ContentAuthoritativeness,
     DocumentEvent,
@@ -27,10 +26,6 @@ from nullvector.ingest.vlm_transcriber import PageTranscription, VLMPageTranscri
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.storage._serialization import settings_digest
 
-# Dummy bounding box used for all VLM-transcribed blocks until Phase 5
-# removes BoundingBox from the domain models entirely.
-_DUMMY_BBOX = BoundingBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0)
-
 
 def _page_from_transcription(transcription: PageTranscription, document_id: str) -> CanonicalPage:
     """Build a CanonicalPage from a VLM transcription result."""
@@ -38,7 +33,7 @@ def _page_from_transcription(transcription: PageTranscription, document_id: str)
     block = TextBlock(
         block_type="text_block",
         block_id=f"{document_id}-p{transcription.page_index:06d}-vlm",
-        bbox=_DUMMY_BBOX,
+        bbox=None,
         content=transcription.markdown_text,
         reading_index=0,
         family_reading_index=0,
@@ -70,7 +65,7 @@ def _page_from_raw_text(
     block = TextBlock(
         block_type="text_block",
         block_id=f"{document_id}-p{page_index:06d}-native",
-        bbox=_DUMMY_BBOX,
+        bbox=None,
         content=text if text.strip() else "(empty page)",
         reading_index=0,
         family_reading_index=0,

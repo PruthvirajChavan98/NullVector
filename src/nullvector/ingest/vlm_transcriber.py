@@ -5,8 +5,6 @@ from __future__ import annotations
 from pydantic import NonNegativeInt
 
 from nullvector.domain.common import (
-    BoundingBox,
-    GeometryCoordinateSpace,
     NonEmptyStr,
     NullVectorModel,
 )
@@ -96,16 +94,12 @@ class VLMPageTranscriber:
             total_pages=total_pages,
         )
 
-        # Build a dummy VisualRegionReference for the attachment.
-        # Phase 5 will simplify this model to remove BoundingBox.
         region = VisualRegionReference(
             document_id=document_id,
             page_index=page_index,
             region_id=f"page-{page_index:06d}",
-            bbox=BoundingBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0),
             page_render_path=page_render_path,
             render_dpi=self._dpi,
-            coordinate_space=GeometryCoordinateSpace.UNROTATED_PAGE,
         )
 
         # Write page PNG to a temp file when no store-persisted path exists,

@@ -231,7 +231,7 @@ class VisualRegionReference(NullVectorModel):
     document_id: NonEmptyStr
     page_index: NonNegativeInt
     region_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     image_ref: NonEmptyStr | None = None
     asset_path: NonEmptyStr | None = None
     page_render_path: NonEmptyStr | None = None
@@ -500,7 +500,7 @@ class SynthesisUnresolvedRegion(NullVectorModel):
     """Projection-safe unresolved region without provider-native payload leakage."""
 
     region_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     reason_code: NonEmptyStr
     severity: EventSeverity
     recommended_fallback: NonEmptyStr
@@ -526,7 +526,7 @@ class SynthesisLine(NullVectorModel):
     start_offset: NonNegativeInt
     end_offset: PositiveInt
     occurrence_index: NonNegativeInt
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     top_y: float | None = None
     font_size: float | None = None
     layout_cues_available: bool = False

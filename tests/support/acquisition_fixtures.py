@@ -10,7 +10,6 @@ from nullvector.domain import (
     AcquisitionManifest,
     AcquisitionRunManifest,
     AcquisitionSettings,
-    BoundingBox,
     CanonicalDocumentLedger,
     CanonicalPage,
     DocumentFingerprint,
@@ -29,8 +28,6 @@ from nullvector.ingest.projection import (
     project_ledger_to_tree_synthesis_view,
 )
 from nullvector.storage._serialization import settings_digest
-
-_DUMMY_BBOX = BoundingBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0)
 
 
 def _read_json(path: Path) -> Any:
@@ -64,7 +61,7 @@ def _page_from_row(root: Path, row: PageLedgerRow) -> CanonicalPage:
     block = TextBlock(
         block_type="text_block",
         block_id=f"{row.document_id}-p{row.page_index:06d}-fixture",
-        bbox=_DUMMY_BBOX,
+        bbox=None,
         content=text if text.strip() else "(empty page)",
         reading_index=0,
         family_reading_index=0,

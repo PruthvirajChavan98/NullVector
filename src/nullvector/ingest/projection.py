@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 
 from nullvector._text import casefold_punct_key, normalized_text_key
-from nullvector.domain.common import BoundingBox
 from nullvector.domain.events import ContentAuthoritativeness, SourceTrack, TrustTier
 from nullvector.domain.ledger import (
     CanonicalDocumentLedger,
@@ -25,9 +24,6 @@ from nullvector.domain.tree import (
     SynthesisUnresolvedRegion,
     TreeSynthesisView,
 )
-
-# Dummy bounding box for VLM-produced TextBlock lines (Phase 5 removes geometry).
-_DUMMY_BBOX = BoundingBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0)
 
 
 def _trust_tier_for_provenance(source_track: SourceTrack, confidence: float | None) -> TrustTier:
@@ -118,7 +114,7 @@ def build_canonical_text_substrate(ledger: CanonicalDocumentLedger) -> Canonical
                         start_offset=start_offset,
                         end_offset=end_offset,
                         occurrence_index=0,
-                        bbox=_DUMMY_BBOX,
+                        bbox=None,
                     )
                 )
                 offset = end_offset + 1
@@ -200,7 +196,7 @@ def project_ledger_to_tree_synthesis_view(ledger: CanonicalDocumentLedger) -> Tr
                         start_offset=start_offset,
                         end_offset=end_offset,
                         occurrence_index=0,
-                        bbox=_DUMMY_BBOX,
+                        bbox=None,
                         trust_tier=trust_tier,
                     )
                 )

@@ -408,7 +408,7 @@ class TextBlock(NullVectorModel):
 
     block_type: Literal["text_block"] = "text_block"
     block_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     content: NonEmptyStr
     reading_index: NonNegativeInt
     family_reading_index: NonNegativeInt | None = None
@@ -423,7 +423,7 @@ class LineBlock(NullVectorModel):
 
     block_type: Literal["line_block"] = "line_block"
     line_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     content: NonEmptyStr
     reading_index: NonNegativeInt
     family_reading_index: NonNegativeInt | None = None
@@ -439,7 +439,7 @@ class TableArtifact(NullVectorModel):
 
     block_type: Literal["table_artifact"] = "table_artifact"
     table_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     reading_index: NonNegativeInt
     family_reading_index: NonNegativeInt | None = None
     rows: tuple[tuple[str, ...], ...] = Field(default_factory=tuple)
@@ -460,7 +460,7 @@ class VisualArtifact(NullVectorModel):
 
     block_type: Literal["visual_artifact"] = "visual_artifact"
     visual_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     reading_index: NonNegativeInt
     family_reading_index: NonNegativeInt | None = None
     kind_hint: NonEmptyStr
@@ -478,7 +478,7 @@ class UnresolvedRegion(NullVectorModel):
 
     block_type: Literal["unresolved_region"] = "unresolved_region"
     region_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     reason_code: NonEmptyStr
     severity: EventSeverity
     recommended_fallback: NonEmptyStr
@@ -513,7 +513,7 @@ class CanonicalTextLine(NullVectorModel):
     start_offset: NonNegativeInt
     end_offset: PositiveInt
     occurrence_index: NonNegativeInt
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     top_y: float | None = None
     font_size: float | None = None
     layout_cues_available: bool = False
