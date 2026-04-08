@@ -48,9 +48,7 @@ def test_no_decomposition_when_within_page_limit() -> None:
     settings = TreeSettings(max_pages_per_leaf_node=10)
     decomposer = NodeDecomposer(settings)
     nodes = (_node("Small", 0, 2),)
-    result_nodes, report = decomposer.decompose(
-        nodes=nodes, pages=_pages(3), tree_run_id="test"
-    )
+    result_nodes, report = decomposer.decompose(nodes=nodes, pages=_pages(3), tree_run_id="test")
 
     assert len(result_nodes) == 1
     assert report.decomposition_method is DecompositionMethod.NONE
@@ -61,9 +59,7 @@ def test_no_decomposition_without_gateway_even_if_over_limit() -> None:
     settings = TreeSettings(max_pages_per_leaf_node=2)
     decomposer = NodeDecomposer(settings, gateway=None)
     nodes = (_node("Large", 0, 5),)
-    result_nodes, report = decomposer.decompose(
-        nodes=nodes, pages=_pages(6), tree_run_id="test"
-    )
+    result_nodes, report = decomposer.decompose(nodes=nodes, pages=_pages(6), tree_run_id="test")
 
     assert len(result_nodes) == 1
     assert report.decomposition_method is DecompositionMethod.NONE
@@ -91,9 +87,7 @@ def test_llm_decomposition_splits_large_node(tmp_path: Path) -> None:
     settings = TreeSettings(max_pages_per_leaf_node=2, max_decomposition_depth=1)
     decomposer = NodeDecomposer(settings, gateway=gateway)
     nodes = (_node("Large", 0, 5),)
-    result_nodes, report = decomposer.decompose(
-        nodes=nodes, pages=_pages(6), tree_run_id="test"
-    )
+    result_nodes, report = decomposer.decompose(nodes=nodes, pages=_pages(6), tree_run_id="test")
 
     assert report.decomposition_method is DecompositionMethod.LLM_ASSISTED
     assert report.new_child_count >= 2
@@ -123,7 +117,5 @@ def test_page_count_threshold_is_inclusive() -> None:
     assert report.decomposition_method is DecompositionMethod.NONE
 
     over_limit = (_node("Over", 0, 3),)
-    result, report = decomposer.decompose(
-        nodes=over_limit, pages=_pages(4), tree_run_id="test"
-    )
+    result, report = decomposer.decompose(nodes=over_limit, pages=_pages(4), tree_run_id="test")
     assert report.decomposition_method is DecompositionMethod.NONE  # no gateway

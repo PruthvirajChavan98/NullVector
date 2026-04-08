@@ -26,7 +26,7 @@ from nullvector.retrieval._tree_search_runtime import (
     load_tree_search_state,
     tree_search_artifact_root,
 )
-from nullvector.retrieval.planner import QueryPlanner
+from nullvector.retrieval.llm_planner import LLMQueryPlanner as QueryPlanner
 from nullvector.retrieval.service import RetrievalService
 from nullvector.storage import StorageConfig, build_document_store
 

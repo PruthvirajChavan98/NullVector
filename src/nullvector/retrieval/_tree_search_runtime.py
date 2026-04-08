@@ -31,8 +31,8 @@ from nullvector.retrieval._artifacts import (
     load_tree_manifest,
     normalize_artifact_ref,
 )
+from nullvector.retrieval.llm_planner import LLMQueryPlanner as QueryPlanner
 from nullvector.retrieval.load import load_retrieval_corpus, load_retrieval_manifest
-from nullvector.retrieval.planner import QueryPlanner
 from nullvector.retrieval.service import RetrievalService
 from nullvector.storage import StorageConfig, build_document_store
 from nullvector.storage.artifact_roots import resolve_tree_search_artifact_root

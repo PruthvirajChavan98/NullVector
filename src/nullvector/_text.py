@@ -47,29 +47,3 @@ def tokenize(value: str, *, stopwords: frozenset[str] | None = None) -> tuple[st
     return tuple(
         token for token in normalize_text(value).split() if token and token not in stopwords
     )
-
-
-def levenshtein_distance(left: str, right: str) -> int:
-    """Compute the Levenshtein edit distance between two strings."""
-
-    if left == right:
-        return 0
-    if not left:
-        return len(right)
-    if not right:
-        return len(left)
-
-    previous = list(range(len(right) + 1))
-    for left_index, left_char in enumerate(left, start=1):
-        current = [left_index]
-        for right_index, right_char in enumerate(right, start=1):
-            cost = 0 if left_char == right_char else 1
-            current.append(
-                min(
-                    previous[right_index] + 1,
-                    current[right_index - 1] + 1,
-                    previous[right_index - 1] + cost,
-                ),
-            )
-        previous = current
-    return previous[-1]

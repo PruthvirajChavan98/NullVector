@@ -14,8 +14,8 @@ from nullvector.domain.retrieval import (
 )
 from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.retrieval.index import InMemoryRetrievalIndex, PostgresRetrievalIndex
-from nullvector.retrieval.planner import QueryPlanner
-from nullvector.retrieval.rank import RetrievalRanker
+from nullvector.retrieval.llm_planner import LLMQueryPlanner as QueryPlanner
+from nullvector.retrieval.llm_ranker import LLMRetrievalRanker as RetrievalRanker
 from nullvector.storage import StorageConfig, build_document_store
 
 

@@ -1,4 +1,4 @@
-"""Retrieval ranking tests."""
+"""Retrieval ranking tests for LLM-driven and fallback ranker."""
 
 from __future__ import annotations
 
@@ -9,75 +9,70 @@ from nullvector.domain.retrieval import (
     RetrievalModality,
     RetrievalUnitType,
 )
-from nullvector.retrieval import QueryPlanner, RetrievalRanker
+from nullvector.retrieval import RetrievalRanker
 
 
-def test_page_filtered_visual_query_ranks_page_zero_visual_above_text_nodes() -> None:
+def test_fallback_ranker_ranks_by_keyword_overlap() -> None:
     ranker = RetrievalRanker()
-    plan = QueryPlanner().plan("what is the image on first page about?")
-    visual = RetrievalEvidence(
-        unit_id="visual-0",
-        document_id="d" * 64,
-        unit_type=RetrievalUnitType.VISUAL,
-        modality=RetrievalModality.VISUAL,
-        page_span=PageSpan(start_page=0, end_page=0),
-        authoritative=False,
+    plan = QueryPlan(
+        raw_query="alpha revenue growth",
+        normalized_query="alpha revenue growth",
     )
-    page_text = RetrievalEvidence(
-        unit_id="page-text-0",
+    relevant = RetrievalEvidence(
+        unit_id="relevant",
         document_id="d" * 64,
-        unit_type=RetrievalUnitType.PAGE_TEXT,
+        unit_type=RetrievalUnitType.NODE_TEXT,
         modality=RetrievalModality.TEXT,
         page_span=PageSpan(start_page=0, end_page=0),
-        text="Cover page title only.",
+        text="Alpha revenue growth accelerated this quarter.",
         authoritative=True,
     )
-    node_text = RetrievalEvidence(
-        unit_id="node-text-1",
+    irrelevant = RetrievalEvidence(
+        unit_id="irrelevant",
         document_id="d" * 64,
         unit_type=RetrievalUnitType.NODE_TEXT,
         modality=RetrievalModality.TEXT,
         page_span=PageSpan(start_page=1, end_page=1),
-        text="Alpha body line",
+        text="Beta litigation policies were updated.",
         authoritative=True,
     )
 
     hits = ranker.rank(
-        query="what is the image on first page about?",
+        query="alpha revenue growth",
         plan=plan,
-        candidates=(page_text, node_text, visual),
+        candidates=(irrelevant, relevant),
     )
 
-    assert hits[0].unit.unit_id == "visual-0"
+    assert hits[0].unit.unit_id == "relevant"
     assert hits[0].score > hits[1].score
 
 
-def test_summary_unit_does_not_outrank_exact_page_text() -> None:
+def test_fallback_ranker_returns_matched_terms() -> None:
     ranker = RetrievalRanker()
     plan = QueryPlan(
-        raw_query="Alpha body line",
-        normalized_query="alpha body line",
+        raw_query="revenue",
+        normalized_query="revenue",
     )
-    page_text = RetrievalEvidence(
-        unit_id="page-text",
+    candidate = RetrievalEvidence(
+        unit_id="match",
         document_id="d" * 64,
-        unit_type=RetrievalUnitType.PAGE_TEXT,
+        unit_type=RetrievalUnitType.NODE_TEXT,
         modality=RetrievalModality.TEXT,
-        page_span=PageSpan(start_page=1, end_page=1),
-        text="Alpha body line",
+        page_span=PageSpan(start_page=0, end_page=0),
+        text="Revenue growth was strong.",
         authoritative=True,
     )
-    summary = RetrievalEvidence(
-        unit_id="node-summary",
-        document_id="d" * 64,
-        unit_type=RetrievalUnitType.NODE_SUMMARY,
-        modality=RetrievalModality.TEXT,
-        page_span=PageSpan(start_page=1, end_page=1),
-        text="Alpha body line is summarized here.",
-        interpretive=True,
-        authoritative=False,
-    )
 
-    hits = ranker.rank(query="Alpha body line", plan=plan, candidates=(summary, page_text))
+    hits = ranker.rank(query="revenue", plan=plan, candidates=(candidate,))
 
-    assert hits[0].unit.unit_id == "page-text"
+    assert len(hits) == 1
+    assert "revenue" in hits[0].matched_terms
+
+
+def test_fallback_ranker_handles_empty_candidates() -> None:
+    ranker = RetrievalRanker()
+    plan = QueryPlan(raw_query="test", normalized_query="test")
+
+    hits = ranker.rank(query="test", plan=plan, candidates=())
+
+    assert hits == ()

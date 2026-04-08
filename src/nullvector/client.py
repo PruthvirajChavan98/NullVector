@@ -40,16 +40,16 @@ from nullvector.presets import DocumentPreset, resolve_preset
 from nullvector.retrieval import (
     DocumentDescriptionBuilder,
     QAResponse,
-    QueryPlanner,
     RetrievalCorpusBuilder,
     RetrievalQAService,
-    RetrievalRanker,
     RetrievalService,
     load_document_description,
     load_document_description_manifest,
     load_retrieval_corpus,
     load_retrieval_manifest,
 )
+from nullvector.retrieval.llm_planner import LLMQueryPlanner
+from nullvector.retrieval.llm_ranker import LLMRetrievalRanker
 from nullvector.storage import StorageConfig
 from nullvector.storage._serialization import canonical_json_text
 from nullvector.tree import build_tree
@@ -458,8 +458,8 @@ class NullVectorClient:
 
     def _retrieval_service(self) -> RetrievalService:
         return RetrievalService(
-            QueryPlanner(),
-            RetrievalRanker(),
+            LLMQueryPlanner(gateway=self._gateway),
+            LLMRetrievalRanker(gateway=self._gateway),
             logger=self._logger,
             storage=self._storage,
         )
