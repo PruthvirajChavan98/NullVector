@@ -145,6 +145,29 @@ class GatewayRequest(NullVectorModel, Generic[T]):
         return self
 
 
+class TextGatewayRequest(NullVectorModel):
+    """Unstructured text request — no JSON schema enforcement."""
+
+    operation_name: NonEmptyStr
+    messages: tuple[LLMMessage, ...]
+    attachments: tuple[RegionImageInput, ...] = ()
+    model_name: NonEmptyStr | None = None
+    temperature: NonNegativeFloat | None = 0.0
+    max_output_tokens: PositiveInt | None = None
+    metadata: dict[str, JSONValue] = Field(default_factory=dict)
+    idempotency_key: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def validate_request(self) -> TextGatewayRequest:
+        if not self.messages:
+            msg = "gateway requests must include at least one message"
+            raise ValueError(msg)
+        if self.temperature is not None and self.temperature > 2:
+            msg = "temperature must be less than or equal to 2"
+            raise ValueError(msg)
+        return self
+
+
 class GatewayUsage(NullVectorModel):
     """Normalized token usage accounting."""
 
@@ -233,6 +256,19 @@ class GatewaySuccess(NullVectorModel, Generic[T]):
     audit_path: NonEmptyStr | None = None
 
 
+class TextGatewaySuccess(NullVectorModel):
+    """Raw text success payload — no schema validation."""
+
+    request_id: NonEmptyStr
+    operation_name: NonEmptyStr
+    provider_name: NonEmptyStr
+    model_name: NonEmptyStr
+    text: str
+    attempts: tuple[GatewayAttempt, ...] = ()
+    usage: GatewayUsage | None = None
+    audit_path: NonEmptyStr | None = None
+
+
 class GatewayAuditRecord(NullVectorModel):
     """Redacted, persistable gateway audit artifact."""
 
@@ -263,9 +299,9 @@ class ProviderInvocationRequest(NullVectorModel):
     attachments: tuple[RegionImageInput, ...] = ()
     model_name: NonEmptyStr
     structured_output_mode: StructuredOutputMode
-    response_model_name: NonEmptyStr
-    response_schema_name: NonEmptyStr
-    response_schema: dict[str, JSONValue]
+    response_model_name: NonEmptyStr | None = None
+    response_schema_name: NonEmptyStr | None = None
+    response_schema: dict[str, JSONValue] | None = None
     timeout_seconds: PositiveFloat
     temperature: NonNegativeFloat | None = 0.0
     max_output_tokens: PositiveInt | None = None

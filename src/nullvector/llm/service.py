@@ -38,6 +38,8 @@ from nullvector.llm.types import (
     ProviderInvocationResult,
     ProviderInvocationSuccess,
     StructuredOutputMode,
+    TextGatewayRequest,
+    TextGatewaySuccess,
 )
 from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.runtime_validation import (
@@ -827,6 +829,132 @@ class GatewayService(StructuredLLMGateway):
             raise first_error
 
         return tuple(cast(GatewaySuccess[T], result) for result in results)
+
+    def invoke_text(self, request: TextGatewayRequest) -> TextGatewaySuccess:
+        """Invoke the provider and return raw text — no JSON schema enforcement.
+
+        Uses the same retry, circuit-breaker, and audit machinery as
+        ``invoke``, but sends no ``response_format`` and returns the raw
+        content string instead of parsing structured output.
+        """
+        request_id = request.idempotency_key or uuid.uuid4().hex
+        candidate_models = (request.model_name or self._config.default_model,)
+        primary_model = candidate_models[0]
+
+        # Build a ProviderInvocationRequest with response_schema=None
+        # so the adapter skips response_format entirely.
+        provider_request = ProviderInvocationRequest(
+            request_id=request_id,
+            operation_name=request.operation_name,
+            messages=request.messages,
+            attachments=request.attachments,
+            model_name=primary_model,
+            structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+            timeout_seconds=self._config.timeout_seconds,
+            temperature=request.temperature,
+            max_output_tokens=request.max_output_tokens,
+            metadata=request.metadata,
+            idempotency_key=request.idempotency_key,
+        )
+
+        breaker = self._breaker_for_model(primary_model)
+        if not breaker.allow_request():
+            msg = f"circuit open for model {primary_model}"
+            raise RuntimeError(msg)
+
+        attempts: list[GatewayAttempt] = []
+        delay = 0.0
+
+        for attempt_number in range(1, self._config.retry_policy.max_attempts + 1):
+            log_event(
+                self._logger,
+                "GatewayCallAttempted",
+                operation_name=request.operation_name,
+                model_name=primary_model,
+                provider_name=self._provider_adapter.provider_name,
+                attempt_number=attempt_number,
+                max_attempts=self._config.retry_policy.max_attempts,
+                mode="text",
+            )
+            started_at = datetime.now(UTC)
+
+            result = self._provider_adapter.invoke(provider_request, self._config)
+
+            completed_at = datetime.now(UTC)
+            _latency_ms = round((completed_at - started_at).total_seconds() * 1000)
+            attempts.append(
+                _build_attempt(
+                    attempt_number=attempt_number,
+                    delay_before_attempt_seconds=delay,
+                    result=result,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                ),
+            )
+
+            if result.success is not None:
+                breaker.record_success()
+                content = result.success.structured_output_text or (
+                    json.dumps(result.success.structured_output_json)
+                    if result.success.structured_output_json is not None
+                    else ""
+                )
+                log_event(
+                    self._logger,
+                    "GatewayCallSucceeded",
+                    operation_name=request.operation_name,
+                    model_name=primary_model,
+                    provider_name=self._provider_adapter.provider_name,
+                    latency_ms=_latency_ms,
+                    attempt_number=attempt_number,
+                    mode="text",
+                )
+                return TextGatewaySuccess(
+                    request_id=request_id,
+                    operation_name=request.operation_name,
+                    provider_name=result.success.provider_name,
+                    model_name=result.success.model_name,
+                    text=content,
+                    attempts=tuple(attempts),
+                    usage=(result.success.usage if hasattr(result.success, "usage") else None),
+                )
+
+            if result.failure is None:
+                msg = "provider returned neither success nor failure"
+                raise RuntimeError(msg)
+
+            failure = result.failure
+            if should_retry(
+                failure.category,
+                attempt_number=attempt_number,
+                policy=self._config.retry_policy,
+            ):
+                if failure.category in _CIRCUIT_BREAKER_FAILURE_CATEGORIES:
+                    breaker.record_failure()
+                delay = backoff_delay_seconds(
+                    self._config.retry_policy,
+                    attempt_number=attempt_number,
+                )
+                self._sleep_fn(delay)
+                continue
+
+            breaker.record_failure()
+            gateway_failure = _provider_failure_to_gateway_failure(
+                request_id=request_id,
+                request=GatewayRequest(
+                    operation_name=request.operation_name,
+                    messages=request.messages,
+                    attachments=request.attachments,
+                    response_model=type(None),
+                    metadata=request.metadata,
+                ),
+                attempts=tuple(attempts),
+                failure=failure,
+            )
+            raise error_from_failure(gateway_failure)
+
+        msg = "text gateway retry loop exhausted"
+        raise RuntimeError(msg)
 
 
 __all__ = ["GatewayService"]

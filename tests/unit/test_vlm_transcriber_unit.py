@@ -28,11 +28,7 @@ def _make_gateway(tmp_path: Path, markdown_text: str = "# Hello\n\nWorld") -> Ga
         provider_adapter=NoopProviderAdapter(
             {
                 "vlm_page_transcription": NoopScriptedResponse(
-                    output_json={
-                        "markdown_text": markdown_text,
-                        "has_tables": False,
-                        "has_images": False,
-                    },
+                    output_text=markdown_text,
                 ),
             }
         ),
@@ -82,11 +78,7 @@ def test_transcribe_document_with_tables_flag(tmp_path: Path) -> None:
         provider_adapter=NoopProviderAdapter(
             {
                 "vlm_page_transcription": NoopScriptedResponse(
-                    output_json={
-                        "markdown_text": "| Col A | Col B |\n|-------|-------|\n| 1 | 2 |",
-                        "has_tables": True,
-                        "has_images": False,
-                    },
+                    output_text="| Col A | Col B |\n|-------|-------|\n| 1 | 2 |",
                 ),
             }
         ),

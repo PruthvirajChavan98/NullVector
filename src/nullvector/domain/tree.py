@@ -75,6 +75,9 @@ class TreeSettings(NullVectorModel):
     max_pages_per_leaf_node: PositiveInt = 10
     max_tokens_per_leaf_node: PositiveInt = 20000
     max_decomposition_depth: PositiveInt = 2
+    hierarchy_chunk_size: PositiveInt = 10
+    hierarchy_chunk_overlap: PositiveInt = 2
+    hierarchy_chunking_threshold: PositiveInt = 15
 
 
 class TreeCompactionSettings(NullVectorModel):

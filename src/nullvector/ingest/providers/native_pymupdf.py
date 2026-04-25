@@ -18,6 +18,7 @@ from nullvector.domain.ledger import (
     CanonicalDocumentLedger,
     CanonicalPage,
     DocumentFingerprint,
+    SectionAnchorRecord,
     SourceMetadata,
     TextBlock,
 )
@@ -46,12 +47,22 @@ def _page_from_transcription(transcription: PageTranscription, document_id: str)
         ),
         grounding=GroundingEvidence(),
     )
+    anchor_records = tuple(
+        SectionAnchorRecord(
+            page_index=a.page_index,
+            level=a.level,
+            title=a.title,
+            char_offset=a.char_offset,
+        )
+        for a in transcription.section_anchors
+    )
     return CanonicalPage(
         page_index=transcription.page_index,
         width=1.0,
         height=1.0,
         native_available=False,
         blocks=(block,),
+        section_anchors=anchor_records,
     )
 
 
@@ -116,6 +127,7 @@ class NativePyMuPDFAcquisitionProvider:
             transcriptions = transcriber.transcribe_document(
                 str(source),
                 document_id=fingerprint.document_id,
+                max_concurrent_pages=request.settings.vlm_max_concurrent_pages,
             )
             pages = tuple(
                 _page_from_transcription(t, fingerprint.document_id) for t in transcriptions

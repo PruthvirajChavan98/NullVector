@@ -1,5 +1,8 @@
 .venv/
 .artifacts/
+.env
+.env.local
+.env.*.local
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/

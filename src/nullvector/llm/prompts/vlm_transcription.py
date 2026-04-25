@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
-from nullvector.domain.gateway import VLMTranscriptionResponse
 from nullvector.llm.types import LLMMessage, LLMRole
 
 
@@ -16,16 +13,13 @@ def build_vlm_transcription_messages(
     """Build prompt messages for VLM page transcription.
 
     The actual page image is supplied as a ``RegionImageInput`` attachment
-    alongside the ``GatewayRequest``; this builder only constructs the
+    alongside the ``TextGatewayRequest``; this builder only constructs the
     text-based instruction messages.
+
+    The VLM returns **raw Markdown text** — no JSON wrapper.  Table and image
+    detection is handled heuristically by the caller.
     """
 
-    payload = json.dumps(
-        {"page_index": page_index, "total_pages": total_pages},
-        indent=2,
-        sort_keys=True,
-        ensure_ascii=True,
-    )
     return (
         LLMMessage(
             role=LLMRole.SYSTEM,
@@ -36,23 +30,22 @@ def build_vlm_transcription_messages(
                 "Render tables as Markdown tables with proper column alignment. "
                 "Describe all figures, diagrams, and images in square brackets. "
                 "Preserve heading hierarchy using Markdown heading levels (# ## ###). "
-                "Do not add commentary or interpretation beyond what is on the page."
+                "Before each heading, emit an HTML comment anchor in this exact format: "
+                "<!-- SECTION_ANCHOR: level=N, title='Heading Text' --> "
+                "where N is the heading level (1 for #, 2 for ##, etc.) and the title "
+                "is the heading text using single quotes only (never double quotes). "
+                "This anchor must appear on the line immediately before its heading. "
+                "Do not add commentary or interpretation beyond what is on the page. "
+                "Return ONLY the Markdown text — no JSON, no code fences, no wrapper."
             ),
         ),
         LLMMessage(
             role=LLMRole.USER,
-            content=(
-                f"Transcribe this page to Markdown.\n{payload}\n\n"
-                "Return the transcription as a JSON object with fields: "
-                "markdown_text (the full Markdown text), "
-                "has_tables (boolean), "
-                "has_images (boolean)."
-            ),
+            content=(f"Transcribe this page to Markdown. Page {page_index + 1} of {total_pages}."),
         ),
     )
 
 
 __all__ = [
-    "VLMTranscriptionResponse",
     "build_vlm_transcription_messages",
 ]

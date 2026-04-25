@@ -502,7 +502,11 @@ class NullVectorClient:
     ) -> tuple[AcquisitionRunManifest, str]:
         resolved_source_kind = infer_source_kind(source_path, source_kind)
         resolved_acquisition_run_id = acquisition_run_id or auto_run_id(source_path, "acquisition")
-        manifest = AcquisitionService(logger=self._logger, storage=self._storage).acquire(
+        manifest = AcquisitionService(
+            logger=self._logger,
+            storage=self._storage,
+            gateway=self._gateway,
+        ).acquire(
             AcquisitionRequest(
                 source_path=str(source_path),
                 acquisition_run_id=resolved_acquisition_run_id,

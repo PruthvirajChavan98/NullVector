@@ -14,6 +14,8 @@ from nullvector.llm.types import (
     GatewaySuccess,
     ProviderInvocationRequest,
     ProviderInvocationResult,
+    TextGatewayRequest,
+    TextGatewaySuccess,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -65,6 +67,9 @@ class StructuredLLMGateway(Protocol):
         max_workers: int | None = None,
     ) -> tuple[GatewaySuccess[T], ...]:
         """Return ordered validated models or raise the first typed exception."""
+
+    def invoke_text(self, request: TextGatewayRequest) -> TextGatewaySuccess:
+        """Return raw text or raise a typed gateway exception."""
 
 
 class AsyncStructuredLLMGateway(Protocol):

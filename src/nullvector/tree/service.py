@@ -15,6 +15,7 @@ from nullvector.domain.ledger import (
     AcquisitionRunManifest,
     OutlineEntry,
     OutlineSource,
+    SectionAnchorRecord,
 )
 from nullvector.domain.tree import (
     DecompositionMethod,
@@ -59,6 +60,7 @@ class TreeInputBundle:
     fingerprint_sha256: str
     outline_entries: tuple[OutlineEntry, ...]
     markdown_pages: tuple[str, ...]
+    section_anchors_by_page: dict[int, tuple[SectionAnchorRecord, ...]]
 
 
 class TreePipelineService:
@@ -145,6 +147,8 @@ class TreePipelineService:
             tree_run_id=request.tree_run_id,
             markdown_pages=input_bundle.markdown_pages,
             outline_entries=input_bundle.outline_entries,
+            section_anchors_by_page=input_bundle.section_anchors_by_page,
+            settings=request.settings,
         )
 
         # Persist hierarchy artifacts
@@ -292,12 +296,20 @@ class TreePipelineService:
         pages_data = cast(list[dict[str, Any]], ledger_data.get("pages", []))
 
         markdown_pages: list[str] = []
+        anchors_by_page: dict[int, tuple[SectionAnchorRecord, ...]] = {}
         for page in pages_data:
             blocks = cast(list[dict[str, Any]], page.get("blocks", []))
             page_text = "\n".join(
                 block["content"] for block in blocks if block.get("block_type") == "text_block"
             )
             markdown_pages.append(page_text)
+
+            raw_anchors = cast(list[dict[str, Any]], page.get("section_anchors", []))
+            if raw_anchors:
+                page_idx = int(page.get("page_index", len(markdown_pages) - 1))
+                anchors_by_page[page_idx] = tuple(
+                    SectionAnchorRecord.model_validate(a) for a in raw_anchors
+                )
 
         artifact_root = (
             Path(acq_manifest.artifact_root) if acq_manifest.artifact_root is not None else None
@@ -316,6 +328,7 @@ class TreePipelineService:
             fingerprint_sha256=acq_manifest.source_fingerprint.sha256,
             outline_entries=self._load_outline_entries(acq_manifest),
             markdown_pages=tuple(markdown_pages),
+            section_anchors_by_page=anchors_by_page,
         )
 
     def _effective_tree_root(

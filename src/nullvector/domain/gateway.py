@@ -38,9 +38,23 @@ class HierarchySynthesisResponse(NullVectorModel):
     nodes: tuple[HierarchySynthesisNode, ...] = ()
 
 
+class ChunkHierarchyResponse(NullVectorModel):
+    """Typed structured response for one chunk of the map-reduce hierarchy synthesis."""
+
+    nodes: tuple[HierarchySynthesisNode, ...] = ()
+
+
+class MergeHierarchyResponse(NullVectorModel):
+    """Typed structured response for the merge step of map-reduce hierarchy synthesis."""
+
+    nodes: tuple[HierarchySynthesisNode, ...] = ()
+
+
 __all__ = [
+    "ChunkHierarchyResponse",
     "DecompositionPromptResponse",
     "HierarchySynthesisNode",
     "HierarchySynthesisResponse",
+    "MergeHierarchyResponse",
     "VLMTranscriptionResponse",
 ]

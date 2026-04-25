@@ -201,6 +201,7 @@ class AcquisitionSettings(NullVectorModel):
     table_min_columns: PositiveInt = 2
     table_min_rows: PositiveInt = 2
     render_dpi: PositiveInt = 144
+    vlm_max_concurrent_pages: PositiveInt = 4
     markdown: MarkdownAcquisitionSettings = Field(default_factory=MarkdownAcquisitionSettings)
 
     @model_validator(mode="after")
@@ -539,6 +540,15 @@ PageBlock = Annotated[
 ]
 
 
+class SectionAnchorRecord(NullVectorModel):
+    """Persisted section anchor extracted from VLM-transcribed Markdown."""
+
+    page_index: NonNegativeInt
+    level: PositiveInt
+    title: NonEmptyStr
+    char_offset: NonNegativeInt
+
+
 class CanonicalPage(NullVectorModel):
     """Authoritative per-page unit in the v2 canonical document ledger."""
 
@@ -550,6 +560,7 @@ class CanonicalPage(NullVectorModel):
     native_available: bool
     blocks: tuple[PageBlock, ...] = Field(default_factory=tuple)
     events: tuple[PageEvent, ...] = Field(default_factory=tuple)
+    section_anchors: tuple[SectionAnchorRecord, ...] = Field(default_factory=tuple)
 
 
 class CanonicalDocumentLedger(NullVectorModel):
@@ -594,6 +605,7 @@ __all__ = [
     "ParseRunIndex",
     "ParseRunManifest",
     "ParserSettings",
+    "SectionAnchorRecord",
     "SourceDocumentKind",
     "SourceMetadata",
     "TableArtifact",

@@ -14,6 +14,8 @@ dependencies = [
   "pypdf==6.8.0",
   "pydantic>=2.11.0,<3.0.0",
   "typer==0.24.1",
+  "litellm>=1.83.0",
+  "psycopg[binary]>=3.3.3",
 ]
 
 [project.scripts]

@@ -213,15 +213,16 @@ class LiteLLMAdapter:
             kwargs: dict[str, Any] = {
                 "model": request.model_name,
                 "messages": _build_messages(request),
-                "response_format": {
+            }
+            if request.response_schema is not None:
+                kwargs["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {
                         "name": request.response_schema_name,
                         "schema": request.response_schema,
                         "strict": True,
                     },
-                },
-            }
+                }
             if request.temperature is not None:
                 kwargs["temperature"] = request.temperature
             if request.max_output_tokens is not None:
@@ -363,15 +364,16 @@ class AsyncLiteLLMAdapter:
             kwargs: dict[str, Any] = {
                 "model": request.model_name,
                 "messages": _build_messages(request),
-                "response_format": {
+            }
+            if request.response_schema is not None:
+                kwargs["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {
                         "name": request.response_schema_name,
                         "schema": request.response_schema,
                         "strict": True,
                     },
-                },
-            }
+                }
             if request.temperature is not None:
                 kwargs["temperature"] = request.temperature
             if request.max_output_tokens is not None:
