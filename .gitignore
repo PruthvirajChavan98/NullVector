@@ -29,6 +29,13 @@ workspace-diff*
 diffcommand.txt
 features/
 
+# Cookbook runtime workspaces (gitignore catches new runs;
+# legacy tracked copies removed via `git rm --cached`)
+.tree_tmp/
+_tmp/
+nv_workspace/
+cookbook/cookbook/
+
 # Secret hygiene — never commit credentials in any form
 *.pem
 *.key
