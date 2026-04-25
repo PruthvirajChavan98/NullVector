@@ -28,3 +28,15 @@ CHANGE_DIFF*
 workspace-diff*
 diffcommand.txt
 features/
+
+# Secret hygiene — never commit credentials in any form
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.envrc
+credentials*
+*.netrc
+*.sqlite
+*.sqlite3
