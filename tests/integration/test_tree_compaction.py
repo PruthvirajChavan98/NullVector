@@ -34,6 +34,48 @@ def _summary_gateway(tmp_path: Path) -> GatewayService:
         ),
         provider_adapter=NoopProviderAdapter(
             {
+                "hierarchy_synthesis": NoopScriptedResponse(
+                    output_json={
+                        "nodes": [
+                            {
+                                "title": "Operating Handbook",
+                                "level": 1,
+                                "start_page": 0,
+                                "end_page": 0,
+                            },
+                            {
+                                "title": "Alpha Policies",
+                                "level": 2,
+                                "start_page": 0,
+                                "end_page": 0,
+                            },
+                            {
+                                "title": "Beta Policies",
+                                "level": 2,
+                                "start_page": 0,
+                                "end_page": 0,
+                            },
+                            {
+                                "title": "Gamma Policies",
+                                "level": 2,
+                                "start_page": 0,
+                                "end_page": 0,
+                            },
+                            {
+                                "title": "Delta Policies",
+                                "level": 2,
+                                "start_page": 0,
+                                "end_page": 0,
+                            },
+                            {
+                                "title": "Epsilon Policies",
+                                "level": 2,
+                                "start_page": 0,
+                                "end_page": 0,
+                            },
+                        ]
+                    }
+                ),
                 "summarize_leaf_node": NoopScriptedResponse(
                     output_json={"summary": "leaf summary", "keywords": ["leaf"]}
                 ),

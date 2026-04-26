@@ -398,11 +398,10 @@ def test_lexical_document_prefilter_ranks_hits_deterministically() -> None:
         )
     )
 
-    assert tuple(hit.document_id for hit in hits) == ("doc-beta", "doc-alpha", "doc-gamma")
-    assert hits[0].score > hits[1].score >= hits[2].score
+    assert tuple(hit.document_id for hit in hits) == ("doc-beta",)
 
 
-def test_lexical_document_prefilter_keeps_zero_score_hits_only_when_needed() -> None:
+def test_lexical_document_prefilter_omits_zero_score_hits_by_default() -> None:
     engine = LexicalDocumentPrefilter()
 
     hits = engine.search(
@@ -410,6 +409,45 @@ def test_lexical_document_prefilter_keeps_zero_score_hits_only_when_needed() -> 
             collection_id="collection-zero-score",
             selection_run_id="prefilter-002",
             query="beta litigation",
+            proxies=(
+                _proxy(
+                    document_id="doc-match",
+                    display_name="Beta Litigation Memo",
+                    description_text="Litigation memo for beta.",
+                    summary_text="Beta litigation deadlines.",
+                    keywords=("litigation",),
+                ),
+                _proxy(
+                    document_id="doc-zero-a",
+                    display_name="Alpha Brief",
+                    description_text="Revenue only.",
+                    summary_text="Revenue only.",
+                    keywords=("revenue",),
+                ),
+                _proxy(
+                    document_id="doc-zero-b",
+                    display_name="Bravo Brief",
+                    description_text="Markets only.",
+                    summary_text="Markets only.",
+                    keywords=("markets",),
+                ),
+            ),
+            limit=2,
+        )
+    )
+
+    assert tuple(hit.document_id for hit in hits) == ("doc-match",)
+
+
+def test_lexical_document_prefilter_zero_score_fillers_are_opt_in() -> None:
+    engine = LexicalDocumentPrefilter()
+
+    hits = engine.search(
+        DocumentPrefilterRequest(
+            collection_id="collection-zero-score-opt-in",
+            selection_run_id="prefilter-002b",
+            query="beta litigation",
+            include_zero_score_fillers=True,
             proxies=(
                 _proxy(
                     document_id="doc-match",

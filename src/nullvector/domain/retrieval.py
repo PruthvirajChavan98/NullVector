@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
 from pydantic import Field, NonNegativeFloat, NonNegativeInt, PositiveInt, model_validator
 
 from nullvector.domain.common import (
+    CoerceTuple,
     ContentSpan,
     NonEmptyStr,
     NullVectorModel,
@@ -38,6 +39,18 @@ class RetrievalModality(StrEnum):
     TABLE = "table"
     VISUAL = "visual"
     MIXED = "mixed"
+
+
+class QueryIntent(StrEnum):
+    """Coarse-grained grounded-answer intent inferred from one query."""
+
+    DOCUMENT_SUMMARY = "document_summary"
+    SECTION_LOOKUP = "section_lookup"
+    PAGE_LOOKUP = "page_lookup"
+    VISUAL_LOOKUP = "visual_lookup"
+    TABLE_LOOKUP = "table_lookup"
+    QUOTE_LOOKUP = "quote_lookup"
+    TOPIC_LOOKUP = "topic_lookup"
 
 
 class RetrievalEvidence(NullVectorModel):
@@ -116,23 +129,11 @@ class TreeSearchFrontierNode(NullVectorModel):
 
     node_id: NonEmptyStr
     title: NonEmptyStr
-    path: tuple[NonEmptyStr, ...]
+    path: Annotated[tuple[NonEmptyStr, ...], CoerceTuple]
     level: PositiveInt
     page_span: PageSpan
     summary_text: str | None = None
-    keywords: tuple[NonEmptyStr, ...] = Field(default_factory=tuple)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_sequences(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        normalized = dict(data)
-        for field_name in ("path", "keywords"):
-            value = normalized.get(field_name)
-            if isinstance(value, list):
-                normalized[field_name] = tuple(value)
-        return normalized
+    keywords: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(default_factory=tuple)
 
 
 class TreeSearchTraceStep(NullVectorModel):
@@ -295,6 +296,7 @@ class QueryPlan(NullVectorModel):
 
     raw_query: NonEmptyStr
     normalized_query: NonEmptyStr
+    query_intent: QueryIntent = QueryIntent.TOPIC_LOOKUP
     page_filter: PageSpan | None = None
     unit_types: tuple[RetrievalUnitType, ...] = Field(default_factory=tuple)
     modality_filters: tuple[RetrievalModality, ...] = Field(default_factory=tuple)
@@ -359,6 +361,7 @@ __all__ = [
     "PreferenceSelectionRequest",
     "PreferenceSelectionResult",
     "PreferenceSnippet",
+    "QueryIntent",
     "QueryPlan",
     "RetrievalCorpus",
     "RetrievalEvidence",

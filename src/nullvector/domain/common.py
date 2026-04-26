@@ -7,6 +7,7 @@ from typing import Annotated, Generic, Self, TypeAlias, TypeVar
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     NonNegativeInt,
     PositiveInt,
@@ -20,6 +21,17 @@ Sha256Hex = Annotated[
     StringConstraints(strip_whitespace=True, pattern=r"^[a-f0-9]{64}$"),
 ]
 ScalarValue: TypeAlias = str | int | float | bool | None
+
+
+def _coerce_tuple(value: object) -> object:
+    """Coerce JSON-style lists into tuples for strict frozen models."""
+
+    if isinstance(value, list):
+        return tuple(value)
+    return value
+
+
+CoerceTuple = BeforeValidator(_coerce_tuple)
 
 
 def is_numeric_scalar(value: object) -> bool:
@@ -149,6 +161,7 @@ __all__ = [
     "BatchItemFailure",
     "BatchResult",
     "BoundingBox",
+    "CoerceTuple",
     "ContentSpan",
     "GeometryCoordinateSpace",
     "NodeOwnedSpan",

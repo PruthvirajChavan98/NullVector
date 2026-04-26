@@ -15,7 +15,6 @@ from nullvector.domain import (
     AcquisitionRequest,
     AcquisitionRunManifest,
     AcquisitionSettings,
-    AnchorSource,
     BoundingBox,
     CanonicalDocumentLedger,
     CanonicalPage,
@@ -24,7 +23,6 @@ from nullvector.domain import (
     GroundingEvidence,
     HierarchyNode,
     LineBlock,
-    NodeAnchor,
     NodeCard,
     NodeOwnedSpan,
     NodeSummary,
@@ -280,14 +278,6 @@ def write_synthetic_bundle(
         title=section_title,
         normalized_title=section_title.casefold(),
         page_span=PageSpan(start_page=1, end_page=1),
-        heading_anchor=NodeAnchor(
-            page=1,
-            start_offset=0,
-            end_offset=len(section_title),
-            anchor_text=section_title,
-            anchor_source=AnchorSource.TEXT,
-            occurrence_index=0,
-        ),
         owned_spans=(
             NodeOwnedSpan(
                 kind="body",
@@ -389,22 +379,10 @@ def write_synthetic_bundle(
         settings=tree_settings,
         settings_digest=tree_digest,
         run_index_path=str(tree_root / "run-index.json"),
-        headings_path=str(next(iter(placeholder_json_files.keys()))),
-        raw_hierarchy_path=str(tree_root / "strategy" / "attempts" / "01" / "raw-hierarchy.json"),
-        repair_requests_path=str(
-            tree_root / "strategy" / "attempts" / "01" / "repair-requests.json"
-        ),
-        repair_decisions_path=str(
-            tree_root / "strategy" / "attempts" / "01" / "repair-decisions.json"
-        ),
-        repaired_hierarchy_path=str(
-            tree_root / "strategy" / "attempts" / "01" / "repaired-hierarchy.json"
-        ),
         committed_hierarchy_path=str(committed_path),
         node_cards_path=str(node_cards_path),
         unassigned_spans_path=str(unassigned_path),
-        verification_report_path=str(verification_path),
-        build_report_path=str(tree_root / "strategy" / "attempts" / "01" / "build-report.json"),
+        build_report_path=str(tree_root / "build-report.json"),
         node_summaries_path=str(node_summaries_path),
         committed_node_count=1,
         unassigned_span_count=1,

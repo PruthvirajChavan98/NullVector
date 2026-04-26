@@ -5,6 +5,7 @@ from __future__ import annotations
 from logging import Logger
 from typing import cast
 
+from nullvector._text import normalize_text, tokenize
 from nullvector.domain.common import ScalarValue, is_numeric_scalar
 from nullvector.domain.document_selection import (
     DocumentFilterClause,
@@ -27,7 +28,7 @@ from nullvector.retrieval._selection_artifacts import (
     selection_artifact_path,
     selection_artifact_root,
 )
-from nullvector.storage import StorageBackend, StorageConfig, build_document_store
+from nullvector.storage import StorageConfig, build_document_store
 
 
 def _record_sort_key(record: DocumentMetadataRecord) -> tuple[str, str]:
@@ -112,14 +113,45 @@ def _records_from_payloads(
 def _candidate_from_record(
     record: DocumentMetadataRecord,
     *,
-    clauses: tuple[DocumentFilterClause, ...],
+    plan: MetadataSelectionPlan,
 ) -> DocumentSelectionCandidate:
-    matched_count = len(clauses)
+    matched_metadata = _matched_metadata(record, plan.clauses)
+    matched_count = len(matched_metadata)
+    query_tokens = tuple(tokenize(plan.normalized_query))
+    candidate_text = normalize_text(
+        " ".join(
+            (
+                record.display_name,
+                *(
+                    str(value)
+                    for value in matched_metadata.values()
+                    if isinstance(value, str | int | float | bool)
+                ),
+            )
+        )
+    )
+    token_overlap = (
+        float(len(set(query_tokens) & set(tokenize(candidate_text)))) / float(len(query_tokens))
+        if query_tokens
+        else 0.0
+    )
+    substring_boost = (
+        1.0 if plan.normalized_query and plan.normalized_query in candidate_text else 0.0
+    )
+    score = float(matched_count) + token_overlap + substring_boost
+    reason_suffix = []
+    if token_overlap > 0.0:
+        reason_suffix.append(f"token_overlap={token_overlap:.2f}")
+    if substring_boost > 0.0:
+        reason_suffix.append("exact_query_substring")
     return DocumentSelectionCandidate(
         document_id=record.document_id,
-        score=float(matched_count),
-        selection_reason=f"matched {matched_count}/{matched_count} metadata clauses",
-        matched_metadata=_matched_metadata(record, clauses),
+        score=score,
+        selection_reason=(
+            f"matched {matched_count}/{len(plan.clauses)} metadata clauses"
+            + (f"; {'; '.join(reason_suffix)}" if reason_suffix else "")
+        ),
+        matched_metadata=matched_metadata,
     )
 
 
@@ -201,19 +233,19 @@ class MetadataSelectionService:
             metadata_record_count=len(request.metadata_records),
         )
 
+        store = build_document_store(self._storage, default_filesystem_root=".")
         artifact_root = selection_artifact_root(
             collection_id=request.collection_id,
             selection_run_id=request.selection_run_id,
             artifact_root=request.artifact_root,
-            storage=self._storage,
+            store=store,
         )
-        store = build_document_store(self._storage, default_filesystem_root=".")
 
         if request.metadata_records:
             index_records = tuple(sorted(request.metadata_records, key=_record_sort_key))
-            if store.backend is StorageBackend.POSTGRES:
+            if store.supports_metadata_persistence:
                 store.put_metadata_records(request.collection_id, index_records)
-        elif store.backend is StorageBackend.POSTGRES:
+        elif store.supports_metadata_persistence:
             index_records = tuple(
                 sorted(
                     _records_from_payloads(store.load_metadata_records(request.collection_id)),
@@ -247,7 +279,7 @@ class MetadataSelectionService:
             payload=request.plan,
         )
 
-        if store.backend is StorageBackend.POSTGRES:
+        if store.supports_metadata_persistence:
             matched_records = tuple(
                 sorted(
                     _records_from_payloads(
@@ -268,8 +300,7 @@ class MetadataSelectionService:
             )
 
         candidates = tuple(
-            _candidate_from_record(record, clauses=request.plan.clauses)
-            for record in matched_records
+            _candidate_from_record(record, plan=request.plan) for record in matched_records
         )
         selection_results_path = store.put_json_artifact(
             run_type="document_selection",

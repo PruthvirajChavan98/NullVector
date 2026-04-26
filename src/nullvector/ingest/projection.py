@@ -13,6 +13,7 @@ from nullvector.domain.ledger import (
     CanonicalTextSubstrate,
     LineBlock,
     TableArtifact,
+    TextBlock,
     UnresolvedRegion,
 )
 from nullvector.domain.tree import (
@@ -51,37 +52,73 @@ def _page_text_from_lines(line_blocks: tuple[LineBlock, ...]) -> str:
     return "\n".join(line.content for line in sorted(line_blocks, key=_line_sort_key))
 
 
+def _text_block_page_text(text_blocks: tuple[TextBlock, ...]) -> str:
+    return "\n".join(block.content for block in text_blocks)
+
+
 def build_canonical_text_substrate(ledger: CanonicalDocumentLedger) -> CanonicalTextSubstrate:
     """Persist the one authoritative offset-bearing text surface for downstream consumers."""
 
     pages: list[CanonicalTextPage] = []
     for page in ledger.pages:
         line_blocks = tuple(block for block in page.blocks if isinstance(block, LineBlock))
-        ordered_lines = sorted(line_blocks, key=_line_sort_key)
-        page_text = _page_text_from_lines(tuple(ordered_lines))
-        substrate_lines: list[CanonicalTextLine] = []
-        offset = 0
-        for line in ordered_lines:
-            start_offset = offset
-            end_offset = start_offset + len(line.content)
-            substrate_lines.append(
-                CanonicalTextLine(
-                    line_id=line.line_id,
-                    content=line.content,
-                    normalized_text=normalized_text_key(line.content),
-                    casefold_punct_text=casefold_punct_key(line.content),
-                    page_index=page.page_index,
-                    reading_index=line.reading_index,
-                    start_offset=start_offset,
-                    end_offset=end_offset,
-                    occurrence_index=line.occurrence_index,
-                    bbox=line.bbox,
-                    top_y=line.top_y,
-                    font_size=line.font_size,
-                    layout_cues_available=line.font_size is not None or line.top_y is not None,
+        text_blocks = tuple(block for block in page.blocks if isinstance(block, TextBlock))
+
+        if line_blocks:
+            ordered_lines = sorted(line_blocks, key=_line_sort_key)
+            page_text = _page_text_from_lines(tuple(ordered_lines))
+            substrate_lines: list[CanonicalTextLine] = []
+            offset = 0
+            for line in ordered_lines:
+                start_offset = offset
+                end_offset = start_offset + len(line.content)
+                substrate_lines.append(
+                    CanonicalTextLine(
+                        line_id=line.line_id,
+                        content=line.content,
+                        normalized_text=normalized_text_key(line.content),
+                        casefold_punct_text=casefold_punct_key(line.content),
+                        page_index=page.page_index,
+                        reading_index=line.reading_index,
+                        start_offset=start_offset,
+                        end_offset=end_offset,
+                        occurrence_index=line.occurrence_index,
+                        bbox=line.bbox,
+                        top_y=line.top_y,
+                        font_size=line.font_size,
+                        layout_cues_available=(
+                            line.font_size is not None or line.top_y is not None
+                        ),
+                    )
                 )
-            )
-            offset = end_offset + 1
+                offset = end_offset + 1
+        else:
+            page_text = _text_block_page_text(text_blocks)
+            substrate_lines = []
+            offset = 0
+            for line_index, raw_line in enumerate(page_text.split("\n")):
+                content = raw_line.strip()
+                if not content:
+                    offset += len(raw_line) + 1
+                    continue
+                start_offset = offset
+                end_offset = start_offset + len(content)
+                substrate_lines.append(
+                    CanonicalTextLine(
+                        line_id=f"p{page.page_index}-L{line_index}",
+                        content=content,
+                        normalized_text=normalized_text_key(content),
+                        casefold_punct_text=casefold_punct_key(content),
+                        page_index=page.page_index,
+                        reading_index=line_index,
+                        start_offset=start_offset,
+                        end_offset=end_offset,
+                        occurrence_index=0,
+                        bbox=None,
+                    )
+                )
+                offset = end_offset + 1
+
         pages.append(
             CanonicalTextPage(
                 page_index=page.page_index,
@@ -99,37 +136,72 @@ def project_ledger_to_tree_synthesis_view(ledger: CanonicalDocumentLedger) -> Tr
 
     synthesis_pages: list[SynthesisPage] = []
     for page in ledger.pages:
-        line_blocks = sorted(
+        line_blocks_raw = sorted(
             (block for block in page.blocks if isinstance(block, LineBlock)),
             key=_line_sort_key,
         )
+        text_blocks = tuple(block for block in page.blocks if isinstance(block, TextBlock))
         synthesis_lines: list[SynthesisLine] = []
         line_counts: dict[TrustTier, int] = {}
         offset = 0
-        for line in line_blocks:
-            trust_tier = _line_trust_tier(line)
-            start_offset = offset
-            end_offset = start_offset + len(line.content)
-            synthesis_lines.append(
-                SynthesisLine(
-                    line_id=line.line_id,
-                    content=line.content,
-                    normalized_text=normalized_text_key(line.content),
-                    casefold_punct_text=casefold_punct_key(line.content),
-                    page_index=page.page_index,
-                    reading_index=line.reading_index,
-                    start_offset=start_offset,
-                    end_offset=end_offset,
-                    occurrence_index=line.occurrence_index,
-                    bbox=line.bbox,
-                    top_y=line.top_y,
-                    font_size=line.font_size,
-                    layout_cues_available=line.font_size is not None or line.top_y is not None,
-                    trust_tier=trust_tier,
+
+        if line_blocks_raw:
+            for line in line_blocks_raw:
+                trust_tier = _line_trust_tier(line)
+                start_offset = offset
+                end_offset = start_offset + len(line.content)
+                synthesis_lines.append(
+                    SynthesisLine(
+                        line_id=line.line_id,
+                        content=line.content,
+                        normalized_text=normalized_text_key(line.content),
+                        casefold_punct_text=casefold_punct_key(line.content),
+                        page_index=page.page_index,
+                        reading_index=line.reading_index,
+                        start_offset=start_offset,
+                        end_offset=end_offset,
+                        occurrence_index=line.occurrence_index,
+                        bbox=line.bbox,
+                        top_y=line.top_y,
+                        font_size=line.font_size,
+                        layout_cues_available=(
+                            line.font_size is not None or line.top_y is not None
+                        ),
+                        trust_tier=trust_tier,
+                    )
                 )
+                offset = end_offset + 1
+                line_counts[trust_tier] = line_counts.get(trust_tier, 0) + 1
+        elif text_blocks:
+            page_text = _text_block_page_text(text_blocks)
+            trust_tier = _trust_tier_for_provenance(
+                text_blocks[0].provenance.source_track,
+                text_blocks[0].provenance.confidence,
             )
-            offset = end_offset + 1
-            line_counts[trust_tier] = line_counts.get(trust_tier, 0) + 1
+            for line_index, raw_line in enumerate(page_text.split("\n")):
+                content = raw_line.strip()
+                if not content:
+                    offset += len(raw_line) + 1
+                    continue
+                start_offset = offset
+                end_offset = start_offset + len(content)
+                synthesis_lines.append(
+                    SynthesisLine(
+                        line_id=f"p{page.page_index}-L{line_index}",
+                        content=content,
+                        normalized_text=normalized_text_key(content),
+                        casefold_punct_text=casefold_punct_key(content),
+                        page_index=page.page_index,
+                        reading_index=line_index,
+                        start_offset=start_offset,
+                        end_offset=end_offset,
+                        occurrence_index=0,
+                        bbox=None,
+                        trust_tier=trust_tier,
+                    )
+                )
+                offset = end_offset + 1
+                line_counts[trust_tier] = line_counts.get(trust_tier, 0) + 1
 
         table_projections = tuple(
             SynthesisTextProjection(

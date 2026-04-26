@@ -1,189 +1,177 @@
 # NullVector
 
-NullVector is a CPU-first document hierarchy framework for deterministic ingestion of large
-technical PDFs into verifiable hierarchical JSON artifacts.
+> Vectorless hierarchical RAG framework — VLM transcription + LLM-driven section trees, no embeddings.
 
-## Current Scope
+NullVector processes PDFs and Markdown into auditable, searchable hierarchical trees without
+vector embeddings. PDF pages are rendered to images and transcribed to Markdown via a VLM, then
+an LLM synthesizes the document hierarchy. All retrieval is structural (tree traversal,
+LLM-driven ranking) with full traceability back to source pages.
 
-This repository currently establishes:
+## Why vectorless?
 
-- authoritative typed domain contracts with Pydantic v2
-- strict local validation tooling
-- deterministic Phase 01 parser substrate for document intake, outline extraction, text extraction,
-  OCR gating, and parse-run artifact persistence
-- deterministic Phase 02 tree pipeline for heading extraction, hierarchy assembly, explicit
-  unassigned-page tracking, verification, and typed repair artifacts
-- Phase 03 typed LLM gateway with NullVector-owned retries, audit capture, transport-compatible
-  LiteLLM support, a provider-native strict OpenAI Responses adapter, and bounded repair
-  integration
-- a parallel v2 acquisition runtime that produces `CanonicalDocumentLedger`, persists a
-  `TreeSynthesisView`, and lets the tree pipeline run from either legacy parse manifests or new
-  acquisition manifests
-- test fixtures, golden expectations, and ADR scaffolding for later phases
+- **Provenance** — every hit traces back to a specific page and section anchor, not a cosine distance.
+- **No embedding infrastructure** — no vector DB, no index to rebuild when the corpus changes.
+- **Explainable retrieval** — the LLM ranks candidates based on structural context, not opaque vector math.
 
-## Local Development
+## Quickstart
 
-```bash
-uv sync --extra dev
-make ci
+```python
+from pathlib import Path
+from nullvector import NullVectorClient
+from nullvector.llm import GatewayConfig, GatewayService
+from nullvector.llm.adapters import LiteLLMAdapter
+
+# 1. Build a gateway (LiteLLM → any provider; OpenRouter, Groq, OpenAI, etc.)
+gateway = GatewayService(
+    GatewayConfig(default_model="openrouter/google/gemini-2.5-flash-lite-preview-09-2025"),
+    provider_adapter=LiteLLMAdapter(api_key="..."),  # or from env
+)
+
+# 2. Create the client
+client = NullVectorClient(Path("./workspace"), gateway=gateway)
+
+# 3. Ingest a PDF (VLM transcription + tree build + retrieval index)
+result = client.ingest("document.pdf")
+
+# 4. Ask questions with grounded citations
+answer = client.ask("What does the methodology section cover?", ingest_result=result)
+print(answer.answer)
+for citation in answer.citations:
+    print(f"  page {citation.page_label}: {citation.quote}")
 ```
 
-Full OCR-backed validation requires local Tesseract language data. On Debian-based systems:
+## Core Features
+
+- **Parallel VLM transcription** — pages transcribed concurrently via `invoke_many`. Configurable
+  via `AcquisitionSettings.vlm_max_concurrent_pages` (default: 4).
+- **Semantic anchoring** — the VLM emits `<!-- SECTION_ANCHOR: level=N, title='...' -->` markers
+  before each heading, giving tree nodes spatial provenance back to the source page.
+- **Map-reduce hierarchy synthesis** — documents with 15+ pages are split into overlapping
+  chunks, analyzed in parallel, then merged. Avoids the "lost in the middle" problem for
+  long documents.
+- **Raw-text gateway path** — `GatewayService.invoke_text()` for non-structured calls,
+  eliminating JSON escaping failures for content with quotes, backslashes, or newlines.
+- **Dual storage backends** — `FilesystemDocumentStore` (zero-dependency default) and
+  `PostgresDocumentStore` (optional, `uv sync --extra postgres`).
+- **Structured retrieval** — tree search + LLM-driven ranking + grounded QA with page citations.
+- **Typed LLM gateway** — provider-agnostic, with NullVector-owned retries, audit capture,
+  circuit breakers, and typed failure envelopes.
+
+## Architecture
+
+```
+PDF / Markdown
+    │
+    ▼
+┌─────────────────┐   VLM page transcription (parallel) + section anchor extraction
+│   Acquisition   │   → CanonicalDocumentLedger (VLM Markdown + SectionAnchorRecord)
+└────────┬────────┘
+         ▼
+┌─────────────────┐   LLM hierarchy synthesis (single-shot or map-reduce)
+│   Tree Build    │   → HierarchyNode tree (sections with source anchors)
+└────────┬────────┘
+         ▼
+┌─────────────────┐   Retrieval corpus from tree nodes
+│ Retrieval Index │   → RetrievalCorpus (searchable units with page refs)
+└────────┬────────┘
+         ▼
+┌─────────────────┐   LLM-driven tree search + ranking + grounded QA
+│  Search / QA    │   → RetrievalHit[] + Answer with page citations
+└─────────────────┘
+```
+
+## Installation
+
+```bash
+# Core library + dev tools
+uv sync --extra dev
+
+# Optional Postgres backend
+uv sync --extra dev --extra postgres
+```
+
+On Debian-based systems, OCR-backed Markdown fixtures need tesseract:
 
 ```bash
 sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
 ```
 
-Production release remains gated on PyMuPDF commercial-license review. See
-`docs/legal/pymupdf-licensing.md`.
+## Configuration
 
-## Phase 03 LLM Gateway
-
-The canonical gateway surface lives under `src/nullvector/llm/` and is intentionally split across
-three subphases:
-
-- `03A`: typed gateway core, noop adapter, and LiteLLM SDK adapter with
-  `transport_compatible` assurance only
-- `03B`: direct OpenAI Responses adapter with `provider_native_strict` assurance plus bounded tree
-  repair integration
-- `03C`: failure hardening, audit stabilization, docs, and notebooks
-
-Current runtime requirements for live provider use:
-
-- LiteLLM SDK examples may use provider-specific environment variables such as `OPENAI_API_KEY`
-- the direct OpenAI Responses adapter requires `OPENAI_API_KEY`
-- notebook live cells are opt-in and env-gated; mocked/noop examples remain the default path
-
-The gateway core owns:
-
-- request and response contracts
-- Pydantic validation
-- typed failure normalization
-- retry and backoff policy
-- redacted audit persistence
-
-Provider adapters are transport boundaries only. The LiteLLM proxy/server path is out of scope for
-Phase 03.
-
-## Tree Pipeline Major Changes
-
-The tree pipeline now includes the major additive extensions implemented after the original Phase 02
-baseline:
-
-- deterministic-first TOC detection over persisted parse artifacts, with optional typed LLM
-  fallback for ambiguous pages
-- TOC-to-heading reconciliation with bounded page-offset calculation and TOC-derived candidates
-- opt-in grounded LLM verification assistance only when deterministic title matching fails
-- bottom-up node summarization, still off by default unless a gateway is supplied
-- bounded strategy orchestration across outline, TOC-derived, and inferred paths
-- deterministic-first large-leaf decomposition before final summarization, with optional bounded LLM
-  fallback when deterministic subdivision fails
-
-Existing default behavior is preserved when no gateway is provided and no optional summarize path is
-requested.
-
-## V2 Acquisition Migration
-
-The `major-changes-v2` migration now runs acquisition/projection as the primary path:
-
-- `src/nullvector/ingest/acquisition_service.py` orchestrates deterministic acquisition runs under
-  `artifacts/acquisition_runs/`
-- `src/nullvector/ingest/providers/native_pymupdf.py` is the framework-owned native-first
-  provider
-- `src/nullvector/ingest/projection.py` projects `CanonicalDocumentLedger` into
-  `TreeSynthesisView`
-- `TreeBuildRequest` now builds from `acquisition_manifest_path`
-- `src/nullvector/semantic/` provides the tokenizer boundary plus semantic summarization and
-  decomposition services
-- `src/nullvector/observability/` provides logger configuration helpers and structured runtime
-  event emitters
-- `src/nullvector/export/` provides optional edge exporters for LangChain and LlamaIndex
-- `src/nullvector/llm/` handles both structured text requests and attachment-backed enrichment via
-  the main gateway surface
-
-The legacy parse substrate is no longer part of the main ingest/tree runtime surface. It remains
-available only through `nullvector.compat.legacy_parse` for compatibility fixtures and migration
-tests.
-
-## Validation Commands
+NullVector reads configuration from environment variables. See `.env.example` for the
+complete list. Copy it and fill in your keys:
 
 ```bash
-make format-check
-make lint
-make typecheck
-make test
+cp .env.example .env
+# edit .env with your OPENROUTER_API_KEY or GROQ_API_KEYS
 ```
 
-## Quickstart CLI
+Core variables:
 
-NullVector stays library-first, but the repository now includes a thin offline quickstart wrapper for
-local smoke workflows:
+| Variable | Purpose |
+|----------|---------|
+| `OPENROUTER_API_KEY` | OpenRouter API key (cookbook quickstart default) |
+| `GROQ_API_KEYS` | Comma-separated Groq keys (cookbook LangGraph agent) |
+| `NULLVECTOR_LLM_MODEL` | LiteLLM model identifier |
+| `NULLVECTOR_POSTGRES_CONNINFO` | Postgres DSN (if using Postgres backend) |
+| `NULLVECTOR_OBSERVABILITY_JSONL_PATH` | Structured event log location |
+
+## Cookbook
+
+Two end-to-end notebooks in `cookbook/`:
+
+- **`cookbook/01_nullvector_quickstart.ipynb`** — PDF → hierarchy → search → grounded QA
+  using `NullVectorClient` with Postgres storage and OpenRouter/Gemini.
+- **`cookbook/02_langgraph_agent.ipynb`** — LangGraph ReAct agent backed by NullVector
+  grounded QA. Depends on cookbook 01's corpus.
+
+Both rely on environment variables from `.env` — no hardcoded secrets.
+
+## CLI
+
+A thin CLI is installed as `nullvector` and `nv`:
+
+```bash
+uv run nullvector ingest document.pdf
+uv run nv search "your query" --document-id <id>
+uv run nv ask "What does section 3 cover?" --document-id <id>
+```
+
+For a scriptable quickstart without the CLI:
 
 ```bash
 uv run python scripts/nullvector_quickstart.py \
   --source-path fixtures/pdfs/phase01/born_digital_with_outline.pdf
 ```
 
-```bash
-uv run python scripts/nullvector_quickstart.py \
-  --source-path /path/to/authored.md \
-  --source-kind markdown \
-  --build-retrieval \
-  --print-tree-summary
-```
-
-The quickstart script only orchestrates acquisition, non-summarized tree build, and optional
-retrieval corpus construction. Gateway-backed tree summarization and document-description stages
-remain available through the library APIs and notebooks, not this v1 script.
-
-## Notebook Execution
-
-The canonical runnable notebook is:
-
-- `notebooks/progress.ipynb`
-- `notebooks/phase03_llm_gateway_cookbook.ipynb`
-- `notebooks/spec_v1_parser_tree_demo.ipynb` for local real-document parser/tree inspection
-
-`notebooks/progress.ipynb` now exercises the acquisition-only tree build, semantic summary
-artifacts, and observability event capture against a born-digital Phase 01 fixture.
-
-The Phase 03 cookbook includes deterministic mocked sections plus an optional Moonshot LiteLLM
-transport probe. That Moonshot probe is skipped by default, is not Phase 03 acceptance evidence,
-and should not be treated as validated structured-output support for the current LiteLLM
-responses-style path.
-
-To execute it deterministically and persist an executed copy under `notebooks/_artifacts/`:
+## Validation
 
 ```bash
-uv run python scripts/run_progress_notebook.py
+make format   # ruff format
+make lint     # ruff check
+make typecheck  # mypy strict
+make test     # pytest
+make ci       # all of the above
 ```
 
-To execute the cookbook notebook:
+Pytest enforces `filterwarnings = ["error::DeprecationWarning"]` — deprecation warnings are
+test failures.
 
-```bash
-uv run python scripts/run_progress_notebook.py \
-  --notebook notebooks/phase03_llm_gateway_cookbook.ipynb \
-  --output notebooks/_artifacts/phase03-cookbook.executed.ipynb
-```
+## Repository Layout
 
-To execute the local real-PDF parser/tree demo notebook:
+- `src/nullvector/` — framework packages and public DX entrypoints
+- `src/nullvector/client.py` — `NullVectorClient` high-level facade
+- `src/nullvector/ingest/` — VLM page transcription and acquisition
+- `src/nullvector/tree/` — LLM hierarchy synthesis (single-shot + map-reduce)
+- `src/nullvector/retrieval/` — corpus, search, ranking, QA
+- `src/nullvector/llm/` — typed gateway, provider adapters, prompt builders
+- `src/nullvector/storage/` — filesystem and Postgres backends
+- `tests/` — unit, integration, retrieval test suites
+- `cookbook/` — runnable end-to-end notebooks
+- `docs/` — architecture notes and ADRs
+- `scripts/` — operator and development scripts
 
-```bash
-uv run python scripts/run_progress_notebook.py \
-  --notebook notebooks/spec_v1_parser_tree_demo.ipynb \
-  --output notebooks/_artifacts/spec_v1_parser_tree_demo.executed.ipynb
-```
+## Licensing
 
-This local operator demo depends on `903000608.pdf` being present at the repository root and may
-reuse or create notebook-local artifacts under `notebooks/artifacts/acquisition_runs/`. It is not a
-committed fixture or CI acceptance path.
-
-## Progress Notebook
-
-A canonical manual verification notebook is maintained at:
-
-- `notebooks/progress.ipynb`
-- `notebooks/phase03_llm_gateway_cookbook.ipynb`
-- `notebooks/spec_v1_parser_tree_demo.ipynb` for the local real-document parser/tree walkthrough
-
-It is intended to let you exercise the current phase implementation without reconstructing commands from chat history.
+NullVector pins `PyMuPDF==1.27.2` for page rendering. Production use requires a review of
+PyMuPDF's AGPL / commercial licensing. See `docs/legal/pymupdf-licensing.md`.

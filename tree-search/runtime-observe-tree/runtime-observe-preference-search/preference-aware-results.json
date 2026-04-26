@@ -1,0 +1,106 @@
+{
+  "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
+  "fell_back_to_base_tree_search": true,
+  "query": "appendix",
+  "retrieval_hits": [
+    {
+      "matched_terms": [
+        "appendix"
+      ],
+      "score": 2.0,
+      "score_breakdown": {
+        "keyword_overlap": 2.0
+      },
+      "unit": {
+        "asset_path": null,
+        "authoritative": true,
+        "content_span": null,
+        "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
+        "interpretive": false,
+        "keywords": [
+          "Overview",
+          "Details",
+          "Appendix"
+        ],
+        "metadata": {
+          "level": 3,
+          "owned_span_count": 0,
+          "path": [
+            "Overview",
+            "Details",
+            "Appendix"
+          ],
+          "verified": true
+        },
+        "modality": "text",
+        "node_id": "70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b",
+        "page_render_path": null,
+        "page_span": {
+          "end_page": 1,
+          "start_page": 1
+        },
+        "source_anchors": [],
+        "text": null,
+        "title": "Appendix",
+        "trust_tier": "native_exact",
+        "unit_id": "node-text-70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b",
+        "unit_type": "node_text",
+        "visual_region": null
+      }
+    },
+    {
+      "matched_terms": [
+        "appendix"
+      ],
+      "score": 2.0,
+      "score_breakdown": {
+        "keyword_overlap": 2.0
+      },
+      "unit": {
+        "asset_path": null,
+        "authoritative": true,
+        "content_span": {
+          "end_offset": 81,
+          "end_page": 1,
+          "start_offset": 0,
+          "start_page": 1
+        },
+        "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
+        "interpretive": false,
+        "keywords": [],
+        "metadata": {
+          "page_label": "2"
+        },
+        "modality": "text",
+        "node_id": null,
+        "page_render_path": null,
+        "page_span": {
+          "end_page": 1,
+          "start_page": 1
+        },
+        "source_anchors": [],
+        "text": "Appendix\n```python\nprint('stable notebook smoke')\nFinal notes stay in plain text.",
+        "title": "Page 2",
+        "trust_tier": "native_exact",
+        "unit_id": "page-text-000001",
+        "unit_type": "page_text",
+        "visual_region": null
+      }
+    }
+  ],
+  "search_mode": "deterministic",
+  "selected_nodes": [
+    {
+      "node_id": "70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b",
+      "page_span": {
+        "end_page": 1,
+        "start_page": 1
+      },
+      "retrieval_evidence_ids": [
+        "node-text-70aaa4e95212ef3515109d6685553b0987ee05887516068eb0cd8c2718dd1e2b"
+      ],
+      "score": 2.0
+    }
+  ],
+  "tree_run_id": "runtime-observe-tree"
+}

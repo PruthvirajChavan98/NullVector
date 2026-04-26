@@ -12,7 +12,6 @@ from typing import Any, cast
 import pytest
 from pydantic import BaseModel
 
-from nullvector.domain import RepairKind, RepairRequest, TreeBuildRequest
 from nullvector.llm import (
     GatewayAssuranceMode,
     GatewayAuditConfig,
@@ -27,17 +26,13 @@ from nullvector.llm import (
     LLMMessage,
     LLMRole,
     StructuredOutputMode,
-    evaluate_repairs,
 )
 from nullvector.llm.types import (
-    JSONValue,
     ProviderInvocationFailure,
     ProviderInvocationRequest,
     ProviderInvocationResult,
     ProviderInvocationSuccess,
 )
-from nullvector.tree import build_tree
-from nullvector.tree import service as tree_service_module
 
 from ..support.acquisition_fixtures import convert_legacy_parse_fixture_to_acquisition
 
@@ -204,106 +199,6 @@ def copy_fixture(case_name: str, tmp_path: Path) -> Path:
     destination = tmp_path / case_name
     shutil.copytree(FIXTURE_ROOT / case_name, destination)
     return convert_legacy_parse_fixture_to_acquisition(destination)
-
-
-class RepairProviderAdapter:
-    """Protocol-conforming adapter that returns scripted repair decisions."""
-
-    provider_name = "repair-test"
-
-    def invoke(
-        self,
-        request: ProviderInvocationRequest,
-        config: GatewayConfig,
-    ) -> ProviderInvocationResult:
-        del config
-        decision_payload: dict[str, JSONValue] = {
-            "request_id": request.idempotency_key or "repair-request",
-            "status": "proposal_generated",
-            "message": "normalize title casing",
-            "proposed_title": "Overview",
-            "resolved_level": None,
-        }
-        return ProviderInvocationResult(
-            success=ProviderInvocationSuccess(
-                provider_name=self.provider_name,
-                model_name=request.model_name,
-                assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
-                structured_output_mode=request.structured_output_mode,
-                structured_output_json=decision_payload,
-                usage=GatewayUsage(input_tokens=8, output_tokens=5, total_tokens=13),
-                status_code=200,
-                provider_request_id="req-gateway-repair",
-            ),
-        )
-
-
-@pytest.mark.integration
-def test_evaluate_repairs_emits_typed_decisions_without_breaking_tree_verification(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    acquisition_manifest_path = copy_fixture("clean_outline", tmp_path)
-    tree_run_id = "gateway-repair-tree"
-    audit_root = (
-        acquisition_manifest_path.parent / "tree" / tree_run_id / "repair" / "gateway-audit"
-    )
-
-    tree_service_any = cast(Any, tree_service_module)
-    original_build_hierarchy = cast(Any, tree_service_any.build_hierarchy)
-
-    def wrapped_build_hierarchy(*args: Any, **kwargs: Any) -> tuple[Any, Any, Any]:
-        nodes, _, ambiguity_count = original_build_hierarchy(*args, **kwargs)
-        if not nodes:
-            return nodes, (), ambiguity_count
-        repair_request = RepairRequest(
-            request_id="repair-request",
-            subject_id=nodes[0].node_id,
-            repair_kind=RepairKind.TITLE_NORMALIZATION,
-            rationale="synthetic gateway repair integration exercise",
-            details={"candidate_title": nodes[0].title},
-        )
-        return nodes, (repair_request,), ambiguity_count + 1
-
-    monkeypatch.setattr(tree_service_any, "build_hierarchy", wrapped_build_hierarchy)
-    gateway_config = GatewayConfig(
-        default_model="test-model",
-        audit=GatewayAuditConfig(persist_root=str(audit_root)),
-    )
-    gateway = GatewayService(
-        gateway_config,
-        provider_adapter=RepairProviderAdapter(),
-    )
-
-    class _GatewayBackedRepairEngine:
-        def evaluate(self, requests: tuple[RepairRequest, ...]) -> tuple[Any, ...]:
-            return evaluate_repairs(gateway, requests)
-
-    repair_engine = _GatewayBackedRepairEngine()
-
-    manifest = build_tree(
-        TreeBuildRequest(
-            acquisition_manifest_path=str(acquisition_manifest_path),
-            tree_run_id=tree_run_id,
-        ),
-        repair_engine=repair_engine,
-    )
-
-    assert manifest.verification_report_path is not None
-    assert manifest.repair_decisions_path is not None
-    verification_report = cast(
-        dict[str, Any],
-        json.loads(Path(manifest.verification_report_path).read_text(encoding="utf-8")),
-    )
-    repair_decisions = cast(
-        list[dict[str, Any]],
-        json.loads(Path(manifest.repair_decisions_path).read_text(encoding="utf-8")),
-    )
-
-    assert verification_report["status"] == "passed"
-    assert repair_decisions[0]["status"] == "proposal_generated"
-    assert repair_decisions[0]["request_id"] == "repair-request"
-    assert (audit_root / "repair-request.json").exists()
 
 
 @pytest.mark.integration

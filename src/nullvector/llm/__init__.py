@@ -1,8 +1,16 @@
 """Phase 03 typed LLM gateway exports."""
 
-from nullvector.llm.adapters import LiteLLMAdapter, OpenAIAdapter
+from nullvector.llm.adapters import (
+    AsyncLiteLLMAdapter,
+    AsyncOpenAIAdapter,
+    LiteLLMAdapter,
+    OpenAIAdapter,
+)
+from nullvector.llm.async_service import AsyncGatewayService
+from nullvector.llm.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from nullvector.llm.errors import (
     GatewayAuthError,
+    GatewayCircuitOpenError,
     GatewayConfigurationError,
     GatewayContextLengthError,
     GatewayError,
@@ -14,12 +22,18 @@ from nullvector.llm.errors import (
     GatewayUnsupportedCapabilityError,
     GatewayValidationError,
 )
-from nullvector.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
+from nullvector.llm.protocols import (
+    AsyncProviderAdapter,
+    AsyncStructuredLLMGateway,
+    ProviderAdapter,
+    RedactionHook,
+    StructuredLLMGateway,
+)
 from nullvector.llm.providers import (
     NoopProviderAdapter,
     NoopScriptedResponse,
 )
-from nullvector.llm.service import GatewayService, evaluate_repairs
+from nullvector.llm.service import GatewayService
 from nullvector.llm.types import (
     GatewayAssuranceMode,
     GatewayAttempt,
@@ -41,11 +55,20 @@ from nullvector.llm.types import (
 from nullvector.llm.visual import enrich_visual_region
 
 __all__ = [
+    "AsyncGatewayService",
+    "AsyncLiteLLMAdapter",
+    "AsyncOpenAIAdapter",
+    "AsyncProviderAdapter",
+    "AsyncStructuredLLMGateway",
+    "CircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitState",
     "GatewayAssuranceMode",
     "GatewayAttempt",
     "GatewayAuditConfig",
     "GatewayAuditRecord",
     "GatewayAuthError",
+    "GatewayCircuitOpenError",
     "GatewayConfig",
     "GatewayConfigurationError",
     "GatewayContextLengthError",
@@ -77,5 +100,4 @@ __all__ = [
     "StructuredOutputMode",
     "VisualInsightResponse",
     "enrich_visual_region",
-    "evaluate_repairs",
 ]

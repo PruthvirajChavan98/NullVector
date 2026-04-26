@@ -57,6 +57,10 @@ class GatewayUnknownProviderError(GatewayError):
     """Unknown or unclassified provider failure."""
 
 
+class GatewayCircuitOpenError(GatewayError):
+    """All configured model circuits were open for the request."""
+
+
 class GatewayConfigurationError(Exception):
     """Raised when provider capabilities and configured modes are inconsistent."""
 
@@ -89,4 +93,6 @@ def error_from_failure(
             error_cls = GatewayUnsupportedCapabilityError
         case GatewayFailureCategory.UNKNOWN_PROVIDER_FAILURE:
             error_cls = GatewayUnknownProviderError
+        case GatewayFailureCategory.CIRCUIT_OPEN:
+            error_cls = GatewayCircuitOpenError
     return error_cls(failure, audit_record=audit_record, audit_path=audit_path)

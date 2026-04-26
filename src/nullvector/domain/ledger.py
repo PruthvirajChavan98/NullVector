@@ -201,6 +201,7 @@ class AcquisitionSettings(NullVectorModel):
     table_min_columns: PositiveInt = 2
     table_min_rows: PositiveInt = 2
     render_dpi: PositiveInt = 144
+    vlm_max_concurrent_pages: PositiveInt = 4
     markdown: MarkdownAcquisitionSettings = Field(default_factory=MarkdownAcquisitionSettings)
 
     @model_validator(mode="after")
@@ -408,9 +409,10 @@ class TextBlock(NullVectorModel):
 
     block_type: Literal["text_block"] = "text_block"
     block_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     content: NonEmptyStr
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     line_count: NonNegativeInt
     word_count: NonNegativeInt
     provenance: ExtractionProvenance
@@ -422,9 +424,10 @@ class LineBlock(NullVectorModel):
 
     block_type: Literal["line_block"] = "line_block"
     line_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     content: NonEmptyStr
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     occurrence_index: NonNegativeInt
     top_y: float | None = None
     font_size: float | None = None
@@ -437,8 +440,9 @@ class TableArtifact(NullVectorModel):
 
     block_type: Literal["table_artifact"] = "table_artifact"
     table_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     rows: tuple[tuple[str, ...], ...] = Field(default_factory=tuple)
     markdown_projection: str | None = None
     provenance: ExtractionProvenance
@@ -457,8 +461,9 @@ class VisualArtifact(NullVectorModel):
 
     block_type: Literal["visual_artifact"] = "visual_artifact"
     visual_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     reading_index: NonNegativeInt
+    family_reading_index: NonNegativeInt | None = None
     kind_hint: NonEmptyStr
     image_ref: NonEmptyStr
     asset_path: NonEmptyStr | None = None
@@ -474,11 +479,12 @@ class UnresolvedRegion(NullVectorModel):
 
     block_type: Literal["unresolved_region"] = "unresolved_region"
     region_id: NonEmptyStr
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     reason_code: NonEmptyStr
     severity: EventSeverity
     recommended_fallback: NonEmptyStr
     reading_index: NonNegativeInt | None = None
+    family_reading_index: NonNegativeInt | None = None
     asset_path: NonEmptyStr | None = None
     page_render_path: NonEmptyStr | None = None
     render_dpi: PositiveInt | None = None
@@ -508,7 +514,7 @@ class CanonicalTextLine(NullVectorModel):
     start_offset: NonNegativeInt
     end_offset: PositiveInt
     occurrence_index: NonNegativeInt
-    bbox: BoundingBox
+    bbox: BoundingBox | None = None
     top_y: float | None = None
     font_size: float | None = None
     layout_cues_available: bool = False
@@ -534,6 +540,15 @@ PageBlock = Annotated[
 ]
 
 
+class SectionAnchorRecord(NullVectorModel):
+    """Persisted section anchor extracted from VLM-transcribed Markdown."""
+
+    page_index: NonNegativeInt
+    level: PositiveInt
+    title: NonEmptyStr
+    char_offset: NonNegativeInt
+
+
 class CanonicalPage(NullVectorModel):
     """Authoritative per-page unit in the v2 canonical document ledger."""
 
@@ -545,6 +560,7 @@ class CanonicalPage(NullVectorModel):
     native_available: bool
     blocks: tuple[PageBlock, ...] = Field(default_factory=tuple)
     events: tuple[PageEvent, ...] = Field(default_factory=tuple)
+    section_anchors: tuple[SectionAnchorRecord, ...] = Field(default_factory=tuple)
 
 
 class CanonicalDocumentLedger(NullVectorModel):
@@ -589,6 +605,7 @@ __all__ = [
     "ParseRunIndex",
     "ParseRunManifest",
     "ParserSettings",
+    "SectionAnchorRecord",
     "SourceDocumentKind",
     "SourceMetadata",
     "TableArtifact",

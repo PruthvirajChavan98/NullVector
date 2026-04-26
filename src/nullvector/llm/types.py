@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Generic, TypeVar
+from typing import Annotated, Generic, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -19,8 +19,9 @@ from pydantic import (
     JsonValue as PydanticJsonValue,
 )
 
-from nullvector.domain.common import NonEmptyStr, NullVectorModel
+from nullvector.domain.common import CoerceTuple, NonEmptyStr, NullVectorModel
 from nullvector.domain.tree import StructuredRegionInsight, VisualRegionReference
+from nullvector.llm.circuit_breaker import CircuitBreakerConfig
 
 T = TypeVar("T", bound=BaseModel)
 JSONValue = PydanticJsonValue
@@ -61,6 +62,7 @@ class GatewayFailureCategory(StrEnum):
     AUTH_FAILURE = "auth_failure"
     UNSUPPORTED_CAPABILITY = "unsupported_capability"
     UNKNOWN_PROVIDER_FAILURE = "unknown_provider_failure"
+    CIRCUIT_OPEN = "circuit_open"
 
 
 class LLMMessage(NullVectorModel):
@@ -102,6 +104,8 @@ class GatewayConfig(NullVectorModel):
     timeout_seconds: PositiveFloat = 30.0
     retry_policy: GatewayRetryPolicy = Field(default_factory=GatewayRetryPolicy)
     audit: GatewayAuditConfig = Field(default_factory=GatewayAuditConfig)
+    fallback_models: Annotated[tuple[NonEmptyStr, ...], CoerceTuple] = Field(default_factory=tuple)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     structured_output_mode_preference: StructuredOutputMode | None = None
     supported_structured_output_modes: tuple[StructuredOutputMode, ...] = (
         StructuredOutputMode.TRANSPORT_COMPATIBLE,
@@ -132,6 +136,29 @@ class GatewayRequest(NullVectorModel, Generic[T]):
 
     @model_validator(mode="after")
     def validate_request(self) -> GatewayRequest[T]:
+        if not self.messages:
+            msg = "gateway requests must include at least one message"
+            raise ValueError(msg)
+        if self.temperature is not None and self.temperature > 2:
+            msg = "temperature must be less than or equal to 2"
+            raise ValueError(msg)
+        return self
+
+
+class TextGatewayRequest(NullVectorModel):
+    """Unstructured text request — no JSON schema enforcement."""
+
+    operation_name: NonEmptyStr
+    messages: tuple[LLMMessage, ...]
+    attachments: tuple[RegionImageInput, ...] = ()
+    model_name: NonEmptyStr | None = None
+    temperature: NonNegativeFloat | None = 0.0
+    max_output_tokens: PositiveInt | None = None
+    metadata: dict[str, JSONValue] = Field(default_factory=dict)
+    idempotency_key: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def validate_request(self) -> TextGatewayRequest:
         if not self.messages:
             msg = "gateway requests must include at least one message"
             raise ValueError(msg)
@@ -229,6 +256,19 @@ class GatewaySuccess(NullVectorModel, Generic[T]):
     audit_path: NonEmptyStr | None = None
 
 
+class TextGatewaySuccess(NullVectorModel):
+    """Raw text success payload — no schema validation."""
+
+    request_id: NonEmptyStr
+    operation_name: NonEmptyStr
+    provider_name: NonEmptyStr
+    model_name: NonEmptyStr
+    text: str
+    attempts: tuple[GatewayAttempt, ...] = ()
+    usage: GatewayUsage | None = None
+    audit_path: NonEmptyStr | None = None
+
+
 class GatewayAuditRecord(NullVectorModel):
     """Redacted, persistable gateway audit artifact."""
 
@@ -259,9 +299,9 @@ class ProviderInvocationRequest(NullVectorModel):
     attachments: tuple[RegionImageInput, ...] = ()
     model_name: NonEmptyStr
     structured_output_mode: StructuredOutputMode
-    response_model_name: NonEmptyStr
-    response_schema_name: NonEmptyStr
-    response_schema: dict[str, JSONValue]
+    response_model_name: NonEmptyStr | None = None
+    response_schema_name: NonEmptyStr | None = None
+    response_schema: dict[str, JSONValue] | None = None
     timeout_seconds: PositiveFloat
     temperature: NonNegativeFloat | None = 0.0
     max_output_tokens: PositiveInt | None = None

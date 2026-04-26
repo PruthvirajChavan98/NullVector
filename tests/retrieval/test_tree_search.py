@@ -19,10 +19,8 @@ from nullvector.domain.retrieval import (
     TreeSearchTerminationSignal,
 )
 from nullvector.domain.tree import (
-    AnchorSource,
     HierarchyNode,
     HierarchyOrigin,
-    NodeAnchor,
     NodeCard,
     NodeSummary,
     NodeSummaryMethod,
@@ -74,14 +72,6 @@ def _hierarchy_node(
         title=title,
         normalized_title=title.casefold(),
         page_span=PageSpan(start_page=start_page, end_page=end_page),
-        heading_anchor=NodeAnchor(
-            page=start_page,
-            start_offset=0,
-            end_offset=len(title),
-            anchor_text=title,
-            anchor_source=AnchorSource.TEXT,
-            occurrence_index=0,
-        ),
         owned_spans=(
             NodeOwnedSpan(
                 kind="body",

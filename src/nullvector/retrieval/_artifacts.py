@@ -123,11 +123,10 @@ def load_verification_report(
 ) -> VerificationReport | None:
     """Load the persisted verification report when available."""
 
-    if tree_manifest is None or tree_manifest.verification_report_path is None:
+    if tree_manifest is None:
         return None
-    return VerificationReport.model_validate_json(
-        canonical_json_text(store.read_json_artifact(tree_manifest.verification_report_path))
-    )
+    # Verification reports are no longer produced by the LLM-driven pipeline.
+    return None
 
 
 def load_unassigned_spans(

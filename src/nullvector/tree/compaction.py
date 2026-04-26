@@ -20,14 +20,13 @@ from nullvector.domain.tree import (
     TreeBuildManifest,
     TreeCompactionRequest,
 )
-from nullvector.storage import StorageConfig, build_document_store
+from nullvector.storage import StorageConfig, build_document_store, reservation_artifact_root
 from nullvector.storage._serialization import (
     canonical_json_text,
     is_postgres_ref,
     run_identity_matches,
     settings_digest,
 )
-from nullvector.storage.config import PostgresStorageConfig
 from nullvector.storage.protocol import DocumentStore
 
 _PATHOLOGICAL_MULTIPLIER = 2
@@ -633,10 +632,20 @@ class TreeCompactionService:
             if request.artifact_root is not None
             else _default_compaction_root(request=request, tree_manifest_ref=tree_manifest_ref)
         )
-        is_postgres = isinstance(self._storage, PostgresStorageConfig)
+        configured_compaction_root = str(compaction_root)
         output_store = build_document_store(
             self._storage,
-            default_filesystem_root=None if is_postgres else str(compaction_root),
+            default_filesystem_root=configured_compaction_root,
+        )
+        resolved_artifact_root = output_store.resolve_artifact_root(
+            run_type="tree_compaction",
+            run_id=request.compaction_run_id,
+            document_id=tree_manifest.document_id,
+            configured_root=configured_compaction_root,
+        )
+        run_marker_root = reservation_artifact_root(
+            resolved_artifact_root,
+            marker_name=tree_manifest.document_id,
         )
         run_store = output_store.for_run(
             run_type="tree_compaction",
@@ -652,7 +661,7 @@ class TreeCompactionService:
             run_type="tree_compaction",
             run_id=request.compaction_run_id,
             document_id=tree_manifest.document_id,
-            artifact_root=None if is_postgres else str(compaction_root),
+            artifact_root=run_marker_root,
             identity=expected_identity,
         )
         if not created:
@@ -692,7 +701,7 @@ class TreeCompactionService:
             document_id=tree_manifest.document_id,
             tree_run_id=tree_manifest.tree_run_id,
             compaction_run_id=request.compaction_run_id,
-            artifact_root=None if is_postgres else str(compaction_root),
+            artifact_root=resolved_artifact_root,
             compacted_tree_path=compacted_tree_path,
             node_mapping_path=node_mapping_path,
             source_tree_manifest_path=tree_manifest_ref,

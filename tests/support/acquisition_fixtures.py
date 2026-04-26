@@ -10,26 +10,24 @@ from nullvector.domain import (
     AcquisitionManifest,
     AcquisitionRunManifest,
     AcquisitionSettings,
-    BoundingBox,
     CanonicalDocumentLedger,
     CanonicalPage,
     DocumentFingerprint,
     ExtractionProvenance,
-    LineBlock,
     OutlineEntry,
     OutlineQualityReport,
     OutlineSource,
     PageLedgerRow,
     SourceMetadata,
     SourceTrack,
+    TextBlock,
 )
-from nullvector.domain.events import ContentAuthoritativeness
+from nullvector.domain.events import ContentAuthoritativeness, GroundingEvidence
 from nullvector.ingest.projection import (
     build_canonical_text_substrate,
     project_ledger_to_tree_synthesis_view,
 )
 from nullvector.storage._serialization import settings_digest
-from nullvector.tree.headings import split_text_lines_with_offsets
 
 
 def _read_json(path: Path) -> Any:
@@ -57,53 +55,33 @@ def _load_ledger_rows(root: Path, manifest: dict[str, Any]) -> tuple[PageLedgerR
     return tuple(rows)
 
 
-def _make_line_block(
-    *,
-    line_id: str,
-    reading_index: int,
-    line: Any,
-) -> LineBlock:
-    return LineBlock(
-        line_id=line_id,
-        bbox=BoundingBox(
-            x0=0.0,
-            y0=float(reading_index * 14),
-            x1=float(max(len(line.text), 1) * 7),
-            y1=float(reading_index * 14 + 12),
-        ),
-        content=line.text,
-        reading_index=reading_index,
-        occurrence_index=line.occurrence_index,
-        top_y=float(reading_index * 14),
-        font_size=12.0,
+def _page_from_row(root: Path, row: PageLedgerRow) -> CanonicalPage:
+    text_path = root / row.text_artifact_path
+    text = text_path.read_text(encoding="utf-8")
+    block = TextBlock(
+        block_type="text_block",
+        block_id=f"{row.document_id}-p{row.page_index:06d}-fixture",
+        bbox=None,
+        content=text if text.strip() else "(empty page)",
+        reading_index=0,
+        family_reading_index=0,
+        line_count=text.count("\n") + 1,
+        word_count=len(text.split()),
         provenance=ExtractionProvenance(
             source_track=SourceTrack.NATIVE,
             producer_name="synthetic-phase02-fixture",
             content_authoritativeness=ContentAuthoritativeness.AUTHORITATIVE,
             grounded_in_native_metadata=True,
-            grounded_in_bbox=True,
         ),
-    )
-
-
-def _page_from_row(root: Path, row: PageLedgerRow) -> CanonicalPage:
-    text_path = root / row.text_artifact_path
-    text = text_path.read_text(encoding="utf-8")
-    line_blocks = tuple(
-        _make_line_block(
-            line_id=f"{row.document_id}-{row.page_index}-{index}",
-            reading_index=index,
-            line=line,
-        )
-        for index, line in enumerate(split_text_lines_with_offsets(text, row.page_index))
+        grounding=GroundingEvidence(has_native_text_anchor=True),
     )
     return CanonicalPage(
         page_index=row.page_index,
         page_label=row.page_label,
-        width=612.0,
-        height=792.0,
+        width=1.0,
+        height=1.0,
         native_available=row.native_text_available,
-        blocks=line_blocks,
+        blocks=(block,),
         events=(),
     )
 

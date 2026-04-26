@@ -302,6 +302,12 @@ def test_planner_rejects_unknown_fields_from_gateway(tmp_path: Path) -> None:
 
 class _FakePostgresStore:
     backend = StorageBackend.POSTGRES
+    supports_metadata_persistence = True
+
+    def resolve_artifact_root(
+        self, *, run_type: str, run_id: str, document_id: str, configured_root: str | None = None
+    ) -> str | None:
+        return None
 
     def __init__(self) -> None:
         self.persisted: tuple[DocumentMetadataRecord, ...] = ()

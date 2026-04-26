@@ -8,12 +8,16 @@
 ## What NullVector Is
 
 NullVector is a **CPU-first document hierarchy framework for deterministic PDF ingestion**.
-It is a Python library -- not a web application. It has no HTTP endpoints, no CLI entry
-point, no ASGI server, and no async runtime. It is imported and used programmatically.
+It is a Python library first -- not a web application. It has no HTTP endpoints or ASGI
+server. The repository does include a thin CLI surface and async convenience wrappers, but
+they are adapters over the same library-owned runtime, not separate application layers.
 
 All processing is **synchronous** unless an external LLM provider introduces latency.
 Determinism is enforced through exact version pins on PDF parsers and content-addressed
 fingerprinting.
+
+Repository layout and runtime-output placement rules are documented in
+`docs/repository-structure-audit.md`.
 
 ---
 

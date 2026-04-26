@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from nullvector.domain.tree import (
     HierarchyNode,
@@ -19,17 +19,22 @@ from nullvector.llm.prompts import SummarizationPromptResponse, build_summarizat
 from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.llm.types import GatewayRequest, GatewayUsage
 from nullvector.observability.logging import log_event
-from nullvector.semantic.tokens import HeuristicTokenizer, Tokenizer, resolve_tokenizer
+from nullvector.semantic._text_spans import (
+    _TextPage,
+    bounded_fragments,
+    text_for_node,
+    text_fragments_for_node,
+)
 from nullvector.storage._serialization import write_json_file
-from nullvector.tree.headings import PageArtifacts
+from nullvector.tree.page_data import PageData as PageArtifacts
 
-LEAF_PASSTHROUGH_TOKEN_THRESHOLD = 200
+LEAF_PASSTHROUGH_WORD_THRESHOLD = 150
 
 
 def estimate_token_count(text: str) -> int:
-    """Compatibility token estimator used by older callers and tests."""
+    """Rough word-count-based token estimator."""
 
-    return HeuristicTokenizer().estimate_tokens(text)
+    return len(text.split())
 
 
 def _usage_snapshot(usage: GatewayUsage | None) -> SemanticUsage | None:
@@ -42,10 +47,9 @@ def _usage_snapshot(usage: GatewayUsage | None) -> SemanticUsage | None:
     )
 
 
-def _stable_node_order(node: HierarchyNode) -> tuple[int, int, int, str]:
+def _stable_node_order(node: HierarchyNode) -> tuple[int, int, str]:
     return (
         node.page_span.start_page,
-        node.heading_anchor.start_offset,
         node.level,
         node.node_id,
     )
@@ -63,22 +67,16 @@ def _pages_for_node(
 
 
 def _node_raw_text(node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]) -> str:
-    return "\n".join(page.text for page in _pages_for_node(node, pages_by_index)).strip()
+    return text_for_node(node, cast(Mapping[int, _TextPage], pages_by_index))
 
 
 def _bounded_leaf_excerpts(
     node: HierarchyNode, pages_by_index: dict[int, PageArtifacts]
 ) -> tuple[str, ...]:
-    excerpts: list[str] = []
-    remaining_chars = 1600
-    for page in _pages_for_node(node, pages_by_index):
-        if remaining_chars <= 0:
-            break
-        excerpt = page.text[:remaining_chars].strip()
-        if excerpt:
-            excerpts.append(excerpt)
-            remaining_chars -= len(excerpt)
-    return tuple(excerpts)
+    return bounded_fragments(
+        text_fragments_for_node(node, cast(Mapping[int, _TextPage], pages_by_index)),
+        max_chars=1600,
+    )
 
 
 def _parent_prefix_text(
@@ -92,19 +90,11 @@ def _parent_prefix_text(
     first_child = sorted(children, key=_stable_node_order)[0]
     parts: list[str] = []
     for page in _pages_for_node(node, pages_by_index):
-        if page.page_index < node.heading_anchor.page:
+        if page.page_index < node.page_span.start_page:
             continue
-        if page.page_index > first_child.heading_anchor.page:
+        if page.page_index > first_child.page_span.start_page:
             break
-
-        start_offset = (
-            node.heading_anchor.end_offset if page.page_index == node.heading_anchor.page else 0
-        )
-        end_offset = len(page.text)
-        if page.page_index == first_child.heading_anchor.page:
-            end_offset = min(end_offset, first_child.heading_anchor.start_offset)
-        if start_offset < end_offset:
-            parts.append(page.text[start_offset:end_offset].strip())
+        parts.append(page.text.strip())
     return "\n".join(part for part in parts if part).strip()
 
 
@@ -126,12 +116,10 @@ class NodeSummarizer:
         self,
         gateway: StructuredLLMGateway,
         max_workers: int = 4,
-        tokenizer: Tokenizer | None = None,
         logger: Logger | None = None,
     ) -> None:
         self._gateway = gateway
         self._max_workers = max_workers
-        self._tokenizer = resolve_tokenizer(tokenizer)
         self._logger = logger
         self._artifact_path: str | None = None
 
@@ -191,7 +179,7 @@ class NodeSummarizer:
                         token_count=pending_request.token_count,
                         estimated_token_count=pending_request.estimated_token_count,
                         exact_token_count=pending_request.exact_token_count,
-                        tokenizer_identity=self._tokenizer.identity,
+                        tokenizer_identity="word_count",
                         gateway_provider_name=response.provider_name,
                         gateway_assurance_mode=response.assurance_mode.value,
                         gateway_audit_path=response.audit_path,
@@ -248,7 +236,7 @@ class NodeSummarizer:
         if not children:
             raw_text = _node_raw_text(node, pages_by_index)
             token_count, estimated_token_count, exact_token_count = self._token_counts(raw_text)
-            if token_count < LEAF_PASSTHROUGH_TOKEN_THRESHOLD:
+            if token_count < LEAF_PASSTHROUGH_WORD_THRESHOLD:
                 summary = NodeSummary(
                     node_id=node.node_id,
                     summary=raw_text or node.title,
@@ -256,7 +244,7 @@ class NodeSummarizer:
                     token_count=token_count,
                     estimated_token_count=estimated_token_count,
                     exact_token_count=exact_token_count,
-                    tokenizer_identity=self._tokenizer.identity,
+                    tokenizer_identity="word_count",
                 )
                 self._publish_summary_event(node, summary)
                 return summary, None
@@ -305,9 +293,8 @@ class NodeSummarizer:
         )
 
     def _token_counts(self, text: str) -> tuple[int, int, int | None]:
-        estimated = self._tokenizer.estimate_tokens(text)
-        exact = self._tokenizer.count_tokens(text)
-        return exact, estimated, exact if self._tokenizer.supports_exact_counts else None
+        word_count = len(text.split())
+        return word_count, word_count, None
 
     def _publish_summary_event(self, node: HierarchyNode, summary: NodeSummary) -> None:
         log_event(
@@ -320,7 +307,7 @@ class NodeSummarizer:
 
 
 __all__ = [
-    "LEAF_PASSTHROUGH_TOKEN_THRESHOLD",
+    "LEAF_PASSTHROUGH_WORD_THRESHOLD",
     "NodeSummarizer",
     "estimate_token_count",
 ]

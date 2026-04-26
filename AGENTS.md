@@ -1,101 +1,288 @@
-# NullVector — Repository Operating Contract
+## Workflow Orchestration
 
-## Mandatory repo context
+### 0. Your code will be reviewed with google gemini antigravity and claude code, so stop being lazy.
 
-Before substantive work:
-1. Read this `AGENTS.md`
-2. Read `.codex/initial_research.md`
-3. Read `.codex/rules/runtime-enforcement.md`
-4. Read the relevant phase prompt in `.codex/prompts/`
-5. If present, run `bash .codex/bin/preflight-codex.sh`
-6. Make use of `.codex/agents`
+### 1. Plan Node Default
 
-Do not recursively read all files under `.codex/` unless a task explicitly requires it.
+* Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions).
+* If something goes sideways, STOP and re-plan immediately—don't keep pushing.
+* Use plan mode for verification steps, not just building.
+* Write detailed specs upfront to reduce ambiguity.
 
-## Mandatory notebook progress artifact
+### 2. Subagent Strategy
 
-NullVector maintains one canonical runnable notebook for human verification:
+* Use subagents liberally to keep main context window clean.
+* Offload research, exploration, and parallel analysis to subagents.
+* For complex problems, throw more compute at it via subagents.
+* One **task** per subagent for focused execution.
 
-- `notebooks/progress.ipynb`
+### 3. Self-Improvement Loop
 
-When a task changes runnable behavior, parser behavior, contracts, or artifact generation, Codex must also create or update `notebooks/progress.ipynb`.
+* After ANY correction from the user: update `tasks/lessons.md` with the pattern.
+* Write rules for yourself that prevent the same mistake.
+* Ruthlessly iterate on these lessons until mistake rate drops.
+* Review lessons at session start for relevant project.
 
-The notebook must be executable top-to-bottom and must contain, in order:
-1. a markdown title cell with the current phase and purpose
-2. an environment/setup cell
-3. an imports cell
-4. a configuration cell for fixture paths / artifact root
-5. one or more smoke-test execution cells that exercise the current implementation
-6. a results-inspection cell that prints or displays the most important outputs
-7. a short markdown notes cell describing known limitations or blockers
+### 4. Verification Before Done
 
-## Notebook rules
+* Never mark a task complete without proving it works.
+* Diff behavior between main and your changes when relevant.
+* Ask yourself: "Would a staff engineer approve this?"
+* Run tests, check logs, demonstrate correctness.
 
-- Use the fixed path `notebooks/progress.ipynb`
-- Update the notebook whenever implementation changes would affect manual testing
-- Prefer deterministic cells and stable printed output
-- Do not leave broken cells
-- Do not leave placeholder cells claiming functionality that does not exist
-- If notebook execution depends on local system prerequisites, document them in the first markdown cell
-- Keep notebook outputs lightweight unless outputs themselves are the artifact under review
+### 5. Demand Elegance (Balanced)
 
-## Runtime requirements
+* For non-trivial changes: pause and ask "is there a more elegant way?"
+* If a fix feels hacky: "Knowing everything I know now, implement the elegant solution."
+* Skip this for simple, obvious fixes—don't over-engineer.
+* Challenge your own work before presenting it.
 
-For non-trivial work, Codex must use the sequential-thinking MCP server.
+### 6. Autonomous Bug Fixing
 
-For any latest/current/external/platform-sensitive claim, Codex must use web search and cite authoritative sources.
+* When given a bug report: just fix it. Don't ask for hand-holding.
+* Point at logs, errors, failing tests—then resolve them.
+* Zero context switching required from the user.
+* Go fix failing CI tests without being told how.
 
-If either required capability is unavailable:
-- stop
-- report the blocker verbatim
-- do not continue with partial implementation
+---
 
-## Delivery footer required
+## Task Management
 
-Every substantive response must state:
-- Sequential-thinking: used / blocked / not required
-- Web search: used / blocked / not required
-- Validation run: yes / no
-- Blockers:
+1. **Plan First**: Write plan to `tasks/todo.md` with checkable items.
+2. **Verify Plan**: Check in before starting implementation.
+3. **Track Progress**: Mark items complete as you go.
+4. **Explain Changes**: High-level summary at each step.
+5. **Document Results**: Add review section to `tasks/todo.md`.
+6. **Capture Lessons**: Update `tasks/lessons.md` after corrections.
+
+---
+
+## Core Principles
+
+* **Simplicity First**: Make every change as simple as possible. Impact minimal code.
+* **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
+* **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+
+## Plan mode
+
+For any non-trivial task, start in Plan mode before making changes.
+
+A task is non-trivial if it includes any of the following:
+- architecture or design decisions
+- multi-file edits
+- debugging without an already-proven root cause
+- refactors, migrations, or dependency changes
+- security, auth, data, infra, or performance-sensitive work
+- ambiguous requirements or missing acceptance criteria
+- any change that can break contracts, tests, or production behavior
+
+### Required behavior in Plan mode
+
+1. Gather context first.
+   Read the relevant code paths, tests, configs, docs, and this `AGENTS.md` before proposing implementation.
+
+2. Do not start editing immediately.
+   First produce a concrete implementation plan unless the user explicitly requests a tiny, obvious change.
+
+3. Resolve ambiguity early.
+   If requirements are unclear, ask targeted clarification questions.
+   If clarification is not possible, state explicit assumptions and keep them minimal.
+
+4. Keep the plan implementation-grade.
+   The plan must be specific enough that another engineer could execute it without guessing.
+
+5. Optimize for correctness over speed.
+   Prefer a smaller, safer plan with clear validation over a broad speculative rewrite.
+
+### Plan output format
+
+When in Plan mode, produce the plan with these sections:
+
+- Objective
+- Current state
+- Constraints and non-goals
+- Assumptions
+- Risks / failure modes
+- Files and systems affected
+- Step-by-step implementation sequence
+- Validation plan
+- Rollback / recovery plan
+
+### Plan quality bar
+
+A valid plan must:
+- identify the real change surface
+- preserve existing contracts unless a contract change is explicitly required
+- list the exact validations to run
+- call out migrations, backfills, or operational steps if needed
+- mention security, performance, and compatibility impacts when relevant
+- avoid vague steps such as "update code accordingly"
+
+### Execution after planning
+
+After presenting the plan:
+- wait for approval when the task is high-risk, architectural, or potentially disruptive
+- otherwise execute strictly against the approved plan
+- if reality differs from the plan, stop, explain the delta, and re-plan before continuing
+
+### When to use a written execution plan
+
+For large refactors, cross-cutting changes, or work expected to take many steps, create and maintain a written execution plan in `PLANS.md` or another repo-standard planning file.
+
+That execution plan must be:
+- a living document
+- updated when scope or assumptions change
+- specific about sequencing, validation, and rollback
+- sufficient for a new engineer to resume the task from the document alone
+
+### Anti-patterns
+
+Do not:
+- jump into code before understanding the system
+- hide uncertainty
+- make broad edits without an explicit plan
+- mix unrelated fixes into the same change
+- introduce new dependencies without justification
+- skip validation because the change "looks small"
+
+### Default rule
+
+If there is any reasonable doubt about scope, impact, or approach, use Plan mode first.
+
+## Dependency intelligence gate
+
+Any plan that introduces, upgrades, downgrades, replaces, or relies on a package, SDK, framework, plugin, model client, build tool, linter, formatter, test tool, or infrastructure library MUST complete this gate before implementation.
+
+No dependency change is allowed without explicit version validation and changelog review.
+
+### Required pre-install / pre-upgrade workflow
+
+1. Identify the exact dependency decision.
+   Record:
+   - package name
+   - ecosystem / package manager
+   - current repo version or state
+   - proposed version
+   - why the dependency is needed
+   - whether it is production, build-time, dev-only, or test-only
+
+2. Validate the latest stable version as of the current date.
+   Codex must check authoritative sources, in this order:
+   - official package registry entry
+   - official upstream changelog / releases / release notes
+   - official migration or upgrade guide
+   - official deprecation notices
+   - official security advisories, if available
+
+3. Fetch the changelog window for the exact package being considered.
+   Review all relevant release notes from the proposed version up to the current latest stable version.
+   If proposing the latest stable version, still review:
+   - the release notes for that version
+   - the current major-version migration guide
+   - any current deprecation / removal notices
+   - runtime support policy changes
+
+4. Extract decision-critical findings.
+   Codex must explicitly identify:
+   - breaking changes
+   - deprecated APIs / flags / config patterns
+   - removals and renamed symbols
+   - runtime version support changes
+   - peer dependency / transitive dependency constraints
+   - packaging / install changes
+   - security fixes or open advisories
+   - operational concerns: startup behavior, warnings, telemetry, config drift, build impact
+
+5. Choose the version deliberately.
+   Default policy:
+   - prefer the latest stable non-prerelease release
+   - do not use `latest`, `*`, open-ended major ranges, or floating production versions
+   - do not select an older version unless there is a documented compatibility reason
+   - if not choosing the latest stable version, explain exactly why the latest stable version is rejected
+
+6. Validate compatibility before coding.
+   Codex must verify:
+   - language runtime compatibility
+   - framework compatibility
+   - OS / architecture constraints if relevant
+   - lockfile / resolver compatibility
+   - compatibility with existing pinned dependencies
+   - absence of known deprecation paths that would produce warnings in intended usage
+   - absence of known critical/high security issues without an explicit mitigation plan
+
+7. Reflect the dependency decision in the plan.
+   Any plan involving dependency work must include a dedicated "Dependency review" subsection before implementation begins.
+
+### Mandatory output format for every dependency decision
+
+Dependency review
+- Dependency:
+- Ecosystem / package manager:
+- Current repo version/state:
+- Proposed version:
+- Latest stable version as of review date:
+- Review date:
+- Authoritative sources checked:
+- Changelog window reviewed:
+- Breaking changes found:
+- Deprecations found:
+- Security advisories found:
+- Runtime / platform compatibility:
+- Peer / transitive dependency impact:
+- Why this version was chosen:
+- Why newer versions were not chosen:
 - Residual risks:
 
+### Failure policy
 
-## Mandatory raw diff input
+If Codex cannot verify latest-version status from authoritative sources, it must say so explicitly and must NOT claim that a version is current.
 
-For every major change, Codex must include a raw diff excerpt derived from the actual repository diff, filtered to ignore paths matched by:
+Required wording pattern:
+- "Latest-version validation: blocked" or
+- "Latest-version validation: verified"
 
-- `.diffignore`
+If blocked:
+- do not state or imply that the selected version is the latest
+- do not present changelog coverage as complete
+- do not add the dependency unless the task is explicitly constrained to local-only work
+- mark the plan as incomplete and list the unresolved version / changelog risk
 
-The `.diffignore` file is a repo-root control file for change-log diff filtering.
+### Plan mode integration
 
-Rules for `.diffignore`:
-- fixed path: `.diffignore`
-- one pattern per line
-- blank lines are ignored
-- lines starting with `#` are comments
-- patterns must be interpreted using gitignore-style path matching relative to repo root
+When a task touches dependencies, Plan mode is mandatory.
 
-If `.diffignore` is present, any file matching it must be excluded from raw diff capture in `CHANGE_DIFF.md`.
+The plan must include:
+- dependency alternatives considered
+- exact selected version
+- latest stable version check
+- changelog findings
+- deprecation findings
+- compatibility findings
+- rollback path if the upgrade fails
 
-If `.diffignore` is absent, raw diff capture must use the full repository diff.
+No implementation may begin until this dependency review is complete.
 
-## Change-diff requirements
+### Anti-patterns
 
-For every major change, Codex must append a new dated entry to `CHANGE_DIFF.md` containing:
-1. phase / task name
-2. summary of what changed
-3. affected files
-4. user-visible or contract-visible impact
-5. a concise diff-style summary of the essential changes
-6. a raw diff section generated from the actual repo diff, excluding files matched by `.diffignore`
-7. required migration, rollback, or re-run steps, if any
+Do not:
+- add packages without checking the latest stable release
+- trust blog posts, copied snippets, or README examples as the only source of truth
+- ignore migration guides
+- ignore deprecation notices because "tests pass"
+- use stale examples without version verification
+- hide unresolved dependency uncertainty
+- introduce a dependency when the standard library or existing stack already solves the problem acceptably
 
-## Raw diff rules
+---
 
-- Use the fixed path `CHANGE_DIFF.md`
-- The raw diff must be taken from the real repository state, not hand-written pseudo-diff
-- The raw diff must exclude files matched by `.diffignore`
-- Use fenced `diff` blocks
-- Include only the highest-signal hunks, but they must remain verbatim excerpts from the real diff
-- Do not include generated files, lockfile churn, notebook output noise, or vendor artifacts if they are ignored by `.diffignore`
-- If a major change occurred and the filtered raw diff was not added, the task is incomplete
+# IMPORTANT
+
+YOU "MUST" FOLLOW THESE THINGS
+
+THIS IS A VECTORLESS RAG FRAMEWORK!
+
+I won't accept patch work, I need permanent enterprise production grade solution
+
+I WON'T!!!
+
+I WANT EVERYTHING RESEARCH BACKED, I WON'T TOLERATE A SINGLE DEPRECATION WARNING.

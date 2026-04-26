@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
@@ -13,14 +14,13 @@ from typing import TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
-from nullvector.domain.tree import RepairDecision, RepairRequest
 from nullvector.llm.audit import apply_redaction_hooks, json_safe, persist_audit_record
+from nullvector.llm.circuit_breaker import CircuitBreaker
 from nullvector.llm.config_validation import (
     provider_supported_modes,
     validate_gateway_mode_configuration,
 )
 from nullvector.llm.errors import GatewayConfigurationError, error_from_failure
-from nullvector.llm.prompts.repair import RepairPromptResponse, build_repair_messages
 from nullvector.llm.protocols import ProviderAdapter, RedactionHook, StructuredLLMGateway
 from nullvector.llm.retry import backoff_delay_seconds, should_retry
 from nullvector.llm.types import (
@@ -38,6 +38,8 @@ from nullvector.llm.types import (
     ProviderInvocationResult,
     ProviderInvocationSuccess,
     StructuredOutputMode,
+    TextGatewayRequest,
+    TextGatewaySuccess,
 )
 from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.runtime_validation import (
@@ -48,6 +50,13 @@ from nullvector.storage import StorageConfig, build_document_store
 from nullvector.storage.protocol import DocumentStore
 
 T = TypeVar("T", bound=BaseModel)
+_CIRCUIT_BREAKER_FAILURE_CATEGORIES = frozenset(
+    {
+        GatewayFailureCategory.TIMEOUT,
+        GatewayFailureCategory.NETWORK_FAILURE,
+        GatewayFailureCategory.UNKNOWN_PROVIDER_FAILURE,
+    }
+)
 
 
 def _effective_structured_output_mode(
@@ -65,20 +74,42 @@ def _effective_structured_output_mode(
     return requested_mode
 
 
+def _enforce_all_required(schema: dict[str, object]) -> dict[str, object]:
+    """Make every property required for strict JSON schema providers (Groq, OpenAI strict).
+
+    Strict mode requires ``required`` to list every key in ``properties``.
+    Pydantic omits fields with defaults from ``required``, which causes
+    provider-side validation errors.
+    """
+    schema = dict(schema)
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        schema["required"] = sorted(props.keys())
+    raw_defs = schema.get("$defs")
+    if isinstance(raw_defs, dict):
+        schema["$defs"] = {
+            name: _enforce_all_required(defn) if isinstance(defn, dict) else defn
+            for name, defn in raw_defs.items()
+        }
+    return schema
+
+
 def _provider_request(
     config: GatewayConfig,
     request_id: str,
     request: GatewayRequest[T],
+    *,
+    model_name: str | None = None,
 ) -> ProviderInvocationRequest:
     model = request.response_model
     schema = cast(dict[str, object], model.model_json_schema())
-    response_schema = cast(dict[str, JSONValue], json_safe(schema))
+    response_schema = cast(dict[str, JSONValue], json_safe(_enforce_all_required(schema)))
     return ProviderInvocationRequest(
         request_id=request_id,
         operation_name=request.operation_name,
         messages=request.messages,
         attachments=request.attachments,
-        model_name=request.model_name or config.default_model,
+        model_name=model_name or request.model_name or config.default_model,
         structured_output_mode=_effective_structured_output_mode(config, request),
         response_model_name=model.__name__,
         response_schema_name=model.__name__,
@@ -211,6 +242,43 @@ def _provider_failure_to_gateway_failure(
         provider_response_id=failure.provider_response_id,
         provider_error_code=failure.provider_error_code,
         details=failure.details,
+    )
+
+
+def _candidate_models(
+    config: GatewayConfig,
+    request: GatewayRequest[T],
+) -> tuple[str, ...]:
+    primary_model = request.model_name or config.default_model
+    return tuple(dict.fromkeys((primary_model, *config.fallback_models)))
+
+
+def _circuit_open_failure(
+    *,
+    request_id: str,
+    request: GatewayRequest[T],
+    provider_name: str,
+    model_name: str,
+    structured_output_mode: StructuredOutputMode,
+    attempts: tuple[GatewayAttempt, ...],
+    candidate_models: tuple[str, ...],
+    open_models: tuple[str, ...],
+) -> GatewayFailure:
+    return GatewayFailure(
+        request_id=request_id,
+        operation_name=request.operation_name,
+        category=GatewayFailureCategory.CIRCUIT_OPEN,
+        message="all configured model circuits are open for this request",
+        provider_name=provider_name,
+        model_name=model_name,
+        assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+        structured_output_mode=structured_output_mode,
+        retryable=False,
+        attempt_count=len(attempts),
+        details={
+            "candidate_models": list(candidate_models),
+            "open_models": list(open_models),
+        },
     )
 
 
@@ -348,11 +416,21 @@ class GatewayService(StructuredLLMGateway):
         self._sleep_fn = sleep_fn
         self._logger = resolve_runtime_logger(logger)
         self._audit_store: DocumentStore | None = None
+        self._circuit_breakers: dict[str, CircuitBreaker] = {}
+        self._circuit_breakers_lock = threading.Lock()
         if storage is not None or config.audit.persist_root is not None:
             self._audit_store = build_document_store(
                 storage,
                 default_filesystem_root=config.audit.persist_root or "artifacts/gateway_audit",
             )
+
+    def _breaker_for_model(self, model_name: str) -> CircuitBreaker:
+        with self._circuit_breakers_lock:
+            breaker = self._circuit_breakers.get(model_name)
+            if breaker is None:
+                breaker = CircuitBreaker(self._config.circuit_breaker)
+                self._circuit_breakers[model_name] = breaker
+            return breaker
 
     def close(self) -> None:
         close_method = getattr(self._provider_adapter, "close", None)
@@ -362,11 +440,13 @@ class GatewayService(StructuredLLMGateway):
     def invoke(self, request: GatewayRequest[T]) -> GatewaySuccess[T]:
         request_id = request.idempotency_key or uuid.uuid4().hex
         structured_output_mode = _effective_structured_output_mode(self._config, request)
+        candidate_models = _candidate_models(self._config, request)
+        primary_model_name = candidate_models[0]
         attachment_failure = _validate_attachments(
             request_id,
             request,
             provider_name=self._provider_adapter.provider_name,
-            model_name=request.model_name or self._config.default_model,
+            model_name=primary_model_name,
             structured_output_mode=structured_output_mode,
         )
         if attachment_failure is not None:
@@ -378,11 +458,67 @@ class GatewayService(StructuredLLMGateway):
                 hooks=self._redaction_hooks,
                 audit_record=audit_record,
             )
-        provider_request = _provider_request(self._config, request_id, request)
         attempts: list[GatewayAttempt] = []
-        delay = 0.0
+        open_models: list[str] = []
 
+        for candidate_model in candidate_models:
+            breaker = self._breaker_for_model(candidate_model)
+            if not breaker.allow_request():
+                open_models.append(candidate_model)
+                log_event(
+                    self._logger,
+                    "GatewayCircuitOpenSkipped",
+                    operation_name=request.operation_name,
+                    model_name=candidate_model,
+                    provider_name=self._provider_adapter.provider_name,
+                )
+                continue
+
+            result = self._invoke_with_retries(
+                request=request,
+                request_id=request_id,
+                candidate_model=candidate_model,
+                breaker=breaker,
+                attempts=attempts,
+            )
+            if result is not None:
+                return result
+
+        self._raise_circuit_open(
+            request=request,
+            request_id=request_id,
+            primary_model_name=primary_model_name,
+            structured_output_mode=structured_output_mode,
+            attempts=tuple(attempts),
+            candidate_models=candidate_models,
+            open_models=tuple(open_models),
+        )
+        msg = "gateway retry loop exhausted without producing a result"
+        raise RuntimeError(msg)
+
+    def _invoke_with_retries(
+        self,
+        *,
+        request: GatewayRequest[T],
+        request_id: str,
+        candidate_model: str,
+        breaker: CircuitBreaker,
+        attempts: list[GatewayAttempt],
+    ) -> GatewaySuccess[T] | None:
+        """Run the retry loop for one candidate model.
+
+        Returns ``GatewaySuccess`` on success, ``None`` when retries are
+        exhausted (caller should try the next candidate), or raises on
+        non-retryable failure.
+        """
+        provider_request = _provider_request(
+            self._config,
+            request_id,
+            request,
+            model_name=candidate_model,
+        )
         _attachment_paths = [a.image_path for a in request.attachments]
+        delay = 0.0
         for attempt_number in range(1, self._config.retry_policy.max_attempts + 1):
             log_event(
                 self._logger,
@@ -410,114 +546,16 @@ class GatewayService(StructuredLLMGateway):
             )
 
             if result.success is not None:
-                success = result.success
-                try:
-                    parsed_output, serialized_output = _parse_structured_payload(success)
-                    validated_output = request.response_model.model_validate_json(serialized_output)
-                except (ValueError, ValidationError) as exc:
-                    failure = _validation_failure(
-                        request_id=request_id,
-                        request=request,
-                        provider_request=provider_request,
-                        success=success,
-                        attempts=tuple(attempts),
-                        exc=exc,
-                        parsed_output=locals().get("parsed_output"),
-                    )
-                    log_event(
-                        self._logger,
-                        "GatewayCallFailed",
-                        operation_name=request.operation_name,
-                        model_name=success.model_name,
-                        provider_name=success.provider_name,
-                        failure_category=GatewayFailureCategory.VALIDATION_FAILURE.value,
-                        message=failure.message,
-                        retryable=False,
-                        attempt_number=attempt_number,
-                        latency_ms=_latency_ms,
-                    )
-                    audit_record = _audit_record(
-                        request=request,
-                        request_id=request_id,
-                        provider_name=success.provider_name,
-                        model_name=success.model_name,
-                        assurance_mode=success.assurance_mode,
-                        structured_output_mode=success.structured_output_mode,
-                        attempts=tuple(attempts),
-                        request_payload=(
-                            success.raw_request_payload
-                            if self._config.audit.capture_raw_request
-                            else None
-                        ),
-                        response_payload=(
-                            success.raw_response_payload
-                            if self._config.audit.capture_raw_response
-                            else None
-                        ),
-                        parsed_output=locals().get("parsed_output"),
-                        failure=failure,
-                    )
-                    _raise_failure(
-                        failure,
-                        store=self._audit_store,
-                        config=self._config,
-                        hooks=self._redaction_hooks,
-                        audit_record=audit_record,
-                    )
-
-                gateway_success = GatewaySuccess(
-                    request_id=request_id,
-                    operation_name=request.operation_name,
-                    provider_name=success.provider_name,
-                    model_name=success.model_name,
-                    assurance_mode=success.assurance_mode,
-                    structured_output_mode=success.structured_output_mode,
-                    output=validated_output,
-                    attempts=tuple(attempts),
-                    usage=success.usage,
-                    provider_request_id=success.provider_request_id,
-                    provider_response_id=success.provider_response_id,
-                )
-                _usage = success.usage
-                log_event(
-                    self._logger,
-                    "GatewayCallSucceeded",
-                    operation_name=request.operation_name,
-                    model_name=success.model_name,
-                    provider_name=success.provider_name,
-                    tokens_in=_usage.input_tokens if _usage is not None else 0,
-                    tokens_out=_usage.output_tokens if _usage is not None else 0,
-                    latency_ms=_latency_ms,
-                    attempt_number=attempt_number,
-                )
-                audit_record = _audit_record(
+                return self._handle_success(
                     request=request,
                     request_id=request_id,
-                    provider_name=success.provider_name,
-                    model_name=success.model_name,
-                    assurance_mode=success.assurance_mode,
-                    structured_output_mode=success.structured_output_mode,
-                    attempts=tuple(attempts),
-                    request_payload=(
-                        success.raw_request_payload
-                        if self._config.audit.capture_raw_request
-                        else None
-                    ),
-                    response_payload=(
-                        success.raw_response_payload
-                        if self._config.audit.capture_raw_response
-                        else None
-                    ),
-                    parsed_output=json_safe(validated_output),
+                    provider_request=provider_request,
+                    success=result.success,
+                    attempts=attempts,
+                    breaker=breaker,
+                    attempt_number=attempt_number,
+                    latency_ms=_latency_ms,
                 )
-                redacted, audit_path = _persist_audit(
-                    store=self._audit_store,
-                    config=self._config,
-                    hooks=self._redaction_hooks,
-                    audit_record=audit_record,
-                )
-                del redacted
-                return gateway_success.model_copy(update={"audit_path": audit_path})
 
             if result.failure is None:
                 msg = "provider result has neither success nor failure (adapter contract violation)"
@@ -528,12 +566,19 @@ class GatewayService(StructuredLLMGateway):
                 attempt_number=attempt_number,
                 policy=self._config.retry_policy,
             ):
+                if provider_failure.category in _CIRCUIT_BREAKER_FAILURE_CATEGORIES:
+                    breaker.record_failure()
                 delay = backoff_delay_seconds(
                     self._config.retry_policy,
                     attempt_number=attempt_number,
                 )
                 self._sleep_fn(delay)
                 continue
+
+            if provider_failure.category in _CIRCUIT_BREAKER_FAILURE_CATEGORIES:
+                breaker.record_failure()
+            else:
+                breaker.record_success()
 
             gateway_failure = _provider_failure_to_gateway_failure(
                 request_id=request_id,
@@ -580,9 +625,176 @@ class GatewayService(StructuredLLMGateway):
                 hooks=self._redaction_hooks,
                 audit_record=audit_record,
             )
+        return None
 
-        msg = "gateway retry loop exhausted without producing a result"
-        raise RuntimeError(msg)
+    def _handle_success(
+        self,
+        *,
+        request: GatewayRequest[T],
+        request_id: str,
+        provider_request: ProviderInvocationRequest,
+        success: ProviderInvocationSuccess,
+        attempts: list[GatewayAttempt],
+        breaker: CircuitBreaker,
+        attempt_number: int,
+        latency_ms: int,
+    ) -> GatewaySuccess[T]:
+        """Validate, audit, and return a successful provider response."""
+        breaker.record_success()
+        parsed_output: object | None = None
+        try:
+            parsed_output, serialized_output = _parse_structured_payload(success)
+            validated_output = request.response_model.model_validate_json(serialized_output)
+        except (ValueError, ValidationError) as exc:
+            failure = _validation_failure(
+                request_id=request_id,
+                request=request,
+                provider_request=provider_request,
+                success=success,
+                attempts=tuple(attempts),
+                exc=exc,
+                parsed_output=parsed_output,
+            )
+            log_event(
+                self._logger,
+                "GatewayCallFailed",
+                operation_name=request.operation_name,
+                model_name=success.model_name,
+                provider_name=success.provider_name,
+                failure_category=GatewayFailureCategory.VALIDATION_FAILURE.value,
+                message=failure.message,
+                retryable=False,
+                attempt_number=attempt_number,
+                latency_ms=latency_ms,
+            )
+            audit_record = _audit_record(
+                request=request,
+                request_id=request_id,
+                provider_name=success.provider_name,
+                model_name=success.model_name,
+                assurance_mode=success.assurance_mode,
+                structured_output_mode=success.structured_output_mode,
+                attempts=tuple(attempts),
+                request_payload=(
+                    success.raw_request_payload if self._config.audit.capture_raw_request else None
+                ),
+                response_payload=(
+                    success.raw_response_payload
+                    if self._config.audit.capture_raw_response
+                    else None
+                ),
+                parsed_output=json_safe(parsed_output) if parsed_output is not None else None,
+                failure=failure,
+            )
+            _raise_failure(
+                failure,
+                store=self._audit_store,
+                config=self._config,
+                hooks=self._redaction_hooks,
+                audit_record=audit_record,
+            )
+
+        gateway_success = GatewaySuccess(
+            request_id=request_id,
+            operation_name=request.operation_name,
+            provider_name=success.provider_name,
+            model_name=success.model_name,
+            assurance_mode=success.assurance_mode,
+            structured_output_mode=success.structured_output_mode,
+            output=validated_output,
+            attempts=tuple(attempts),
+            usage=success.usage,
+            provider_request_id=success.provider_request_id,
+            provider_response_id=success.provider_response_id,
+        )
+        _usage = success.usage
+        log_event(
+            self._logger,
+            "GatewayCallSucceeded",
+            operation_name=request.operation_name,
+            model_name=success.model_name,
+            provider_name=success.provider_name,
+            tokens_in=_usage.input_tokens if _usage is not None else 0,
+            tokens_out=_usage.output_tokens if _usage is not None else 0,
+            latency_ms=latency_ms,
+            attempt_number=attempt_number,
+        )
+        audit_record = _audit_record(
+            request=request,
+            request_id=request_id,
+            provider_name=success.provider_name,
+            model_name=success.model_name,
+            assurance_mode=success.assurance_mode,
+            structured_output_mode=success.structured_output_mode,
+            attempts=tuple(attempts),
+            request_payload=(
+                success.raw_request_payload if self._config.audit.capture_raw_request else None
+            ),
+            response_payload=(
+                success.raw_response_payload if self._config.audit.capture_raw_response else None
+            ),
+            parsed_output=json_safe(validated_output),
+        )
+        redacted, audit_path = _persist_audit(
+            store=self._audit_store,
+            config=self._config,
+            hooks=self._redaction_hooks,
+            audit_record=audit_record,
+        )
+        del redacted
+        return gateway_success.model_copy(update={"audit_path": audit_path})
+
+    def _raise_circuit_open(
+        self,
+        *,
+        request: GatewayRequest[T],
+        request_id: str,
+        primary_model_name: str,
+        structured_output_mode: StructuredOutputMode,
+        attempts: tuple[GatewayAttempt, ...],
+        candidate_models: tuple[str, ...],
+        open_models: tuple[str, ...],
+    ) -> None:
+        """Log and raise when all candidate models have open circuits."""
+        circuit_failure = _circuit_open_failure(
+            request_id=request_id,
+            request=request,
+            provider_name=self._provider_adapter.provider_name,
+            model_name=primary_model_name,
+            structured_output_mode=structured_output_mode,
+            attempts=attempts,
+            candidate_models=candidate_models,
+            open_models=open_models,
+        )
+        log_event(
+            self._logger,
+            "GatewayCallFailed",
+            operation_name=request.operation_name,
+            model_name=primary_model_name,
+            provider_name=self._provider_adapter.provider_name,
+            failure_category=GatewayFailureCategory.CIRCUIT_OPEN.value,
+            message=circuit_failure.message,
+            retryable=False,
+            attempt_number=0,
+            latency_ms=0,
+        )
+        audit_record = _audit_record(
+            request=request,
+            request_id=request_id,
+            provider_name=self._provider_adapter.provider_name,
+            model_name=primary_model_name,
+            assurance_mode=GatewayAssuranceMode.TRANSPORT_COMPATIBLE,
+            structured_output_mode=structured_output_mode,
+            attempts=attempts,
+            failure=circuit_failure,
+        )
+        _raise_failure(
+            circuit_failure,
+            store=self._audit_store,
+            config=self._config,
+            hooks=self._redaction_hooks,
+            audit_record=audit_record,
+        )
 
     def invoke_many(
         self,
@@ -618,44 +830,131 @@ class GatewayService(StructuredLLMGateway):
 
         return tuple(cast(GatewaySuccess[T], result) for result in results)
 
+    def invoke_text(self, request: TextGatewayRequest) -> TextGatewaySuccess:
+        """Invoke the provider and return raw text — no JSON schema enforcement.
 
-def evaluate_repairs(
-    gateway: StructuredLLMGateway,
-    requests: tuple[RepairRequest, ...],
-) -> tuple[RepairDecision, ...]:
-    """Evaluate bounded repair requests through a structured gateway."""
+        Uses the same retry, circuit-breaker, and audit machinery as
+        ``invoke``, but sends no ``response_format`` and returns the raw
+        content string instead of parsing structured output.
+        """
+        request_id = request.idempotency_key or uuid.uuid4().hex
+        candidate_models = (request.model_name or self._config.default_model,)
+        primary_model = candidate_models[0]
 
-    decisions: list[RepairDecision] = []
-    for request in requests:
-        success = cast(
-            GatewaySuccess[RepairPromptResponse],
-            gateway.invoke(
-                GatewayRequest[RepairPromptResponse](
-                    operation_name=f"repair:{request.repair_kind.value}",
-                    messages=build_repair_messages(request),
-                    response_model=RepairPromptResponse,
-                    idempotency_key=request.request_id,
-                    metadata={
-                        "repair_kind": request.repair_kind.value,
-                        "subject_id": request.subject_id,
-                    },
-                )
-            ),
+        # Build a ProviderInvocationRequest with response_schema=None
+        # so the adapter skips response_format entirely.
+        provider_request = ProviderInvocationRequest(
+            request_id=request_id,
+            operation_name=request.operation_name,
+            messages=request.messages,
+            attachments=request.attachments,
+            model_name=primary_model,
+            structured_output_mode=StructuredOutputMode.TRANSPORT_COMPATIBLE,
+            timeout_seconds=self._config.timeout_seconds,
+            temperature=request.temperature,
+            max_output_tokens=request.max_output_tokens,
+            metadata=request.metadata,
+            idempotency_key=request.idempotency_key,
         )
-        proposal = success.output
-        decisions.append(
-            RepairDecision(
-                subject_id=request.subject_id,
-                status=proposal.status,
-                repair_kind=request.repair_kind,
-                request_id=request.request_id,
-                message=proposal.message,
-                proposed_title=proposal.proposed_title,
-                resolved_level=proposal.resolved_level,
-                details=request.details,
+
+        breaker = self._breaker_for_model(primary_model)
+        if not breaker.allow_request():
+            msg = f"circuit open for model {primary_model}"
+            raise RuntimeError(msg)
+
+        attempts: list[GatewayAttempt] = []
+        delay = 0.0
+
+        for attempt_number in range(1, self._config.retry_policy.max_attempts + 1):
+            log_event(
+                self._logger,
+                "GatewayCallAttempted",
+                operation_name=request.operation_name,
+                model_name=primary_model,
+                provider_name=self._provider_adapter.provider_name,
+                attempt_number=attempt_number,
+                max_attempts=self._config.retry_policy.max_attempts,
+                mode="text",
             )
-        )
-    return tuple(decisions)
+            started_at = datetime.now(UTC)
+
+            result = self._provider_adapter.invoke(provider_request, self._config)
+
+            completed_at = datetime.now(UTC)
+            _latency_ms = round((completed_at - started_at).total_seconds() * 1000)
+            attempts.append(
+                _build_attempt(
+                    attempt_number=attempt_number,
+                    delay_before_attempt_seconds=delay,
+                    result=result,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                ),
+            )
+
+            if result.success is not None:
+                breaker.record_success()
+                content = result.success.structured_output_text or (
+                    json.dumps(result.success.structured_output_json)
+                    if result.success.structured_output_json is not None
+                    else ""
+                )
+                log_event(
+                    self._logger,
+                    "GatewayCallSucceeded",
+                    operation_name=request.operation_name,
+                    model_name=primary_model,
+                    provider_name=self._provider_adapter.provider_name,
+                    latency_ms=_latency_ms,
+                    attempt_number=attempt_number,
+                    mode="text",
+                )
+                return TextGatewaySuccess(
+                    request_id=request_id,
+                    operation_name=request.operation_name,
+                    provider_name=result.success.provider_name,
+                    model_name=result.success.model_name,
+                    text=content,
+                    attempts=tuple(attempts),
+                    usage=(result.success.usage if hasattr(result.success, "usage") else None),
+                )
+
+            if result.failure is None:
+                msg = "provider returned neither success nor failure"
+                raise RuntimeError(msg)
+
+            failure = result.failure
+            if should_retry(
+                failure.category,
+                attempt_number=attempt_number,
+                policy=self._config.retry_policy,
+            ):
+                if failure.category in _CIRCUIT_BREAKER_FAILURE_CATEGORIES:
+                    breaker.record_failure()
+                delay = backoff_delay_seconds(
+                    self._config.retry_policy,
+                    attempt_number=attempt_number,
+                )
+                self._sleep_fn(delay)
+                continue
+
+            breaker.record_failure()
+            gateway_failure = _provider_failure_to_gateway_failure(
+                request_id=request_id,
+                request=GatewayRequest(
+                    operation_name=request.operation_name,
+                    messages=request.messages,
+                    attachments=request.attachments,
+                    response_model=type(None),
+                    metadata=request.metadata,
+                ),
+                attempts=tuple(attempts),
+                failure=failure,
+            )
+            raise error_from_failure(gateway_failure)
+
+        msg = "text gateway retry loop exhausted"
+        raise RuntimeError(msg)
 
 
-__all__ = ["GatewayService", "evaluate_repairs"]
+__all__ = ["GatewayService"]

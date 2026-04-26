@@ -10,7 +10,17 @@ from nullvector.retrieval._selection_artifacts import (
     selection_artifact_path,
     selection_artifact_root,
 )
-from nullvector.storage.config import FilesystemStorageConfig, PostgresStorageConfig
+from nullvector.storage.config import StorageBackend
+from nullvector.storage.filesystem import FilesystemDocumentStore
+
+
+class _FakePostgresStore:
+    backend = StorageBackend.POSTGRES
+
+    def resolve_artifact_root(
+        self, *, run_type: str, run_id: str, document_id: str, configured_root: str | None = None
+    ) -> str | None:
+        return None
 
 
 def test_selection_artifact_root_returns_explicit_postgres_artifact_root() -> None:
@@ -20,7 +30,7 @@ def test_selection_artifact_root_returns_explicit_postgres_artifact_root() -> No
         collection_id="collection-alpha",
         selection_run_id="selection-001",
         artifact_root=explicit_root,
-        storage=PostgresStorageConfig(conninfo="postgresql://example/nullvector"),
+        store=_FakePostgresStore(),  # type: ignore[arg-type]
     )
 
     assert resolved == explicit_root
@@ -31,7 +41,7 @@ def test_selection_artifact_root_builds_default_postgres_artifact_root() -> None
         collection_id="collection-alpha",
         selection_run_id="selection-002",
         artifact_root=None,
-        storage=PostgresStorageConfig(conninfo="postgresql://example/nullvector"),
+        store=_FakePostgresStore(),  # type: ignore[arg-type]
     )
 
     assert resolved == "document-selection/collection-alpha/selection-002"
@@ -46,7 +56,7 @@ def test_selection_artifact_root_resolves_relative_to_filesystem_storage_root(
         collection_id="collection-beta",
         selection_run_id="selection-003",
         artifact_root="custom/root",
-        storage=FilesystemStorageConfig(root=str(storage_root)),
+        store=FilesystemDocumentStore(str(storage_root)),
     )
 
     assert resolved == str((storage_root / "custom" / "root").resolve())
@@ -62,7 +72,7 @@ def test_selection_artifact_root_resolves_relative_to_cwd_without_storage(
         collection_id="collection-gamma",
         selection_run_id="selection-004",
         artifact_root=None,
-        storage=None,
+        store=FilesystemDocumentStore("."),
     )
 
     assert resolved == str(

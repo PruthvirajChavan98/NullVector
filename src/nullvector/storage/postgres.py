@@ -180,6 +180,25 @@ class PostgresDocumentStore:
                     (version,),
                 )
 
+    @property
+    def supports_metadata_persistence(self) -> bool:
+        return True
+
+    @property
+    def supports_retrieval_unit_queries(self) -> bool:
+        return True
+
+    def resolve_artifact_root(
+        self,
+        *,
+        run_type: str,
+        run_id: str,
+        document_id: str,
+        configured_root: str | None = None,
+    ) -> str | None:
+        del run_type, run_id, document_id, configured_root
+        return None
+
     def register_document(self, fingerprint: DocumentFingerprint) -> str:
         data = fingerprint.model_dump(mode="json")
         with self._connect() as conn:
@@ -604,7 +623,7 @@ class PostgresDocumentStore:
         unit_types: tuple[str, ...] = (),
         modalities: tuple[str, ...] = (),
         text_query: str | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
     ) -> list[dict[str, Any]]:
         conditions = ["document_id = %s"]
         params: list[Any] = [document_id]
@@ -624,13 +643,15 @@ class PostgresDocumentStore:
                 "@@ plainto_tsquery('english'::regconfig, %s)"
             )
             params.append(text_query)
-        params.append(limit)
         query = f"""
             SELECT payload
             FROM {self._schema}.retrieval_units
             WHERE {" AND ".join(conditions)}
-            LIMIT %s
+            ORDER BY start_page ASC, end_page ASC, lower(coalesce(title, '')) ASC, unit_id ASC
         """
+        if limit is not None:
+            query = f"{query}\n            LIMIT %s"
+            params.append(limit)
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [cast(dict[str, Any], row["payload"]) for row in rows]

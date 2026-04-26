@@ -7,6 +7,8 @@ import json
 import logging
 from pathlib import Path
 
+import pytest
+
 from nullvector.observability import (
     configure_default_runtime_observability,
     configure_jsonl_logger,
@@ -87,7 +89,7 @@ def test_default_runtime_observability_is_idempotent(tmp_path: Path) -> None:
 
 def test_default_runtime_observability_honors_env_overrides_and_disable_flag(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     logger = logging.getLogger("nullvector.test.default_runtime.env")
     logger.handlers.clear()

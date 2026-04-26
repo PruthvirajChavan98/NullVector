@@ -43,6 +43,7 @@ class TrustTier(StrEnum):
     EXTERNAL_OCR_MEDIUM = "external_ocr_medium"
     EXTERNAL_OCR_LOW = "external_ocr_low"
     VISUAL_INTERPRETIVE = "visual_interpretive"
+    VLM_TRANSCRIBED = "vlm_transcribed"
 
 
 class ExtractionProvenance(NullVectorModel):

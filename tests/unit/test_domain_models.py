@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from nullvector.constants import EXPECTED_PYMUPDF_VERSION, EXPECTED_PYPDF_VERSION
 from nullvector.domain.common import (
     BoundingBox,
+    CoerceTuple,
     ContentSpan,
     NodeOwnedSpan,
     PageSourceAnchor,
     PageSpan,
 )
+from nullvector.domain.document_selection import DocumentFilterClause
 from nullvector.domain.events import (
     ContentAuthoritativeness,
     DocumentEvent,
@@ -48,19 +52,13 @@ from nullvector.domain.ledger import (
     UnresolvedRegion,
     VisualArtifact,
 )
+from nullvector.domain.retrieval import TreeSearchFrontierNode
 from nullvector.domain.tree import (
-    AnchorSource,
     DecompositionMethod,
     DecompositionReport,
-    HeadingCandidate,
-    HeadingScoreBreakdown,
-    HeadingSourceKind,
     HierarchyNode,
     HierarchyOrigin,
-    NodeAnchor,
     NodeCard,
-    RepairDecision,
-    RepairStatus,
     SynthesisLine,
     SynthesisPage,
     SynthesisTextProjection,
@@ -109,6 +107,15 @@ def make_grounding() -> GroundingEvidence:
     )
 
 
+def test_coerce_tuple_type_adapter_handles_lists_and_passthroughs() -> None:
+    adapter: TypeAdapter[tuple[str, ...]] = TypeAdapter(Annotated[tuple[str, ...], CoerceTuple])
+
+    assert adapter.validate_python(["alpha", "beta"]) == ("alpha", "beta")
+    assert adapter.validate_python(("alpha", "beta")) == ("alpha", "beta")
+    with pytest.raises(ValidationError):
+        adapter.validate_python("alpha")
+
+
 def test_page_span_rejects_inverted_bounds() -> None:
     with pytest.raises(ValidationError):
         PageSpan(start_page=7, end_page=6)
@@ -146,17 +153,18 @@ def test_page_ledger_row_requires_consistent_offsets() -> None:
         )
 
 
-def test_node_card_requires_anchor_for_summary() -> None:
-    with pytest.raises(ValidationError):
-        NodeCard(
-            node_id="node-001",
-            document_id="doc-001",
-            path=("Root", "Section 1"),
-            level=2,
-            title="Section 1",
-            page_span=PageSpan(start_page=0, end_page=2),
-            summary="A bounded summary.",
-        )
+def test_node_card_accepts_summary_without_source_anchors() -> None:
+    card = NodeCard(
+        node_id="node-001",
+        document_id="doc-001",
+        path=("Root", "Section 1"),
+        level=2,
+        title="Section 1",
+        page_span=PageSpan(start_page=0, end_page=2),
+        summary="A bounded summary.",
+    )
+    assert card.summary == "A bounded summary."
+    assert card.source_anchors == ()
 
 
 def test_parse_job_state_requires_error_message_for_failed_lifecycle() -> None:
@@ -533,39 +541,14 @@ def test_tree_synthesis_view_accepts_projection_payloads() -> None:
     assert projection.pages[0].trust_summary.dominant_trust_tier is TrustTier.NATIVE_LAYOUT_BACKED
 
 
-def test_tree_settings_reject_invalid_threshold_order() -> None:
-    with pytest.raises(ValidationError):
-        TreeSettings(
-            outline_high_agreement_threshold=0.2,
-            outline_low_agreement_threshold=0.4,
-        )
+def test_tree_settings_accept_valid_fields() -> None:
+    settings = TreeSettings(max_pages_per_leaf_node=5, max_decomposition_depth=3)
+
+    assert settings.max_pages_per_leaf_node == 5
+    assert settings.max_decomposition_depth == 3
 
 
 def test_models_accept_valid_phase02_payloads() -> None:
-    heading_anchor = NodeAnchor(
-        page=1,
-        start_offset=0,
-        end_offset=8,
-        anchor_text="Overview",
-        anchor_source=AnchorSource.TEXT,
-        occurrence_index=0,
-    )
-    heading_candidate = HeadingCandidate(
-        document_id="c" * 64,
-        page_index=1,
-        title="Overview",
-        normalized_title="overview",
-        anchor=heading_anchor,
-        source_kind=HeadingSourceKind.OUTLINE,
-        level_hint=1,
-        outline_level_hint=1,
-        score_breakdown=HeadingScoreBreakdown(
-            toc_overlap_signal=40,
-            final_score=100,
-        ),
-        keep=True,
-        high_confidence=True,
-    )
     hierarchy_node = HierarchyNode(
         node_id="d" * 64,
         document_id="c" * 64,
@@ -574,7 +557,6 @@ def test_models_accept_valid_phase02_payloads() -> None:
         title="Overview",
         normalized_title="overview",
         page_span=PageSpan(start_page=1, end_page=1),
-        heading_anchor=heading_anchor,
         owned_spans=(
             NodeOwnedSpan(
                 kind="body",
@@ -629,23 +611,12 @@ def test_models_accept_valid_phase02_payloads() -> None:
         settings=TreeSettings(),
         settings_digest="f" * 64,
         run_index_path="/tmp/_tree_runs/tree-run-001/run-index.json",
-        headings_path="/tmp/tree/headings/candidates.json",
-        raw_hierarchy_path="/tmp/tree/hierarchy/raw.json",
-        repair_requests_path="/tmp/tree/repair/requests.json",
-        repair_decisions_path="/tmp/tree/repair/decisions.json",
-        repaired_hierarchy_path="/tmp/tree/hierarchy/repaired.json",
         committed_hierarchy_path="/tmp/tree/hierarchy/committed.json",
         node_cards_path="/tmp/tree/hierarchy/node-cards.json",
         unassigned_spans_path="/tmp/tree/unassigned-spans.json",
-        verification_report_path="/tmp/tree/verify/report.json",
         build_report_path="/tmp/tree/build-report.json",
         committed_node_count=1,
         unassigned_span_count=0,
-    )
-    repair_decision = RepairDecision(
-        subject_id="d" * 64,
-        status=RepairStatus.NOT_REQUESTED,
-        message="no repair work was needed",
     )
     decomposition_report = DecompositionReport(
         decomposition_method=DecompositionMethod.NONE,
@@ -657,7 +628,6 @@ def test_models_accept_valid_phase02_payloads() -> None:
         page_span=PageSpan(start_page=0, end_page=0),
     )
 
-    assert heading_candidate.keep is True
     assert hierarchy_node.origin is HierarchyOrigin.OUTLINE
     assert hierarchy_node.owned_spans[0].span.end_offset == 8
     assert verification_report.status is VerificationStatus.PASSED
@@ -666,9 +636,67 @@ def test_models_accept_valid_phase02_payloads() -> None:
     assert tree_index.acquisition_artifact_identity == "/tmp/manifest.json"
     assert tree_manifest.committed_node_count == 1
     assert tree_manifest.registry_root == "/tmp/_tree_runs"
-    assert repair_decision.status is RepairStatus.NOT_REQUESTED
     assert decomposition_report.empty_parent_count == 0
     assert unassigned_span.page_span.start_page == 0
+
+
+def test_models_accept_list_backed_tuple_fields_from_json_payloads() -> None:
+    node_card = NodeCard.model_validate(
+        {
+            "node_id": "node-001",
+            "document_id": "doc-001",
+            "path": ["Root", "Section 1"],
+            "level": 2,
+            "title": "Section 1",
+            "page_span": {"start_page": 0, "end_page": 0},
+            "owned_spans": [
+                {
+                    "kind": "body",
+                    "span": {
+                        "start_page": 0,
+                        "start_offset": 0,
+                        "end_page": 0,
+                        "end_offset": 12,
+                    },
+                }
+            ],
+            "keywords": ["deterministic", "tree"],
+            "source_anchors": [
+                {
+                    "page": 0,
+                    "start_offset": 0,
+                    "end_offset": 8,
+                    "quote": "Overview",
+                }
+            ],
+        },
+        strict=False,
+    )
+    frontier = TreeSearchFrontierNode.model_validate(
+        {
+            "node_id": "node-001",
+            "title": "Section 1",
+            "path": ["Root", "Section 1"],
+            "level": 2,
+            "page_span": {"start_page": 0, "end_page": 0},
+            "keywords": ["deterministic", "tree"],
+        },
+        strict=False,
+    )
+    clause = DocumentFilterClause.model_validate(
+        {
+            "field": "category",
+            "operator": "in",
+            "value": ["spec", "manual"],
+        },
+        strict=False,
+    )
+
+    assert node_card.path == ("Root", "Section 1")
+    assert node_card.keywords == ("deterministic", "tree")
+    assert frontier.path == ("Root", "Section 1")
+    assert frontier.keywords == ("deterministic", "tree")
+    assert clause.value == ("spec", "manual")
 
 
 def test_tree_build_request_requires_acquisition_manifest_input() -> None:

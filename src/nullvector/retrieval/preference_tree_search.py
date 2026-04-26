@@ -39,7 +39,7 @@ from nullvector.retrieval._tree_search_runtime import (
     trace_reason_for_selection,
     tree_search_artifact_root,
 )
-from nullvector.retrieval.planner import QueryPlanner
+from nullvector.retrieval.llm_planner import LLMQueryPlanner as QueryPlanner
 from nullvector.retrieval.service import RetrievalService
 from nullvector.retrieval.tree_search import TreeSearchService
 from nullvector.storage import StorageConfig, build_document_store
@@ -429,10 +429,11 @@ class PreferenceAwareTreeSearchService:
                 execution = base_execution
                 fell_back = True
 
+        store = build_document_store(self._storage, default_filesystem_root=".")
         artifact_root = tree_search_artifact_root(
             request=base_request,
             tree_run_id=state.tree_manifest.tree_run_id,
-            storage=self._storage,
+            store=store,
         )
         trace_steps = tuple(
             PreferenceAwareTreeSearchTraceStep(

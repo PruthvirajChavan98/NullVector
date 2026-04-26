@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from typing import Any, cast
 
-from nullvector.domain.common import ContentSpan, PageSourceAnchor, PageSpan
+from nullvector.domain.common import ContentSpan, PageSourceAnchor, PageSpan, ScalarValue
 from nullvector.domain.events import ContentAuthoritativeness, SourceTrack, TrustTier
 from nullvector.domain.ledger import (
     AcquisitionRunManifest,
@@ -33,6 +34,7 @@ from nullvector.domain.tree import (
     NodeSummary,
     TreeBuildManifest,
     UnassignedPageSpan,
+    VerificationReport,
     VisualRegionReference,
 )
 from nullvector.observability.logging import log_event, resolve_runtime_logger
@@ -48,14 +50,31 @@ from nullvector.retrieval._artifacts import (
     load_verification_report,
     normalize_artifact_ref,
 )
-from nullvector.storage import StorageBackend, StorageConfig, build_document_store
+from nullvector.runtime import RunContext
+from nullvector.storage import StorageConfig, build_document_store, reservation_artifact_root
 from nullvector.storage._serialization import (
     canonical_json_text,
     is_postgres_ref,
     json_safe,
     run_identity_matches,
 )
-from nullvector.storage.config import PostgresStorageConfig
+
+
+@dataclass(frozen=True)
+class _RetrievalBuildInputs:
+    """Loaded inputs required to assemble and persist one retrieval corpus."""
+
+    acquisition_manifest_ref: str
+    tree_manifest_ref: str | None
+    acquisition_manifest: AcquisitionRunManifest
+    tree_manifest: TreeBuildManifest | None
+    ledger: CanonicalDocumentLedger
+    text_substrate: CanonicalTextSubstrate
+    committed_nodes: tuple[HierarchyNode, ...]
+    node_cards: tuple[NodeCard, ...]
+    node_summaries: tuple[NodeSummary, ...]
+    verification_report: VerificationReport | None
+    unassigned_spans: tuple[UnassignedPageSpan, ...]
 
 
 def _unique_non_empty(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -466,6 +485,47 @@ class RetrievalCorpusBuilder:
         retrieval_run_id: str | None = None,
         artifact_root: str | None = None,
     ) -> RetrievalManifest:
+        inputs = self._load_build_inputs(
+            acquisition_manifest_path=acquisition_manifest_path,
+            tree_manifest_path=tree_manifest_path,
+        )
+        ctx, resolved_retrieval_run_id, expected_identity = self._prepare_run_context(
+            inputs,
+            retrieval_run_id,
+            artifact_root,
+        )
+        log_event(
+            ctx.logger,
+            "RetrievalCorpusBuildStarted",
+            document_id=inputs.acquisition_manifest.document_id,
+            retrieval_run_id=resolved_retrieval_run_id,
+            tree_run_id=(
+                inputs.tree_manifest.tree_run_id if inputs.tree_manifest is not None else None
+            ),
+        )
+        existing_manifest = self._reserve_or_reuse(
+            ctx,
+            retrieval_run_id=resolved_retrieval_run_id,
+            document_id=inputs.acquisition_manifest.document_id,
+            expected_identity=expected_identity,
+        )
+        if existing_manifest is not None:
+            return existing_manifest
+
+        corpus = self._build_corpus(inputs)
+        return self._persist_and_finalize(
+            ctx,
+            inputs,
+            corpus,
+            resolved_retrieval_run_id,
+        )
+
+    def _load_build_inputs(
+        self,
+        *,
+        acquisition_manifest_path: str,
+        tree_manifest_path: str | None,
+    ) -> _RetrievalBuildInputs:
         input_store = build_document_store(self._storage, default_filesystem_root=".")
         acquisition_manifest_ref = cast(
             str,
@@ -474,97 +534,133 @@ class RetrievalCorpusBuilder:
         tree_manifest_ref = normalize_artifact_ref(tree_manifest_path)
         acquisition_manifest = load_acquisition_manifest(input_store, acquisition_manifest_ref)
         tree_manifest = load_tree_manifest(input_store, tree_manifest_ref)
-        resolved_retrieval_run_id = retrieval_run_id or (
-            tree_manifest.tree_run_id
-            if tree_manifest is not None
-            else acquisition_manifest.acquisition_run_id
+        return _RetrievalBuildInputs(
+            acquisition_manifest_ref=acquisition_manifest_ref,
+            tree_manifest_ref=tree_manifest_ref,
+            acquisition_manifest=acquisition_manifest,
+            tree_manifest=tree_manifest,
+            ledger=load_ledger(input_store, acquisition_manifest),
+            text_substrate=load_text_substrate(input_store, acquisition_manifest),
+            committed_nodes=load_committed_nodes(input_store, tree_manifest),
+            node_cards=load_node_cards(input_store, tree_manifest),
+            node_summaries=load_node_summaries(input_store, tree_manifest),
+            verification_report=load_verification_report(input_store, tree_manifest),
+            unassigned_spans=load_unassigned_spans(input_store, tree_manifest),
         )
-        log_event(
-            self._logger,
-            "RetrievalCorpusBuildStarted",
-            document_id=acquisition_manifest.document_id,
-            retrieval_run_id=resolved_retrieval_run_id,
-            tree_run_id=tree_manifest.tree_run_id if tree_manifest is not None else None,
-        )
-        ledger = load_ledger(input_store, acquisition_manifest)
-        text_substrate = load_text_substrate(input_store, acquisition_manifest)
-        committed_nodes = load_committed_nodes(input_store, tree_manifest)
-        node_cards = load_node_cards(input_store, tree_manifest)
-        node_summaries = load_node_summaries(input_store, tree_manifest)
-        verification_report = load_verification_report(input_store, tree_manifest)
-        unassigned_spans = load_unassigned_spans(input_store, tree_manifest)
 
+    def _build_corpus(self, inputs: _RetrievalBuildInputs) -> RetrievalCorpus:
         units = (
-            *_build_page_units(text_substrate),
-            *_build_table_units(ledger),
-            *_build_visual_units(ledger),
-            *_build_node_text_units(committed_nodes, text_substrate),
-            *_build_node_summary_units(node_cards, node_summaries),
+            *_build_page_units(inputs.text_substrate),
+            *_build_table_units(inputs.ledger),
+            *_build_visual_units(inputs.ledger),
+            *_build_node_text_units(inputs.committed_nodes, inputs.text_substrate),
+            *_build_node_summary_units(inputs.node_cards, inputs.node_summaries),
             *_build_unassigned_units(
-                document_id=acquisition_manifest.document_id,
-                text_substrate=text_substrate,
-                unassigned_spans=unassigned_spans,
+                document_id=inputs.acquisition_manifest.document_id,
+                text_substrate=inputs.text_substrate,
+                unassigned_spans=inputs.unassigned_spans,
             ),
         )
-        corpus = RetrievalCorpus(
-            document_id=acquisition_manifest.document_id,
+        return RetrievalCorpus(
+            document_id=inputs.acquisition_manifest.document_id,
             units=tuple(units),
+        )
+
+    def _prepare_run_context(
+        self,
+        inputs: _RetrievalBuildInputs,
+        retrieval_run_id: str | None,
+        artifact_root: str | None,
+    ) -> tuple[RunContext, str, dict[str, ScalarValue]]:
+        resolved_retrieval_run_id = retrieval_run_id or (
+            inputs.tree_manifest.tree_run_id
+            if inputs.tree_manifest is not None
+            else inputs.acquisition_manifest.acquisition_run_id
         )
         retrieval_root = (
             artifact_root
             if artifact_root is not None
             else _default_retrieval_root(
-                acquisition_manifest_path=acquisition_manifest_ref,
-                acquisition_manifest=acquisition_manifest,
-                tree_manifest=tree_manifest,
+                acquisition_manifest_path=inputs.acquisition_manifest_ref,
+                acquisition_manifest=inputs.acquisition_manifest,
+                tree_manifest=inputs.tree_manifest,
                 retrieval_run_id=resolved_retrieval_run_id,
             )
         )
-        _is_postgres = isinstance(self._storage, PostgresStorageConfig)
+        configured_retrieval_root = str(retrieval_root)
         output_store = build_document_store(
             self._storage,
-            default_filesystem_root=None if _is_postgres else str(retrieval_root),
+            default_filesystem_root=configured_retrieval_root,
         )
-        expected_identity = {
-            "document_id": acquisition_manifest.document_id,
-            "acquisition_manifest_path": acquisition_manifest_ref,
-            "tree_manifest_path": tree_manifest_ref,
-        }
-        created, run_record = output_store.reserve_run(
+        resolved_artifact_root = output_store.resolve_artifact_root(
             run_type="retrieval",
             run_id=resolved_retrieval_run_id,
-            document_id=acquisition_manifest.document_id,
-            artifact_root=None if _is_postgres else str(retrieval_root),
+            document_id=inputs.acquisition_manifest.document_id,
+            configured_root=configured_retrieval_root,
+        )
+        ctx = RunContext(
+            store=output_store,
+            run_store=output_store.for_run(
+                run_type="retrieval",
+                run_id=resolved_retrieval_run_id,
+                document_id=inputs.acquisition_manifest.document_id,
+            ),
+            artifact_root=resolved_artifact_root,
+            logger=cast(Logger, self._logger),
+        )
+        expected_identity: dict[str, ScalarValue] = {
+            "document_id": inputs.acquisition_manifest.document_id,
+            "acquisition_manifest_path": inputs.acquisition_manifest_ref,
+            "tree_manifest_path": inputs.tree_manifest_ref,
+        }
+        return ctx, resolved_retrieval_run_id, expected_identity
+
+    def _reserve_or_reuse(
+        self,
+        ctx: RunContext,
+        *,
+        retrieval_run_id: str,
+        document_id: str,
+        expected_identity: dict[str, ScalarValue],
+    ) -> RetrievalManifest | None:
+        created, run_record = ctx.store.reserve_run(
+            run_type="retrieval",
+            run_id=retrieval_run_id,
+            document_id=document_id,
+            artifact_root=reservation_artifact_root(ctx.artifact_root, marker_name=document_id),
             identity=expected_identity,
         )
-        run_store = output_store.for_run(
-            run_type="retrieval",
-            run_id=resolved_retrieval_run_id,
-            document_id=acquisition_manifest.document_id,
-        )
-        if not created:
-            if run_identity_matches(run_record, expected_identity):
-                manifest_ref = cast(
-                    str | None,
-                    run_record.get("manifest_ref") or run_record.get("manifest_path"),
-                )
-                if manifest_ref is None:
-                    msg = "retrieval_run_id index points to a missing manifest"
-                    raise RuntimeError(msg)
-                return RetrievalManifest.model_validate_json(
-                    canonical_json_text(output_store.read_json_artifact(manifest_ref))
-                )
-            msg = "retrieval run already exists with a different source manifest set"
-            raise RuntimeError(msg)
+        if created:
+            return None
+        if run_identity_matches(run_record, expected_identity):
+            manifest_ref = cast(
+                str | None,
+                run_record.get("manifest_ref") or run_record.get("manifest_path"),
+            )
+            if manifest_ref is None:
+                msg = "retrieval_run_id index points to a missing manifest"
+                raise RuntimeError(msg)
+            return RetrievalManifest.model_validate_json(
+                canonical_json_text(ctx.store.read_json_artifact(manifest_ref))
+            )
+        msg = "retrieval run already exists with a different source manifest set"
+        raise RuntimeError(msg)
 
-        corpus_path = run_store.put_json(
+    def _persist_and_finalize(
+        self,
+        ctx: RunContext,
+        inputs: _RetrievalBuildInputs,
+        corpus: RetrievalCorpus,
+        retrieval_run_id: str,
+    ) -> RetrievalManifest:
+        corpus_path = ctx.run_store.put_json(
             artifact_kind="corpus",
             artifact_path="corpus.json",
             payload=corpus,
         )
         counts_by_type = Counter(unit.unit_type.value for unit in corpus.units)
         counts_by_modality = Counter(unit.modality.value for unit in corpus.units)
-        stats_path = run_store.put_json(
+        stats_path = ctx.run_store.put_json(
             artifact_kind="stats",
             artifact_path="stats.json",
             payload={
@@ -572,12 +668,14 @@ class RetrievalCorpusBuilder:
                 "unit_count": len(corpus.units),
                 "counts_by_type": dict(sorted(counts_by_type.items())),
                 "counts_by_modality": dict(sorted(counts_by_modality.items())),
-                "tree_artifacts_loaded": tree_manifest is not None,
+                "tree_artifacts_loaded": inputs.tree_manifest is not None,
                 "verification_status": (
-                    verification_report.status.value if verification_report is not None else None
+                    inputs.verification_report.status.value
+                    if inputs.verification_report is not None
+                    else None
                 ),
-                "has_node_summaries": bool(node_summaries),
-                "has_unassigned_spans": bool(unassigned_spans),
+                "has_node_summaries": bool(inputs.node_summaries),
+                "has_unassigned_spans": bool(inputs.unassigned_spans),
                 "corpus_sha256": hashlib.sha256(
                     json.dumps(
                         json_safe(corpus),
@@ -587,30 +685,31 @@ class RetrievalCorpusBuilder:
                 ).hexdigest(),
             },
         )
-        if output_store.backend is StorageBackend.POSTGRES:
-            output_store.put_retrieval_units(corpus.document_id, corpus.units)
+        ctx.store.put_retrieval_units(corpus.document_id, corpus.units)
         manifest = RetrievalManifest(
             document_id=corpus.document_id,
-            artifact_root=None if _is_postgres else str(retrieval_root),
+            artifact_root=ctx.artifact_root,
             corpus_path=corpus_path,
             stats_path=stats_path,
             unit_count=len(corpus.units),
         )
-        manifest_ref = run_store.put_json(
+        manifest_ref = ctx.run_store.put_json(
             artifact_kind="manifest",
             artifact_path="manifest.json",
             payload=manifest,
         )
-        run_store.complete(
+        ctx.run_store.complete(
             manifest_ref=manifest_ref,
             manifest=manifest,
         )
         log_event(
-            self._logger,
+            ctx.logger,
             "RetrievalCorpusBuildCompleted",
             document_id=corpus.document_id,
-            retrieval_run_id=resolved_retrieval_run_id,
-            tree_run_id=tree_manifest.tree_run_id if tree_manifest is not None else None,
+            retrieval_run_id=retrieval_run_id,
+            tree_run_id=(
+                inputs.tree_manifest.tree_run_id if inputs.tree_manifest is not None else None
+            ),
             unit_count=len(corpus.units),
             manifest_ref=manifest_ref,
             corpus_path=corpus_path,

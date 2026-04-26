@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from logging import Logger
 from pathlib import Path
 from typing import Any, cast
 
-from pypdf import PdfReader
-
 from nullvector.constants import DEFAULT_ACQUISITION_ARTIFACT_ROOT
 from nullvector.domain.common import BatchItemFailure, BatchResult
 from nullvector.domain.ledger import (
     AcquisitionRequest,
     AcquisitionRunManifest,
+    DocumentFingerprint,
     OutlineEntry,
     OutlineQualityReport,
     OutlineSource,
@@ -34,7 +34,7 @@ from nullvector.ingest.outline import (
     score_outline,
     select_outline,
 )
-from nullvector.ingest.pdf_backend import open_document
+from nullvector.ingest.page_renderer import open_pdf
 from nullvector.ingest.projection import (
     build_canonical_text_substrate,
     project_ledger_to_tree_synthesis_view,
@@ -43,6 +43,7 @@ from nullvector.ingest.protocols import AcquisitionProvider
 from nullvector.ingest.providers.markdown_native import MarkdownNativeAcquisitionProvider
 from nullvector.ingest.providers.native_pymupdf import NativePyMuPDFAcquisitionProvider
 from nullvector.ingest.visual_assets import materialize_visual_assets
+from nullvector.llm.protocols import StructuredLLMGateway
 from nullvector.observability.logging import log_event, resolve_runtime_logger
 from nullvector.runtime_validation import validate_pdf_runtime_versions
 from nullvector.storage import StorageConfig, build_document_store
@@ -51,20 +52,27 @@ from nullvector.storage._serialization import (
     run_identity_matches,
     settings_digest,
 )
-from nullvector.storage.config import PostgresStorageConfig
 
 
-def _default_provider(request: AcquisitionRequest) -> AcquisitionProvider:
+def _default_provider(
+    request: AcquisitionRequest,
+    *,
+    source_fingerprint: DocumentFingerprint,
+    gateway: StructuredLLMGateway | None = None,
+) -> AcquisitionProvider:
     if (
         request.source_kind is SourceDocumentKind.PDF
         and request.provider_identity == "native_pymupdf"
     ):
-        return NativePyMuPDFAcquisitionProvider()
+        return NativePyMuPDFAcquisitionProvider(
+            source_fingerprint=source_fingerprint,
+            gateway=gateway,
+        )
     if (
         request.source_kind is SourceDocumentKind.MARKDOWN
         and request.provider_identity == "markdown_native"
     ):
-        return MarkdownNativeAcquisitionProvider()
+        return MarkdownNativeAcquisitionProvider(source_fingerprint=source_fingerprint)
     msg = f"unsupported acquisition provider identity: {request.provider_identity}"
     raise ExtractionFailureError(msg, document_id="unknown")
 
@@ -88,7 +96,7 @@ def _source_copy_metadata(request: AcquisitionRequest) -> tuple[str, str]:
 
 
 class AcquisitionService:
-    """Storage-backed deterministic acquisition + projection runtime."""
+    """Storage-backed acquisition + projection runtime."""
 
     def __init__(
         self,
@@ -96,10 +104,12 @@ class AcquisitionService:
         *,
         logger: Logger | None = None,
         storage: StorageConfig | None = None,
+        gateway: StructuredLLMGateway | None = None,
     ) -> None:
         self._provider = provider
         self._logger = resolve_runtime_logger(logger)
         self._storage = storage
+        self._gateway = gateway
 
     def acquire(self, request: AcquisitionRequest) -> AcquisitionRunManifest:
         _validate_request_provider(request)
@@ -128,15 +138,20 @@ class AcquisitionService:
             provider_identity=request.provider_identity,
         )
         digest = settings_digest(request.settings)
-        _is_postgres = isinstance(self._storage, PostgresStorageConfig)
-        if _is_postgres:
-            artifact_root: str | None = None
-        else:
-            _base = request.artifact_root or DEFAULT_ACQUISITION_ARTIFACT_ROOT
-            artifact_root = str(Path(_base) / request.acquisition_run_id / fingerprint.document_id)
+        configured_artifact_root = str(
+            Path(request.artifact_root or DEFAULT_ACQUISITION_ARTIFACT_ROOT)
+            / request.acquisition_run_id
+            / fingerprint.document_id
+        )
         store = build_document_store(
             self._storage,
-            default_filesystem_root=artifact_root,
+            default_filesystem_root=configured_artifact_root,
+        )
+        artifact_root = store.resolve_artifact_root(
+            run_type="acquisition",
+            run_id=request.acquisition_run_id,
+            document_id=fingerprint.document_id,
+            configured_root=configured_artifact_root,
         )
         store.register_document(fingerprint)
         expected_identity = {
@@ -190,7 +205,11 @@ class AcquisitionService:
         )
 
         try:
-            provider = self._provider or _default_provider(request)
+            provider = self._provider or _default_provider(
+                request,
+                source_fingerprint=fingerprint,
+                gateway=self._gateway,
+            )
             ledger = provider.acquire(request)
             if request.source_kind is SourceDocumentKind.PDF:
                 ledger = materialize_visual_assets(
@@ -386,7 +405,9 @@ class AcquisitionService:
                 [],
                 [],
             )
-        with open_document(request.source_path) as document:
+        from pypdf import PdfReader
+
+        with open_pdf(request.source_path) as document:
             reader = PdfReader(request.source_path)
             pymupdf_rich, pymupdf_entries = extract_pymupdf_outlines(document)
             _, pypdf_entries = extract_pypdf_outlines(reader)
@@ -460,5 +481,63 @@ def acquire_batch(
                     error_message=str(exc),
                 )
             )
+
+    return BatchResult(successful=tuple(successful), failed=tuple(failed))
+
+
+async def async_acquire_batch(
+    requests: Sequence[AcquisitionRequest],
+    *,
+    storage: StorageConfig | None = None,
+    provider: AcquisitionProvider | None = None,
+    max_workers: int = 4,
+    logger: Logger | None = None,
+) -> BatchResult[AcquisitionRunManifest]:
+    """Acquire multiple documents concurrently using asyncio fan-out."""
+    if max_workers < 1:
+        msg = "max_workers must be greater than or equal to 1"
+        raise ValueError(msg)
+
+    request_list = tuple(requests)
+    if not request_list:
+        return BatchResult(successful=(), failed=())
+
+    semaphore = asyncio.Semaphore(min(max_workers, len(request_list)))
+    results: list[AcquisitionRunManifest | Exception | None] = [None] * len(request_list)
+    service = AcquisitionService(provider=provider, logger=logger, storage=storage)
+
+    async def _acquire_one(index: int, request: AcquisitionRequest) -> None:
+        async with semaphore:
+            try:
+                results[index] = await asyncio.to_thread(service.acquire, request)
+            except Exception as exc:
+                results[index] = exc
+
+    await asyncio.gather(
+        *(_acquire_one(index, request) for index, request in enumerate(request_list))
+    )
+
+    successful: list[AcquisitionRunManifest] = []
+    failed: list[BatchItemFailure] = []
+    for idx, result in enumerate(results):
+        if isinstance(result, Exception):
+            failed.append(
+                BatchItemFailure(
+                    item_index=idx,
+                    error_type=type(result).__name__,
+                    error_message=str(result),
+                )
+            )
+            continue
+        if result is None:
+            failed.append(
+                BatchItemFailure(
+                    item_index=idx,
+                    error_type="InternalError",
+                    error_message="acquisition completed without result",
+                )
+            )
+            continue
+        successful.append(result)
 
     return BatchResult(successful=tuple(successful), failed=tuple(failed))

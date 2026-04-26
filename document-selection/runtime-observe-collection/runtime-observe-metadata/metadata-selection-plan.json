@@ -1,0 +1,12 @@
+{
+  "clauses": [
+    {
+      "field": "source_kind",
+      "operator": "eq",
+      "value": "markdown"
+    }
+  ],
+  "normalized_query": "markdown appendix",
+  "raw_query": "markdown appendix",
+  "reasoning_summary": null
+}

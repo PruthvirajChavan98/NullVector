@@ -4,29 +4,38 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from uuid import uuid4
 
 from nullvector.constants import CERTIFIED_PYMUPDF_VERSIONS, CERTIFIED_PYPDF_VERSIONS
 from nullvector.domain.ledger import AcquisitionRunManifest
 from nullvector.ingest.errors import ExtractionFailureError
-from nullvector.ingest.pdf_backend import (
-    installed_pymupdf_version,
-    installed_pypdf_version,
-)
+from nullvector.ingest.page_renderer import installed_pymupdf_version
+
+try:
+    from pypdf import __version__ as _pypdf_version_str
+
+    def installed_pypdf_version() -> str:
+        return _pypdf_version_str
+
+except ImportError:  # pragma: no cover
+
+    def installed_pypdf_version() -> str:
+        return "0.0.0"
 
 
 def validate_writable_root(root: str | None, *, label: str) -> None:
     """Ensure an enabled persistence root is writable before runtime use."""
 
+    del label
     if root is None:
         return
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
-    probe = path / ".write-probe"
+    probe = path / f".write-probe-{uuid4().hex}"
     try:
         probe.write_text("ok", encoding="utf-8")
     finally:
-        if probe.exists():
-            probe.unlink()
+        probe.unlink(missing_ok=True)
 
 
 def validate_attachment_path(path: str) -> None:

@@ -31,11 +31,12 @@ from nullvector.retrieval._artifacts import (
     load_tree_manifest,
     normalize_artifact_ref,
 )
+from nullvector.retrieval.llm_planner import LLMQueryPlanner as QueryPlanner
 from nullvector.retrieval.load import load_retrieval_corpus, load_retrieval_manifest
-from nullvector.retrieval.planner import QueryPlanner
 from nullvector.retrieval.service import RetrievalService
 from nullvector.storage import StorageConfig, build_document_store
-from nullvector.storage.config import FilesystemStorageConfig, PostgresStorageConfig
+from nullvector.storage.artifact_roots import resolve_tree_search_artifact_root
+from nullvector.storage.protocol import DocumentStore
 
 _TITLE_WEIGHT = 2.0
 _SUMMARY_WEIGHT = 1.5
@@ -45,6 +46,8 @@ _TITLE_CONTAINS_BONUS = 1.5
 _PAGE_EXACT_BONUS = 1.0
 _PAGE_OVERLAP_BONUS = 0.5
 _MAX_SELECTED_PER_STEP = 2
+_MIN_FRONTIER_SCORE = 0.2
+_MIN_EVIDENCE_SUFFICIENT_SCORE = 0.5
 _DIRECT_RETRIEVAL_TYPES = frozenset(
     {
         RetrievalUnitType.NODE_TEXT,
@@ -126,22 +129,14 @@ def tree_search_artifact_root(
     *,
     request: TreeSearchRequest,
     tree_run_id: str,
-    storage: StorageConfig | None,
+    store: DocumentStore,
 ) -> str:
-    if isinstance(storage, PostgresStorageConfig):
-        return request.artifact_root or f"tree-search/{tree_run_id}/{request.search_run_id}"
-
-    base_root = (
-        Path(storage.root)
-        if isinstance(storage, FilesystemStorageConfig) and storage.root is not None
-        else Path()
+    return resolve_tree_search_artifact_root(
+        store,
+        tree_run_id=tree_run_id,
+        search_run_id=request.search_run_id,
+        configured_root=request.artifact_root,
     )
-    configured_root = Path(
-        request.artifact_root or str(Path("tree-search") / tree_run_id / request.search_run_id)
-    )
-    if not configured_root.is_absolute():
-        configured_root = (base_root / configured_root).resolve()
-    return str(configured_root)
 
 
 def page_span_intersects(left: PageSpan, right: PageSpan) -> bool:
@@ -399,17 +394,29 @@ def deterministic_selection(
     score_fn: Callable[[TreeSearchFrontierNode], float] | None = None,
 ) -> FrontierSelectionDecision:
     scorer = score_fn or (lambda node: frontier_score(node, plan=plan, query_tokens=query_tokens))
-    scored = tuple((node.node_id, scorer(node), node) for node in frontier_nodes)
-    positive = tuple(item for item in scored if item[1] > 0.0)
-    ordered_positive = tuple(
+    scored = tuple(
         sorted(
-            positive,
+            ((node.node_id, scorer(node), node) for node in frontier_nodes),
             key=lambda item: (-item[1], frontier_sort_key(item[2])),
         )
     )
-    selected_scores = tuple(
-        (node_id, score) for node_id, score, _node in ordered_positive[:_MAX_SELECTED_PER_STEP]
-    )
+    if scored and scored[0][1] <= 0.0 and len(frontier_nodes) == 1:
+        node_id, score, _node = scored[0]
+        return FrontierSelectionDecision(
+            selected_node_ids=(node_id,),
+            selection_reason=(
+                "Advanced through the single available frontier node despite low lexical "
+                f"score: {node_id}={score:.2f}"
+            ),
+        )
+
+    selected_scores: tuple[tuple[str, float], ...] = ()
+    if scored and scored[0][1] > 0.0:
+        best_score = scored[0][1]
+        minimum_selected_score = max(_MIN_FRONTIER_SCORE, best_score * 0.5)
+        selected_scores = tuple(
+            (node_id, score) for node_id, score, _node in scored if score >= minimum_selected_score
+        )[:_MAX_SELECTED_PER_STEP]
     selected_node_ids = tuple(node_id for node_id, _score in selected_scores)
     return FrontierSelectionDecision(
         selected_node_ids=selected_node_ids,
@@ -446,6 +453,44 @@ def dedupe_node_ids(node_ids: tuple[str, ...]) -> tuple[str, ...]:
         seen.add(node_id)
         ordered.append(node_id)
     return tuple(ordered)
+
+
+def _unit_matches_phrase(
+    units: tuple[RetrievalEvidence, ...],
+    phrase: str,
+) -> bool:
+    normalized_phrase = normalize_text(phrase)
+    if not normalized_phrase:
+        return False
+    for unit in units:
+        haystack = normalize_text(
+            " ".join(part for part in (unit.title or "", unit.text or "") if part)
+        )
+        if normalized_phrase and normalized_phrase in haystack:
+            return True
+    return False
+
+
+def evidence_is_sufficient(
+    units: tuple[RetrievalEvidence, ...],
+    *,
+    plan: QueryPlan,
+    query_tokens: tuple[str, ...],
+) -> bool:
+    if not units:
+        return False
+    if plan.page_filter is not None:
+        return True
+    if any(_unit_matches_phrase(units, phrase) for phrase in plan.quoted_phrases):
+        return True
+    return (
+        evidence_overlap_score(
+            units,
+            plan=plan,
+            query_tokens=query_tokens,
+        )
+        >= _MIN_EVIDENCE_SUFFICIENT_SCORE
+    )
 
 
 def load_tree_search_state(
@@ -603,13 +648,10 @@ def execute_tree_search(
                 terminal_signal = TreeSearchTerminationSignal.LEAF
             elif current_depth >= request.max_depth:
                 terminal_signal = TreeSearchTerminationSignal.MAX_DEPTH
-            elif (
-                evidence_overlap_score(
-                    direct_units,
-                    plan=state.plan,
-                    query_tokens=state.query_tokens,
-                )
-                > 0.0
+            elif evidence_is_sufficient(
+                direct_units,
+                plan=state.plan,
+                query_tokens=state.query_tokens,
             ):
                 terminal_signal = TreeSearchTerminationSignal.EVIDENCE_SUFFICIENT
             else:

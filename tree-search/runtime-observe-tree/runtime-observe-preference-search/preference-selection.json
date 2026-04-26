@@ -1,0 +1,15 @@
+{
+  "document_id": "e6501bf39991d99650b7356e0a1776cc6d4d22b1e1dc71c0fa688ee8b8be2e46",
+  "query": "appendix",
+  "selected_snippets": [
+    {
+      "metadata": {},
+      "preference_id": "prefer-appendix",
+      "priority": 5,
+      "scope": "user",
+      "text": "Prefer appendix sections and appendix details."
+    }
+  ],
+  "selection_reason": "Selected preference snippets by overlap and priority: prefer-appendix",
+  "tree_run_id": "runtime-observe-tree"
+}

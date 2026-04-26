@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
 from pydantic import Field, NonNegativeFloat, PositiveInt, model_validator
 
-from nullvector.domain.common import NonEmptyStr, NullVectorModel, ScalarValue, is_numeric_scalar
+from nullvector.domain.common import (
+    CoerceTuple,
+    NonEmptyStr,
+    NullVectorModel,
+    ScalarValue,
+    is_numeric_scalar,
+)
 
 
 class DocumentFilterOperator(StrEnum):
@@ -41,7 +47,7 @@ class DocumentFilterClause(NullVectorModel):
 
     field: NonEmptyStr
     operator: DocumentFilterOperator
-    value: ScalarValue | tuple[ScalarValue, ...]
+    value: Annotated[ScalarValue | tuple[ScalarValue, ...], CoerceTuple]
 
     @model_validator(mode="before")
     @classmethod
@@ -51,9 +57,6 @@ class DocumentFilterClause(NullVectorModel):
         operator = data.get("operator")
         if isinstance(operator, str):
             data = {**data, "operator": DocumentFilterOperator(operator)}
-        value = data.get("value")
-        if isinstance(value, list):
-            return {**data, "value": tuple(value)}
         return data
 
     @model_validator(mode="after")
@@ -184,6 +187,7 @@ class DescriptionSelectionRequest(NullVectorModel):
     query: NonEmptyStr
     descriptions: tuple[DocumentDescriptionRecord, ...]
     limit: PositiveInt = 10
+    include_zero_score_fillers: bool = False
     artifact_root: NonEmptyStr | None = None
 
 
@@ -237,6 +241,7 @@ class DocumentPrefilterRequest(NullVectorModel):
     query: NonEmptyStr
     proxies: tuple[DocumentSemanticProxy, ...]
     limit: PositiveInt = 10
+    include_zero_score_fillers: bool = False
     artifact_root: NonEmptyStr | None = None
 
 

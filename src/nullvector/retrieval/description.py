@@ -30,14 +30,13 @@ from nullvector.retrieval._artifacts import (
     load_tree_manifest,
     normalize_artifact_ref,
 )
-from nullvector.storage import StorageConfig, build_document_store
+from nullvector.storage import StorageConfig, build_document_store, reservation_artifact_root
 from nullvector.storage._serialization import (
     canonical_json_text,
     is_postgres_ref,
     run_identity_matches,
     settings_digest,
 )
-from nullvector.storage.config import PostgresStorageConfig
 
 
 @dataclass(frozen=True)
@@ -89,6 +88,17 @@ def _source_quotes_for_card(node_card: NodeCard) -> tuple[str, ...]:
         seen.add(normalized)
         ordered.append(normalized)
     return tuple(ordered)
+
+
+def _summary_priority_for_card(
+    node_card: NodeCard,
+    summaries_by_id: dict[str, NodeSummary],
+) -> int:
+    if node_card.node_id in summaries_by_id:
+        return 2
+    if node_card.summary is not None:
+        return 1
+    return 0
 
 
 def _selected_source_from_card(
@@ -157,37 +167,57 @@ def _select_source_nodes(
 
     selected_ids: set[str] = set()
     selected: list[_SelectedSourceNode] = []
+    covered_pages: set[int] = set()
 
     def add_card(node_card: NodeCard) -> None:
         if node_card.node_id in selected_ids or len(selected) >= max_source_nodes:
             return
         selected_ids.add(node_card.node_id)
         selected.append(_selected_source_from_card(node_card, summaries_by_id))
+        covered_pages.update(
+            range(node_card.page_span.start_page, node_card.page_span.end_page + 1)
+        )
 
     if root_candidate is not None:
         add_card(root_candidate)
     for node_card in first_level_cards:
         add_card(node_card)
 
-    summarized_leaf_cards = sorted(
-        (
-            node_card
-            for node_card in ordered_cards
-            if _summary_text_for_card(node_card, summaries_by_id) is not None
-            and not any(path_has_prefix(other.path, node_card.path) for other in ordered_cards)
-        ),
-        key=lambda node_card: (
-            -_page_span_width(node_card),
-            *document_order_key(
-                page_span=node_card.page_span,
-                level=node_card.level,
-                path=node_card.path,
-                identifier=node_card.node_id,
-            ),
-        ),
+    summarized_cards = tuple(
+        node_card
+        for node_card in ordered_cards
+        if _summary_text_for_card(node_card, summaries_by_id) is not None
     )
-    for node_card in summarized_leaf_cards:
-        add_card(node_card)
+    remaining_candidates = [
+        node_card for node_card in summarized_cards if node_card.node_id not in selected_ids
+    ]
+    while remaining_candidates and len(selected) < max_source_nodes:
+        ranked_candidates = sorted(
+            remaining_candidates,
+            key=lambda node_card: (
+                -sum(
+                    1
+                    for page_index in range(
+                        node_card.page_span.start_page,
+                        node_card.page_span.end_page + 1,
+                    )
+                    if page_index not in covered_pages
+                ),
+                -_summary_priority_for_card(node_card, summaries_by_id),
+                -_page_span_width(node_card),
+                *document_order_key(
+                    page_span=node_card.page_span,
+                    level=node_card.level,
+                    path=node_card.path,
+                    identifier=node_card.node_id,
+                ),
+            ),
+        )
+        best = ranked_candidates[0]
+        add_card(best)
+        remaining_candidates = [
+            node_card for node_card in remaining_candidates if node_card.node_id != best.node_id
+        ]
 
     return tuple(selected[:max_source_nodes])
 
@@ -343,14 +373,20 @@ class DocumentDescriptionBuilder:
                 tree_manifest_ref=tree_manifest_ref,
             )
         )
-        _is_postgres = isinstance(self._storage, PostgresStorageConfig)
-        output_store = (
-            input_store
-            if _is_postgres
-            else build_document_store(
-                self._storage,
-                default_filesystem_root=str(description_root),
-            )
+        configured_description_root = str(description_root)
+        output_store = build_document_store(
+            self._storage,
+            default_filesystem_root=configured_description_root,
+        )
+        resolved_artifact_root = output_store.resolve_artifact_root(
+            run_type="document_description",
+            run_id=request.description_run_id,
+            document_id=acquisition_manifest.document_id,
+            configured_root=configured_description_root,
+        )
+        run_marker_root = reservation_artifact_root(
+            resolved_artifact_root,
+            marker_name=acquisition_manifest.document_id,
         )
         expected_identity = {
             "document_id": acquisition_manifest.document_id,
@@ -362,7 +398,7 @@ class DocumentDescriptionBuilder:
             run_type="document_description",
             run_id=request.description_run_id,
             document_id=acquisition_manifest.document_id,
-            artifact_root=None if _is_postgres else str(description_root),
+            artifact_root=run_marker_root,
             identity=expected_identity,
         )
         run_store = output_store.for_run(
@@ -446,7 +482,7 @@ class DocumentDescriptionBuilder:
         manifest = DocumentDescriptionManifest(
             document_id=acquisition_manifest.document_id,
             description_run_id=request.description_run_id,
-            artifact_root=None if _is_postgres else str(description_root),
+            artifact_root=resolved_artifact_root,
             description_path=description_path,
             source_tree_manifest_path=tree_manifest_ref,
             source_acquisition_manifest_path=acquisition_manifest_ref,
